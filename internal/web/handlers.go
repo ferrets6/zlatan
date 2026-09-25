@@ -19,6 +19,11 @@ type page struct {
 	Version string
 	Tracks  []core.TrackSummary
 
+	// Screen is which of the design's screens the wizard renders: entry,
+	// tracks, takeout, share, upload, waiting, done or error. It is derived
+	// from the two track states so the markup and the state cannot disagree.
+	Screen string
+
 	// DriveBytes and DriveFiles are rendered through FormatBytes, so the
 	// person reads "4.1 GiB" rather than a nine-digit number.
 	DriveBytes   int64
@@ -68,6 +73,7 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 		Email:          email,
 		Version:        opts.Version,
 		Tracks:         m.Summaries(),
+		Screen:         screenFor(m),
 		DriveBytes:     m.DriveBytesCopied,
 		DriveFiles:     m.DriveFilesCopied,
 		PhotosAssets:   m.PhotosAssetsAdded,
@@ -124,9 +130,24 @@ func (opts Options) status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The line is resolved here so the polling script can refresh the calm
+	// sentence without knowing the state names, exactly as the server rendered
+	// it. Progress is the technical detail shown underneath.
+	tracks := make([]map[string]any, 0, 2)
+	for _, t := range m.Summaries() {
+		tracks = append(tracks, map[string]any{
+			"Track":    t.Track,
+			"State":    t.State,
+			"Progress": t.Progress,
+			"Line":     stateLine(string(t.Track), t.State),
+			"Done":     t.Done,
+			"Failed":   t.Failed,
+		})
+	}
+
 	writeJSON(w, opts, map[string]any{
 		"user":         m.User,
-		"tracks":       m.Summaries(),
+		"tracks":       tracks,
 		"driveBytes":   m.DriveBytesCopied,
 		"driveFiles":   m.DriveFilesCopied,
 		"photosAssets": m.PhotosAssetsAdded,
@@ -240,5 +261,5 @@ func (opts Options) startPhotos(w http.ResponseWriter, r *http.Request, route st
 
 // staticHandler serves the embedded assets.
 func staticHandler() http.Handler {
-	return http.FileServer(http.FS(staticFS))
+	return http.FileServer(http.FS(staticRoot))
 }

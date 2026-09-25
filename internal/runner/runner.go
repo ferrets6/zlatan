@@ -324,9 +324,12 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	}
 
 	// The copy writes into Nextcloud directly, so there is no separate import
-	// step; verification is the next phase and is run by the caller.
-	if _, err := r.store.SetDriveState(ctx, user, core.DriveVerifying, "verifying the copied files"); err != nil {
-		r.log.Error("runDrive: set verifying", "user", user, "error", err)
+	// step and rclone's clean exit is the whole of the evidence there is. Move
+	// to done: an independent sample check is a later phase, and parking the
+	// track on "verifying" would tell the person a check is running when
+	// nothing is. When that phase lands it will run before this line.
+	if _, err := r.store.SetDriveState(ctx, user, core.DriveDone, "the copy finished without errors"); err != nil {
+		r.log.Error("runDrive: set done", "user", user, "error", err)
 	}
 	r.log.Info("runDrive: copy finished", "user", user, "progress", lastProgress)
 }
@@ -408,8 +411,10 @@ func (r *Runner) runPhotosImport(ctx context.Context, user string) {
 		return
 	}
 
-	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosVerifying, "verifying the imported items"); err != nil {
-		r.log.Error("runPhotosImport: set verifying", "user", user, "error", err)
+	// Same as the Drive half: a clean exit is what we know, so say done. The
+	// independent check is a later phase.
+	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosDone, "the import finished without errors"); err != nil {
+		r.log.Error("runPhotosImport: set done", "user", user, "error", err)
 	}
 }
 

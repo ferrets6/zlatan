@@ -7,6 +7,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -436,6 +438,43 @@ func TestRunDriveFailureMarksTheTrackFailed(t *testing.T) {
 	}
 	if store.state().LastError == "" {
 		t.Error("a failure should leave an explanation")
+	}
+}
+
+// A clean copy must end on done, not on verifying: parking there would tell
+// the person a check is running when nothing is. Verification is a later
+// phase and will run before this transition when it exists.
+func TestRunDriveEndsOnDone(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+
+	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
+
+	if got := store.state().DriveState; got != core.DriveDone {
+		t.Fatalf("drive state = %q, want done", got)
+	}
+}
+
+func TestRunPhotosImportEndsOnDone(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+
+	// A real Takeout archive in the person's staging directory, so the import
+	// has something to find and gets past the empty check.
+	staging := filepath.Join(r.cfg.StagingDir, core.SafeName("marco"))
+	if err := os.MkdirAll(staging, 0o750); err != nil {
+		t.Fatalf("staging: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(staging, "takeout-1.zip"), []byte("zip"), 0o600); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
+
+	r.runPhotosImport(context.Background(), "marco")
+
+	if got := store.state().PhotosState; got != core.PhotosDone {
+		t.Fatalf("photos state = %q, want done", got)
 	}
 }
 

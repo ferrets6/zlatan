@@ -214,3 +214,37 @@ what actually lets someone walk away from the tab.
 resumes from here"* during a Takeout upload. The upload runs in the tab, so
 closing it stops the transfer — what resumes is the progress, when they come
 back. Screen 04 has the wording this design would use instead.
+
+---
+
+## Ported into the app (2026-09-25)
+
+The wizard now renders these screens: `zlatan.css` is the app's stylesheet,
+the brand SVGs and the font are served from `/static/`, and
+`internal/web/templates/wizard.html` picks one screen from the two track
+states. The port is faithful, with three deliberate deviations, each because
+the design shows a fixture where the app has a fact:
+
+- **`[hidden]` and `.totals`.** The upload script toggles the `hidden`
+  attribute, which the drop component's own `display: flex` would override, so
+  `[hidden] { display: none !important; }` was added. `.totals` uses
+  `auto-fit` because the app has two numbers for Drive and one for Photos,
+  where the design draws three tiles.
+- **No invented denominators.** The design's waiting screen and the tracks
+  screen show a total ("of 32,900 files") and an ETA; the runner computes
+  neither, so the app shows only the counts it actually has. This is the
+  design's own rule — no progress bar without a denominator — applied to the
+  data the backend really produces.
+- **The done screen does not claim a check.** The design's `06-done` says
+  "We compared 500 files picked at random … byte for byte". Independent
+  verification is not implemented yet, so the app states what is true — the
+  copy and the import finished without errors — and will adopt the design's
+  sentence when the check exists. A test
+  (`TestDoneScreenDoesNotClaimAnUnimplementedCheck`) fails if that claim
+  creeps back in before the code backs it.
+
+Two smaller notes: the guide always shows step 3 as current, because the
+database stores one `takeout_guide` state and not which of the five steps the
+person is on; and the design's HTMX "Change this" swaps and the `/photos/check`
+button are omitted, because those endpoints do not exist and the port added no
+routes.

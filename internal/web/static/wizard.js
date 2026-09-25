@@ -9,9 +9,25 @@ const POLL_MS = 5000;
 
 function render(state) {
 	for (const track of state.tracks ?? []) {
-		const el = document.querySelector(`.state[data-track="${track.Track}"]`);
-		if (el && track.Progress) {
-			el.textContent = track.Progress;
+		// The live region is the whole .state block, so the calm line and the
+		// technical detail underneath are always a matching pair.
+		const root = document.querySelector(`[data-track="${track.Track}"]`)?.closest('.state');
+		if (!root) continue;
+
+		const line = root.querySelector('.state__line');
+		if (line && track.Line) line.textContent = track.Line;
+
+		let now = root.querySelector('.now-doing');
+		if (track.Progress) {
+			if (!now) {
+				now = document.createElement('p');
+				now.className = 'now-doing';
+				root.append(now);
+			}
+			now.textContent = track.Progress;
+			now.title = track.Progress;
+		} else if (now) {
+			now.remove();
 		}
 	}
 }
@@ -95,6 +111,11 @@ function wireUpload() {
 	const root = document.getElementById('upload');
 	if (!root) return;
 
+	// The controls are hidden in the markup so a browser without JavaScript
+	// sees only the noscript note, not a button that cannot work. This is the
+	// one place that turns them on.
+	for (const el of root.querySelectorAll('[data-upload-when-js]')) el.hidden = false;
+
 	const input = document.getElementById('upload-input');
 	const button = document.getElementById('upload-button');
 	const progress = document.getElementById('upload-progress');
@@ -108,9 +129,9 @@ function wireUpload() {
 		try {
 			await upload(file, (sent, total) => {
 				const pct = Math.round((sent / total) * 100);
-				progress.textContent = `Uploaded ${sent}/${total} chunks (${pct}%) — you can close the page, it resumes from here.`;
+				progress.textContent = `Sent ${sent} of ${total} parts (${pct}%) — keep this tab open while it sends.`;
 			});
-			progress.textContent = 'Upload complete: the import has started. You can close the page.';
+			progress.textContent = 'Upload complete: the import has started. You can close the page now.';
 			poll();
 		} catch (err) {
 			progress.textContent = `Upload interrupted: ${err.message}. Try again: it resumes where it left off.`;
@@ -138,3 +159,18 @@ function wireUpload() {
 }
 
 wireUpload();
+
+// --- Copy to clipboard ------------------------------------------------------
+// Progressive enhancement, and nothing more: without this the address is still
+// on the page and still selectable.
+for (const btn of document.querySelectorAll('[data-copy]')) {
+	btn.addEventListener('click', () => {
+		const text = document.querySelector(btn.dataset.copy)?.textContent.trim();
+		if (!text) return;
+		navigator.clipboard.writeText(text).then(() => {
+			const was = btn.textContent;
+			btn.textContent = 'Copied';
+			setTimeout(() => { btn.textContent = was; }, 2000);
+		});
+	});
+}
