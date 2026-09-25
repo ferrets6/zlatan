@@ -406,7 +406,7 @@
 			<li class="step" data-state="done">
 				<div class="step__label"><span class="step__n">4</span> Asked Google to start</div>
 				<div class="step__body">
-					<p class="fine">Google says it will email you when the copy is ready. You can ignore that email — we are watching for it too.</p>
+					<p class="fine">Google says it will email you when the copy is ready. That email means the export exists in your Drive.</p>
 				</div>
 			</li>
 
@@ -443,8 +443,8 @@
 						{{ end }}
 					</div>
 					<p class="fine">
-						If you are not sure it worked, press it anyway. We check every ten
-						minutes and we will tell you if we still cannot see the folder.
+						Press it once you have shared the folder. If you are not sure it
+						worked, press it anyway — sharing it twice changes nothing.
 					</p>
 				</div>
 			</li>
@@ -533,7 +533,7 @@
 
 		<div class="state" aria-live="polite">
 			<p class="state__line" data-track="photos">{{ stateLine "photos" $photos.State }}</p>
-			<p class="wait"><span class="beat" aria-hidden="true"></span> We look in your shared folder every ten minutes, day and night, for as long as it takes.</p>
+			<p class="wait"><span class="beat" aria-hidden="true"></span> This runs on the home server. You do not have to keep this page open.</p>
 			{{ if gt .PhotosAssets 0 }}
 			<p class="facts num"><span><b>{{ count .PhotosAssets }}</b> items imported so far</span></p>
 			{{ end }}
@@ -565,19 +565,16 @@
 				<li class="step"><div class="step__label">Copy the export from your Drive to the home server</div></li>
 				<li class="step"><div class="step__label">Unpack it and read Google’s notes about each photo</div></li>
 				<li class="step"><div class="step__label">Put back the dates taken, the places and the albums</div></li>
-				<li class="step"><div class="step__label">Fill up Immich, then check a sample against the original</div></li>
+				<li class="step"><div class="step__label">Fill up Immich with the photos and their albums</div></li>
 			</ol>
 		</div>
 
-		{{ if .Email }}
 		<div class="note">
 			<p>
-				<b>You can close this tab now.</b> We will email you at
-				<b>{{ .Email }}</b> when your photos are in Immich — and also if
-				something goes wrong and we need you.
+				<b>You can close this tab now.</b> Come back to this page whenever you
+				like to see where the import has got to.
 			</p>
 		</div>
-		{{ end }}
 
 		{{ if .CanUpload }}
 		<div class="stack">

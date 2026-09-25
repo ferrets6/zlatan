@@ -66,29 +66,50 @@ func TestPillClassCoversEveryState(t *testing.T) {
 	}
 }
 
-// The done screen must not claim a check that is not run. Independent
-// verification is a later phase; until it exists, the page may state that the
-// copy finished, not that its result was compared against Google.
-func TestDoneScreenDoesNotClaimAnUnimplementedCheck(t *testing.T) {
-	var b strings.Builder
-	err := wizardTemplate.ExecuteTemplate(&b, "wizard.html", page{
-		User:   "marco",
-		Screen: "done",
-		Tracks: []core.TrackSummary{
-			{Track: core.TrackDrive, State: "done", Done: true},
-			{Track: core.TrackPhotos, State: "done", Done: true},
-		},
-		DriveFiles:   1200,
-		DriveBytes:   4400000000,
-		PhotosAssets: 5000,
-	})
-	if err != nil {
-		t.Fatalf("render: %v", err)
+// The wizard must not promise work that does not happen. Independent
+// verification, the shared-folder polling and email notifications are all
+// later phases; until they exist the pages may state what the code does and
+// nothing more. This is the repository's "no unimplemented promises" rule.
+func TestScreensDoNotPromiseUnimplementedWork(t *testing.T) {
+	screens := []struct {
+		screen string
+		p      page
+	}{
+		{"done", page{
+			User: "marco", Screen: "done",
+			Tracks: []core.TrackSummary{
+				{Track: core.TrackDrive, State: "done", Done: true},
+				{Track: core.TrackPhotos, State: "done", Done: true},
+			},
+			DriveFiles: 1200, DriveBytes: 4400000000, PhotosAssets: 5000,
+		}},
+		{"waiting", page{
+			User: "marco", Email: "marco@example.com", Screen: "waiting",
+			Tracks: []core.TrackSummary{
+				{Track: core.TrackDrive, State: "done", Done: true},
+				{Track: core.TrackPhotos, State: "importing"},
+			},
+			CanUpload: true,
+		}},
 	}
-	body := b.String()
-	for _, claim := range []string{"compared a sample", "byte for byte", "all 500 matched"} {
-		if strings.Contains(strings.ToLower(body), claim) {
-			t.Errorf("the done screen claims %q, but no verification runs", claim)
-		}
+	// Each claim names work that does not exist in the code today.
+	banned := []string{
+		"compared a sample", "byte for byte", "all 500 matched",
+		"we will email you", "we look in your shared folder",
+		"every ten minutes",
+	}
+	for _, s := range screens {
+		t.Run(s.screen, func(t *testing.T) {
+			var b strings.Builder
+			if err := wizardTemplate.ExecuteTemplate(&b, "wizard.html", s.p); err != nil {
+				t.Fatalf("render: %v", err)
+			}
+			body := strings.ToLower(b.String())
+			for _, claim := range banned {
+				if strings.Contains(body, claim) {
+					t.Errorf("the %s screen claims %q, which no code performs", s.screen, claim)
+				}
+			}
+		})
 	}
 }
