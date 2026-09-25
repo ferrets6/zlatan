@@ -1,0 +1,116 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later
+     Screen 3b — The same guide, two steps later: the last thing the person has
+     to do. The address is the only piece of text they must get exactly right,
+     so it gets a control of its own rather than sitting inside a sentence. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Share the folder · zlatan</title>
+<link rel="icon" href="../brand/favicon.svg">
+<link rel="stylesheet" href="../zlatan.css">
+</head>
+<body>
+<div class="page">
+
+	<header class="masthead">
+		<a class="brand" href="01-entry.html" aria-label="zlatan">
+			<svg class="mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+				<defs>
+					<linearGradient id="zg" x1="6.5" y1="0" x2="17.5" y2="0" gradientUnits="userSpaceOnUse">
+						<stop offset=".25" class="g-b"/><stop offset=".25" class="g-r"/>
+						<stop offset=".50" class="g-r"/><stop offset=".50" class="g-y"/>
+						<stop offset=".75" class="g-y"/><stop offset=".75" class="g-g"/>
+					</linearGradient>
+				</defs>
+				<path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2" fill="none" stroke="url(#zg)" stroke-width="2" stroke-linecap="round"/>
+				<path d="M17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+			</svg>
+			<span class="word">zlatan</span>
+		</a>
+		<p class="whoami">Signed in as <b>marco</b></p>
+	</header>
+
+	<div class="prose">
+		<a class="back" href="02-tracks.html">← Both tracks</a>
+		<h1>One last thing, and you’re done</h1>
+		<p class="lede">
+			Google is making your copy now. While it works, give us permission to
+			collect it — then you never have to come back here.
+		</p>
+	</div>
+
+	<main class="panel">
+		<ol class="steps">
+			<li class="step" data-state="done">
+				<div class="step__label"><span class="step__n">1–3</span> Set up the export</div>
+			</li>
+
+			<li class="step" data-state="done">
+				<div class="step__label"><span class="step__n">4</span> Asked Google to start</div>
+				<div class="step__body">
+					<p class="fine">Google says it will email you when the copy is ready. You can ignore that email — we are watching for it too.</p>
+				</div>
+			</li>
+
+			<li class="step" data-state="now" aria-current="step">
+				<div class="step__label">
+					<span class="step__n">5</span>
+					<h2>Share the Takeout folder with us</h2>
+				</div>
+				<div class="step__body">
+					<p>
+						Open <a href="https://drive.google.com/" target="_blank" rel="noopener">Google Drive</a>,
+						find the folder called <span class="said">Takeout</span>, right-click it
+						and choose <span class="said">Share</span>. Then paste this address in:
+					</p>
+
+					<div class="copy">
+						<code id="share-address">zlatan@ferretti.link</code>
+						<button class="btn btn--ghost" type="button" data-copy="#share-address">Copy</button>
+					</div>
+
+					<p class="fine">
+						<span class="said">Viewer</span> is enough — we only ever read. You can
+						un-share the folder the moment this is finished, and delete it
+						from your Drive afterwards.
+					</p>
+
+					<div class="actions">
+						<form method="post" action="/photos/takeout/step/5"
+						      hx-post="/photos/takeout/step/5" hx-target="body" hx-swap="outerHTML">
+							<button class="btn btn--primary" type="submit">I’ve shared it</button>
+						</form>
+					</div>
+					<p class="fine">
+						If you are not sure it worked, press it anyway. We check every ten
+						minutes and we will tell you if we still cannot see the folder.
+					</p>
+				</div>
+			</li>
+		</ol>
+	</main>
+
+	<footer class="foot">
+		<p>zlatan 0.3.0 — running on the home server</p>
+		<p>Step 5 of 5 — saved</p>
+	</footer>
+</div>
+
+<script>
+	// Progressive enhancement, and nothing more: without this the address is
+	// still on the page and still selectable.
+	document.querySelectorAll('[data-copy]').forEach(function (btn) {
+		btn.addEventListener('click', function () {
+			var text = document.querySelector(btn.dataset.copy).textContent.trim();
+			navigator.clipboard.writeText(text).then(function () {
+				var was = btn.textContent;
+				btn.textContent = 'Copied';
+				setTimeout(function () { btn.textContent = was; }, 2000);
+			});
+		});
+	});
+</script>
+</body>
+</html>

@@ -1,0 +1,128 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later
+     Screen 5 — The long wait. The person has done everything they can, and now
+     nothing will happen for hours, possibly a day.
+
+     There is no progress to show, so this page shows none. What it shows
+     instead is evidence of life (when we last looked, how often we look), an
+     honest horizon, and the list of things that will happen without them. The
+     email promise is what actually lets someone walk away. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waiting for Google · zlatan</title>
+<link rel="icon" href="../brand/favicon.svg">
+<link rel="stylesheet" href="../zlatan.css">
+</head>
+<body>
+<div class="page">
+
+	<header class="masthead">
+		<a class="brand" href="01-entry.html" aria-label="zlatan">
+			<svg class="mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+				<defs>
+					<linearGradient id="zg" x1="6.5" y1="0" x2="17.5" y2="0" gradientUnits="userSpaceOnUse">
+						<stop offset=".25" class="g-b"/><stop offset=".25" class="g-r"/>
+						<stop offset=".50" class="g-r"/><stop offset=".50" class="g-y"/>
+						<stop offset=".75" class="g-y"/><stop offset=".75" class="g-g"/>
+					</linearGradient>
+				</defs>
+				<path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2" fill="none" stroke="url(#zg)" stroke-width="2" stroke-linecap="round"/>
+				<path d="M17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+			</svg>
+			<span class="word">zlatan</span>
+		</a>
+		<p class="whoami">Signed in as <b>marco</b></p>
+	</header>
+
+	<div class="prose">
+		<a class="back" href="02-tracks.html">← Both tracks</a>
+		<h1>Your part is finished</h1>
+		<p class="lede">
+			Google is making the copy now. That takes as long as it takes, and there
+			is nothing left for you to do — not now, not when it arrives.
+		</p>
+	</div>
+
+	<main class="panel">
+		<div class="track__titles">
+			<h2>Photos and videos</h2>
+			<span class="pill pill--waiting">Waiting for Google</span>
+		</div>
+
+		<div class="state" id="photos-state"
+		     hx-get="/photos/state" hx-trigger="every 30s" hx-swap="outerHTML"
+		     aria-live="polite">
+			<p class="wait">
+				<span class="beat" aria-hidden="true"></span>
+				Checked <b>4 minutes ago</b> — nothing yet
+			</p>
+			<p class="fine">
+				We look in your shared folder every ten minutes, day and night, for as
+				long as it takes.
+			</p>
+		</div>
+
+		<div class="calm">
+			<h3>What we are watching for</h3>
+			<p class="fine">
+				A folder called <span class="said">Takeout</span>, shared with
+				<code>zlatan@ferretti.link</code>, with your export inside it. You
+				shared it at <span class="num">14:26 today</span>, and we can see it.
+			</p>
+		</div>
+
+		<div class="note">
+			<p>
+				<b>How long this usually takes.</b> A few hours for most libraries. A
+				very large one can take Google a day or more, and it often arrives in
+				several parts — we wait until all of them are there before starting, so
+				nothing lands in Immich half-finished.
+			</p>
+		</div>
+
+		<div class="stack">
+			<h3>What happens the moment it arrives</h3>
+			<ol class="steps steps--auto">
+				<li class="step"><div class="step__label">Copy the export from your Drive to the home server</div></li>
+				<li class="step"><div class="step__label">Unpack it and read Google’s notes about each photo</div></li>
+				<li class="step"><div class="step__label">Put back the dates taken, the places and the albums</div></li>
+				<li class="step"><div class="step__label">Fill up Immich, then check a sample against the original</div></li>
+			</ol>
+		</div>
+
+		<div class="note">
+			<p>
+				<b>You can close this tab now.</b> We will email you at
+				<b>marco@ferretti.link</b> when your photos are in Immich — and also if
+				something goes wrong and we need you.
+			</p>
+		</div>
+
+		<div class="actions">
+			<form method="post" action="/photos/check" hx-post="/photos/check" hx-target="#photos-state" hx-swap="outerHTML">
+				<button class="btn btn--ghost" type="submit">Check now</button>
+			</form>
+			<a class="btn btn--quiet" href="04-upload.html">Send the file myself instead</a>
+		</div>
+	</main>
+
+	<section class="calm narrow">
+		<h3>If it has been more than a day</h3>
+		<p class="fine">
+			That happens, and it is usually still fine. Open
+			<a href="https://takeout.google.com/manage" target="_blank" rel="noopener">your exports at Google</a>
+			and see whether it says the copy is ready. If it does and we still have not
+			noticed, the sharing may not have gone through —
+			<a href="03b-share.html">go back to that step</a>.
+		</p>
+	</section>
+
+	<footer class="foot">
+		<p>zlatan 0.3.0 — running on the home server</p>
+		<p class="num">Waiting since 14:26 today</p>
+	</footer>
+</div>
+</body>
+</html>

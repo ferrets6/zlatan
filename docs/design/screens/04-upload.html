@@ -1,0 +1,134 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later
+     Screen 4 — Route B, the fallback: the export will not fit in the person's
+     Google storage, so they download it and hand it over themselves.
+
+     One honesty note that shapes this screen: an upload needs the tab open.
+     The copy says so, instead of repeating the "you can close this" promise
+     that is true everywhere else in this service. What survives a closed tab
+     is the *progress*, not the transfer. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Send the file yourself · zlatan</title>
+<link rel="icon" href="../brand/favicon.svg">
+<link rel="stylesheet" href="../zlatan.css">
+</head>
+<body>
+<div class="page">
+
+	<header class="masthead">
+		<a class="brand" href="01-entry.html" aria-label="zlatan">
+			<svg class="mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+				<defs>
+					<linearGradient id="zg" x1="6.5" y1="0" x2="17.5" y2="0" gradientUnits="userSpaceOnUse">
+						<stop offset=".25" class="g-b"/><stop offset=".25" class="g-r"/>
+						<stop offset=".50" class="g-r"/><stop offset=".50" class="g-y"/>
+						<stop offset=".75" class="g-y"/><stop offset=".75" class="g-g"/>
+					</linearGradient>
+				</defs>
+				<path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2" fill="none" stroke="url(#zg)" stroke-width="2" stroke-linecap="round"/>
+				<path d="M17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+			</svg>
+			<span class="word">zlatan</span>
+		</a>
+		<p class="whoami">Signed in as <b>marco</b></p>
+	</header>
+
+	<div class="prose">
+		<a class="back" href="03-takeout.html">← The guided route</a>
+		<h1>Send us the file yourself</h1>
+		<p class="lede">
+			For when the copy will not fit in your Google storage. You download it
+			from Google onto this device, and hand it straight to us — it never
+			passes through anyone else.
+		</p>
+	</div>
+
+	<main class="panel">
+		<ol class="steps">
+			<li class="step" data-state="done">
+				<div class="step__label"><span class="step__n">1</span> Asked Google for the copy</div>
+				<div class="step__body">
+					<p class="fine">Same as before, with one thing changed: <span class="said">Send download link by email</span> instead of <span class="said">Add to Drive</span>.</p>
+				</div>
+			</li>
+
+			<li class="step" data-state="done">
+				<div class="step__label"><span class="step__n">2</span> Downloaded it from Google’s email</div>
+				<div class="step__body">
+					<p class="fine">Google split your export into <b>4 files</b>. Add them one at a time — the order does not matter.</p>
+				</div>
+			</li>
+
+			<li class="step" data-state="now" aria-current="step">
+				<div class="step__label">
+					<span class="step__n">3</span>
+					<h2>Hand them over</h2>
+				</div>
+				<div class="step__body">
+
+					<!-- The live upload. Server-rendered on load, updated by the upload
+					     script; with JavaScript off this whole block is replaced by a
+					     line explaining that the upload needs it. -->
+					<div class="state" id="upload-state" aria-live="polite">
+						<p class="state__line">Sending <b>takeout-20260925-002.zip</b> — part 2 of 4</p>
+
+						<div class="meter" role="progressbar" aria-valuenow="38" aria-valuemin="0" aria-valuemax="100"
+						     aria-label="Sent">
+							<i style="width: 38%"></i>
+						</div>
+
+						<p class="facts num">
+							<span><b>4.7 GB</b> of 12.4 GB</span>
+							<span><b>38%</b></span>
+							<span>About <b>26 min</b> left</span>
+						</p>
+					</div>
+
+					<div class="note">
+						<p>
+							<b>Keep this tab open while it sends.</b> This is the one part of
+							zlatan that lives in your browser, so closing the tab pauses it.
+						</p>
+						<p>
+							Nothing is lost if it does stop. We remember every piece that
+							arrived, and when you come back it carries on from there — even
+							days later, even on another device.
+						</p>
+					</div>
+
+					<div class="actions">
+						<button class="btn btn--quiet" type="button">Pause</button>
+					</div>
+				</div>
+			</li>
+
+			<li class="step" data-state="todo">
+				<div class="step__label"><span class="step__n">4</span> We unpack it and fill Immich</div>
+			</li>
+		</ol>
+	</main>
+
+	<section class="panel" aria-labelledby="more-h">
+		<h3 id="more-h">The other three parts</h3>
+		<p class="fine">Add the next one whenever you like. They can go in any order, and you do not have to do them in one sitting.</p>
+		<label class="drop" for="file">
+			<span><b>Drop a file here</b>, or choose one</span>
+			<span class="fine">Zip files from Google Takeout — up to 50 GB each</span>
+			<input id="file" type="file" accept=".zip,application/zip">
+			<span class="btn btn--ghost" aria-hidden="true">Choose a file</span>
+		</label>
+		<p class="fine">
+			Waiting: <span class="num">parts 3 and 4</span> — <span class="num">part 1</span> arrived and is already unpacked.
+		</p>
+	</section>
+
+	<footer class="foot">
+		<p>zlatan 0.3.0 — running on the home server</p>
+		<p>Sending — do not close this tab</p>
+	</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="zlatan">
+  <title>zlatan</title>
+  <!-- The expressive variant: the arc you are leaving carries Google's four
+       colours, and the colour stops at the crossing. Use at 32 px and above;
+       below that the bands turn to noise and mark.svg is the right file. -->
+  <style>
+    .zl-y { stop-color: #E3A008 }            /* Google's yellow is invisible as a
+                                                thin stroke on a light ground */
+    @media (prefers-color-scheme: dark) { .zl-y { stop-color: #FBBC05 } }
+  </style>
+  <defs>
+    <linearGradient id="zl-google" x1="6.5" y1="0" x2="17.5" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset=".25" stop-color="#4285F4"/><stop offset=".25" stop-color="#EA4335"/>
+      <stop offset=".50" stop-color="#EA4335"/><stop offset=".50" class="zl-y"/>
+      <stop offset=".75" class="zl-y"/><stop offset=".75" stop-color="#34A853"/>
+    </linearGradient>
+  </defs>
+  <path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2"
+        fill="none" stroke="url(#zl-google)" stroke-width="2" stroke-linecap="round"/>
+  <path d="M17.5 7.2 L6.5 17.2 H17.5"
+        fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
