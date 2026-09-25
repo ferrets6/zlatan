@@ -1,114 +1,114 @@
 {{- /* SPDX-License-Identifier: AGPL-3.0-or-later */ -}}
 <!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Migrazione da Google</title>
+	<title>Move your data off Google</title>
 	<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <main>
 	<header>
-		<h1>Porta i tuoi dati fuori da Google</h1>
+		<h1>Move your data off Google</h1>
 		<p class="lede">
-			Questa pagina sposta i tuoi file in <strong>Nextcloud</strong> e le tue
-			foto in <strong>Immich</strong>. Puoi chiudere questa scheda: la
-			migrazione continua sul server e la ritrovi qui.
+			This page moves your files into <strong>Nextcloud</strong> and your
+			photos into <strong>Immich</strong>. You can close this tab: the work
+			continues on the server, and you will find it here when you come back.
 		</p>
-		<p class="who">Sei connesso come <strong>{{ .User }}</strong>{{ if .Email }} ({{ .Email }}){{ end }}.</p>
+		<p class="who">You are signed in as <strong>{{ .User }}</strong>{{ if .Email }} ({{ .Email }}){{ end }}.</p>
 	</header>
 
 	{{ if .LastError }}
 	<div class="alert" role="alert">
-		<strong>Qualcosa si è fermato.</strong> {{ .LastError }}
+		<strong>Something stopped.</strong> {{ .LastError }}
 	</div>
 	{{ end }}
 
 	<section class="track">
-		<h2>File e cartelle — Google Drive → Nextcloud</h2>
+		<h2>Files and folders — Google Drive → Nextcloud</h2>
 		<p class="state" data-track="drive">{{ stateLabel (index (index .Tracks 0).State) }}</p>
 		{{ with index .Tracks 0 }}
 			{{ if .Progress }}<p class="progress">{{ .Progress }}</p>{{ end }}
 		{{ end }}
 
 		{{ if .DriveFiles }}
-		<p class="counts">{{ .DriveFiles }} file, {{ bytes .DriveBytes }} copiati.</p>
+		<p class="counts">{{ .DriveFiles }} files, {{ bytes .DriveBytes }} copied.</p>
 		{{ end }}
 
 		{{ if .CanStartDrive }}
-		<p><a class="button" href="/oauth/google/start">Collega Google</a></p>
+		<p><a class="button" href="/oauth/google/start">Connect Google</a></p>
 		<p class="hint">
-			Ti verrà chiesto di autorizzare la lettura del tuo Drive. L'accesso è
-			solo in lettura: nulla di ciò che hai su Google viene modificato.
+			Google will ask you to allow read access to your Drive. It is
+			read-only: nothing you have on Google is changed.
 		</p>
 		{{ if eq (index (index .Tracks 0).State) "selecting" }}
 		<form method="post" action="/drive/start">
-			<button type="submit">Avvia la copia dei file</button>
+			<button type="submit">Start copying the files</button>
 		</form>
 		{{ end }}
 		{{ else }}
 		<p class="hint disabled">
-			Questo percorso non è disponibile in questo momento. Contatta chi
-			gestisce l'homelab.
+			This route is not available right now. Ask whoever runs the homelab.
 		</p>
 		{{ end }}
 	</section>
 
 	<section class="track">
-		<h2>Foto e video — Google Photos → Immich</h2>
+		<h2>Photos and videos — Google Photos → Immich</h2>
 		<p class="state" data-track="photos">{{ stateLabel (index (index .Tracks 1).State) }}</p>
 		{{ with index .Tracks 1 }}
 			{{ if .Progress }}<p class="progress">{{ .Progress }}</p>{{ end }}
 		{{ end }}
 
 		{{ if .PhotosAssets }}
-		<p class="counts">{{ .PhotosAssets }} elementi importati.</p>
+		<p class="counts">{{ .PhotosAssets }} items imported.</p>
 		{{ end }}
 
 		<div class="explain">
 			<p>
-				Google <strong>non permette più</strong> a nessun programma di
-				leggere la tua libreria di foto: l'unico modo completo è
-				esportarla tu stesso una volta. Questa pagina ti guida e poi fa
-				tutto il resto da sola.
+				Google <strong>no longer allows</strong> any program to read your
+				photo library, so the only complete way is to export it yourself
+				once. This page guides you through that and then does everything
+				else on its own.
 			</p>
 		</div>
 
 		{{ if .CanStartPhotos }}
 		{{ if .CanShare }}
 		<form method="post" action="/photos/share/start">
-			<button type="submit">Esporta su Drive e condividi (consigliato)</button>
+			<button type="submit">Export to Drive and share it (recommended)</button>
 		</form>
 		<p class="hint">
-			Richiedi l'esportazione da Google Photos e scegli
-			<strong>“Aggiungi a Drive”</strong>. Poi condividi la cartella
-			<code>Takeout</code> con <code>{{ .ShareAccount }}</code>: da lì la
-			migrazione parte da sola.
+			Ask Google Photos for an export and choose
+			<strong>“Add to Drive”</strong>. Then share the <code>Takeout</code>
+			folder with <code>{{ .ShareAccount }}</code>: from there the migration
+			starts on its own.
 		</p>
 		{{ end }}
 
 		<div id="upload" class="upload" data-upload-url="/upload">
 			<p class="hint">
-				Se hai scaricato l'archivio sul tuo computer, trascinalo qui
-				oppure scegli il file: il caricamento riprende da solo se si
-				interrompe, e puoi chiudere la pagina.{{ if .CanShare }} È la via
-				giusta se l'esportazione non entra nel tuo spazio Google.{{ end }}
+				If you downloaded the archive to your computer, drag it here or
+				choose the file: the upload resumes by itself if it is
+				interrupted, and you can close the page.{{ if .CanShare }} This is
+				the right route when the export does not fit in your Google
+				storage.{{ end }}
 			</p>
 			<input type="file" id="upload-input" accept=".zip,application/zip">
-			<button type="button" id="upload-button" class="secondary">Carica l'archivio</button>
-			<div id="upload-drop" class="dropzone" hidden>Rilascia qui il file</div>
+			<button type="button" id="upload-button" class="secondary">Upload the archive</button>
+			<div id="upload-drop" class="dropzone" hidden>Drop the file here</div>
 			<p id="upload-progress" class="progress" hidden></p>
 		</div>
 		{{ else }}
 		<p class="hint disabled">
-			Questo percorso non è disponibile in questo momento.
+			This route is not available right now.
 		</p>
 		{{ end }}
 	</section>
 
 	<footer>
-		<p class="version">migrate {{ .Version }}</p>
+		<p class="version">zlatan {{ .Version }}</p>
 	</footer>
 </main>
 

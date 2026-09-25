@@ -119,20 +119,20 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
 	defer cancel()
 
-	if _, err := r.store.SetDriveState(ctx, user, core.DriveCopying, "preparazione della copia"); err != nil {
+	if _, err := r.store.SetDriveState(ctx, user, core.DriveCopying, "preparing the copy"); err != nil {
 		r.log.Error("runDrive: set state", "user", user, "error", err)
 		return
 	}
 
 	tokens, err := r.openTokens(tok)
 	if err != nil {
-		r.failDrive(ctx, user, "il token di accesso non è leggibile: ricollega Google")
+		r.failDrive(ctx, user, "the access token cannot be read: reconnect Google")
 		return
 	}
 
 	staging := filepath.Join(r.cfg.StagingDir, core.SafeName(user), "drive")
 	if err := os.MkdirAll(staging, 0o750); err != nil {
-		r.failDrive(ctx, user, "non riesco a preparare l'area temporanea")
+		r.failDrive(ctx, user, "the staging area could not be prepared")
 		r.log.Error("runDrive: create staging", "user", user, "error", err)
 		return
 	}
@@ -161,7 +161,7 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		if !ok {
 			return
 		}
-		lastProgress = fmt.Sprintf("copiati %s in %d file", core.FormatBytes(bytes), files)
+		lastProgress = fmt.Sprintf("copied %s in %d files", core.FormatBytes(bytes), files)
 		// Clamp both at zero: a re-scan can report a lower count, and a
 		// negative delta would subtract from the running total.
 		if deltaBytes, deltaFiles := bytes-reportedBytes, files-reportedFiles; deltaBytes > 0 || deltaFiles > 0 {
@@ -182,18 +182,18 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	}
 
 	if err := r.exec.Run(ctx, "rclone", args, env, onLine); err != nil {
-		r.failDrive(ctx, user, "la copia da Google Drive non è andata a buon fine")
+		r.failDrive(ctx, user, "the copy from Google Drive did not finish")
 		r.log.Error("runDrive: rclone", "user", user, "error", err)
 		return
 	}
 
-	if _, err := r.store.SetDriveState(ctx, user, core.DriveImporting, "importazione in Nextcloud"); err != nil {
+	if _, err := r.store.SetDriveState(ctx, user, core.DriveImporting, "importing into Nextcloud"); err != nil {
 		r.log.Error("runDrive: set importing", "user", user, "error", err)
 	}
 
 	// The import into Nextcloud is the next phase; the copy is verified by the
 	// caller before the state moves to done.
-	if _, err := r.store.SetDriveState(ctx, user, core.DriveVerifying, "verifica dei file copiati"); err != nil {
+	if _, err := r.store.SetDriveState(ctx, user, core.DriveVerifying, "verifying the copied files"); err != nil {
 		r.log.Error("runDrive: set verifying", "user", user, "error", err)
 	}
 	r.log.Info("runDrive: copy finished", "user", user, "progress", lastProgress)
@@ -226,7 +226,7 @@ func (r *Runner) StartPhotosShare(ctx context.Context, user string) error {
 		return errors.New("no Takeout share account is configured")
 	}
 	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosAwaitingShare,
-		"condividi la cartella Takeout con "+r.cfg.Google.ShareAccount); err != nil {
+		"share the Takeout folder with "+r.cfg.Google.ShareAccount); err != nil {
 		return err
 	}
 	return nil
@@ -239,7 +239,7 @@ func (r *Runner) runPhotosImport(ctx context.Context, user string) {
 	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
 	defer cancel()
 
-	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosImporting, "importazione in Immich"); err != nil {
+	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosImporting, "importing into Immich"); err != nil {
 		r.log.Error("runPhotosImport: set state", "user", user, "error", err)
 		return
 	}
@@ -250,11 +250,11 @@ func (r *Runner) runPhotosImport(ctx context.Context, user string) {
 	staging := filepath.Join(r.cfg.StagingDir, core.SafeName(user))
 	archives, err := filepath.Glob(filepath.Join(staging, "*.zip"))
 	if err != nil {
-		r.failPhotos(ctx, user, "non riesco a leggere l'area temporanea")
+		r.failPhotos(ctx, user, "the staging area could not be read")
 		return
 	}
 	if len(archives) == 0 {
-		r.failPhotos(ctx, user, "nessun archivio Takeout trovato: caricalo prima")
+		r.failPhotos(ctx, user, "no Takeout archive found: upload one first")
 		return
 	}
 
@@ -271,12 +271,12 @@ func (r *Runner) runPhotosImport(ctx context.Context, user string) {
 	args = append(args, archives...)
 
 	if err := r.exec.Run(ctx, "immich-go", args, nil, nil); err != nil {
-		r.failPhotos(ctx, user, "l'importazione in Immich non è andata a buon fine")
+		r.failPhotos(ctx, user, "the import into Immich did not finish")
 		r.log.Error("runPhotosImport: immich-go", "user", user, "error", err)
 		return
 	}
 
-	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosVerifying, "verifica degli elementi importati"); err != nil {
+	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosVerifying, "verifying the imported items"); err != nil {
 		r.log.Error("runPhotosImport: set verifying", "user", user, "error", err)
 	}
 }

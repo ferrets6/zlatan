@@ -52,7 +52,7 @@ async function api(path, options = {}) {
 	});
 	if (!res.ok) {
 		const text = await res.text();
-		throw new Error(text.trim() || `richiesta fallita (${res.status})`);
+		throw new Error(text.trim() || `request failed (${res.status})`);
 	}
 	if (res.status === 204) return null;
 	return res.json();
@@ -103,17 +103,17 @@ function wireUpload() {
 	const start = async (file) => {
 		if (!file) return;
 		progress.hidden = false;
-		progress.textContent = `Preparo il caricamento di ${file.name}…`;
+		progress.textContent = `Preparing to upload ${file.name}…`;
 		button.disabled = true;
 		try {
 			await upload(file, (sent, total) => {
 				const pct = Math.round((sent / total) * 100);
-				progress.textContent = `Caricati ${sent}/${total} blocchi (${pct}%) — puoi chiudere la pagina, riprende da qui.`;
+				progress.textContent = `Uploaded ${sent}/${total} chunks (${pct}%) — you can close the page, it resumes from here.`;
 			});
-			progress.textContent = 'Caricamento completato: l\'importazione è partita. Puoi chiudere la pagina.';
+			progress.textContent = 'Upload complete: the import has started. You can close the page.';
 			poll();
 		} catch (err) {
-			progress.textContent = `Caricamento interrotto: ${err.message}. Riprova: riprende da dove era rimasto.`;
+			progress.textContent = `Upload interrupted: ${err.message}. Try again: it resumes where it left off.`;
 		} finally {
 			button.disabled = false;
 		}

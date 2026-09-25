@@ -151,7 +151,7 @@ func (opts Options) oauthCallback(w http.ResponseWriter, r *http.Request) {
 
 	if errParam := r.URL.Query().Get("error"); errParam != "" {
 		opts.Log.Warn("oauthCallback: Google refused", "user", user, "error", errParam)
-		http.Error(w, "Google ha rifiutato l'autorizzazione", http.StatusForbidden)
+		http.Error(w, "Google refused the authorisation", http.StatusForbidden)
 		return
 	}
 
@@ -164,25 +164,25 @@ func (opts Options) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	stateUser, err := signer.verify(r.URL.Query().Get("state"))
 	if err != nil {
 		opts.Log.Warn("oauthCallback: bad state", "user", user, "error", err)
-		http.Error(w, "la richiesta di autorizzazione non è valida", http.StatusBadRequest)
+		http.Error(w, "the authorisation request is not valid", http.StatusBadRequest)
 		return
 	}
 	if stateUser != user {
 		opts.Log.Warn("oauthCallback: state names another user", "caller", user, "state_user", stateUser)
-		http.Error(w, "la richiesta di autorizzazione non è valida", http.StatusBadRequest)
+		http.Error(w, "the authorisation request is not valid", http.StatusBadRequest)
 		return
 	}
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		http.Error(w, "nessun codice di autorizzazione", http.StatusBadRequest)
+		http.Error(w, "no authorisation code", http.StatusBadRequest)
 		return
 	}
 
 	tokens, err := opts.Google.Exchange(r.Context(), code)
 	if err != nil {
 		opts.Log.Error("oauthCallback: exchange", "user", user, "error", err)
-		http.Error(w, "non sono riuscito a completare l'autorizzazione", http.StatusBadGateway)
+		http.Error(w, "the authorisation could not be completed", http.StatusBadGateway)
 		return
 	}
 	if tokens.RefreshToken == "" {
@@ -190,7 +190,7 @@ func (opts Options) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		// expires, which for a large library is guaranteed. Say so now
 		// rather than half-way through.
 		opts.Log.Warn("oauthCallback: no refresh token", "user", user)
-		http.Error(w, "Google non ha fornito un token a lunga durata: riprova e accetta tutte le autorizzazioni", http.StatusBadGateway)
+		http.Error(w, "Google did not provide a long-lived token: try again and accept every permission", http.StatusBadGateway)
 		return
 	}
 

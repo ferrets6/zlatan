@@ -1,90 +1,98 @@
+<p align="center">
+  <img src="brand/wordmark.svg" alt="zlatan" width="320">
+</p>
+
 # zlatan
 
-Servizio di **migrazione autoguidata** da Google: `zlatan.feretti.link`.
-Un utente entra, fa login col suo account homelab, e un wizard lo porta a
-spostare **Google Drive → Nextcloud** e **Google Photos → Immich** senza
-vedere un terminale. Un backend fa girare la migrazione in automatico; chi
-gestisce l'homelab non è nel loop per ogni utente.
+> Status: **v0.1.0** (2026-09-25). The service runs, the schema is applied, the
+> wizard renders and gates access; the Google OAuth flow, the runner that drives
+> `rclone` and `immich-go`, and the resumable Takeout upload all work. The image
+> is published at `ghcr.io/marcodellemarche/zlatan`. Not yet: the import into
+> Nextcloud after the copy, and the polling of the shared Takeout folder. See
+> "What is missing".
 
-> **Stato: prima fase implementata.** Il servizio gira, lo schema c'è, il
-> wizard rende e protegge l'accesso. **Non ancora fatto**: il collegamento
-> OAuth Google, il runner che invoca `rclone` e `immich-go`, e l'upload del
-> Takeout. Vedi "Cosa manca".
+zlatan is a self-guided migration service for self-hosted stacks. A person who
+is not technical — a family member, a friend — opens it in a browser, signs in
+with the household single sign-on, and is walked through moving their data off
+Google: **Google Drive → Nextcloud** and **Google Photos → Immich**. The
+operator configures it once and is not in the loop for every person.
 
-## Il vincolo che definisce il servizio
+## The constraint that defines the service
 
-**Drive è automatizzabile al 100%; le Foto no.** Dal 2025-03-31 Google ha
-rimosso le read scope della Photos Library API, e non esiste un'API per
-avviare un Takeout (`takeout.google.com` non è programmabile; la Data
-Portability API copre solo Chrome/Maps/Play/Search/Shopping/YouTube). Quindi
-il percorso Foto ha sempre **un click umano**: il wizard lo guida, si accorge
-da solo quando l'esportazione è pronta e fa tutto il resto. Non è un limite
-superabile con più codice — è Google.
+**Drive can be automated end to end. Photos cannot.** On 2025-03-31 Google
+removed the read scopes of the Photos Library API, and there is no API to start
+a Takeout (`takeout.google.com` is not programmable; the Data Portability API
+covers only Chrome, Maps, Play, Search, Shopping and YouTube). So the Photos
+route always contains **one human click**: the wizard guides that person, works
+out on its own when the export is ready, and does everything else. This is not
+a limit that more code can remove — it is Google.
 
-## Come è fatto
+## How it is built
 
-Un solo binario Go (`zlatan`), dentro un container con `rclone` e `immich-go`.
-SQLite per lo stato: una migrazione dura ore o giorni, non può vivere in una
-richiesta HTTP.
+A single Go binary (`zlatan`), inside a container that also holds `rclone` and
+`immich-go`. SQLite for the state: a migration lasts hours or days and cannot
+live inside an HTTP request.
 
 ```
 internal/
-├── core/       tipi di dominio, cifratura dei token (AES-GCM)
-├── config/     configurazione da ambiente, con tutti gli errori in una passata
-├── store/      SQLite, migrazioni, repository
-└── web/        il wizard: rotte, autenticazione, template
+├── core/       domain types, token encryption (AES-GCM), the shared sanitizer
+├── config/     configuration from the environment, every error in one pass
+├── store/      SQLite, migrations, repository
+├── oauth/      the Google client, sealed tokens
+├── runner/     drives rclone and immich-go
+├── upload/     the Takeout upload, in chunks, resumable
+└── web/        the wizard: routes, authentication, templates
 ```
 
-Due binari indipendenti, `drive` e `photos`: si può migrare uno, l'altro, o
-entrambi in parallelo. Lo stato di uno non tocca l'altro.
+Two independent tracks, `drive` and `photos`: a person may run one, the other,
+or both in parallel. The state of one never touches the other.
 
-## Sicurezza
+## Security
 
-Il servizio **custodisce i refresh token OAuth Google di ogni utente**: ogni
-token dà lettura dell'intero Drive di quella persona. È il segreto più
-sensibile dell'homelab.
+The service **holds the Google OAuth refresh token of every person who uses
+it**, and each one grants read access to that person's entire Drive. It is the
+most sensitive secret in the homelab.
 
-- **Token cifrati a riposo** (AES-GCM). La chiave (`ZLATAN_TOKEN_KEY`) vive
-  solo nell'ambiente; il database contiene solo ciphertext.
-- **L'identità viene solo dall'header forward-auth** (`Remote-User`), ed è
-  creduta solo se la richiesta arriva dalla rete proxy configurata. Mai da un
-  parametro URL o da un cookie: una persona può vedere solo la propria
-  migrazione, per costruzione.
-- **Segreto condiviso con il proxy** (`X-Zlatan-Proxy-Secret`): un container
-  sulla stessa rete Docker non può raggiungere il servizio direttamente e
-  saltare l'SSO.
-- **Un bind pubblico senza segreto è rifiutato all'avvio**, non accettato in
-  silenzio.
+- **Tokens are encrypted at rest** (AES-GCM). The key (`ZLATAN_TOKEN_KEY`) lives
+  only in the environment; the database holds ciphertext.
+- **The identity comes only from the forward-auth header** (`Remote-User`), and
+  is believed only when the request arrives from the configured proxy network.
+  Never from a URL parameter or a cookie: a person can only ever see their own
+  migration, by construction.
+- **A secret shared with the proxy** (`X-Zlatan-Proxy-Secret`): a container on
+  the same Docker network cannot reach the service directly and skip the SSO.
+- **A public bind without a secret is refused at startup**, not accepted
+  silently.
 
-## Configurazione
+## Configuration
 
-Vedi `.env.example`. Le variabili obbligatorie sono `ZLATAN_TRUSTED_PROXY`,
-`ZLATAN_TOKEN_KEY` e — se il bind è pubblico — `ZLATAN_PROXY_SECRET`.
+See `.env.example`. The required variables are `ZLATAN_TRUSTED_PROXY`,
+`ZLATAN_TOKEN_KEY` and — if the bind is public — `ZLATAN_PROXY_SECRET`.
 
-## Comandi
+## Commands
 
-```bash
-zlatan serve      # migra lo schema e ascolta
-zlatan migrate    # applica le migrazioni ed esce
+```sh
+zlatan serve      # migrate the schema, then listen
+zlatan migrate    # apply pending database migrations and exit
 zlatan version
 ```
 
-## Sviluppo
+## Development
 
-```bash
-make check    # gofmt, vet, test (con race detector)
-make image    # costruisce l'immagine
+```sh
+make check    # gofmt, vet, tests (with the race detector)
+make image    # build the image
 ```
 
-## Cosa manca
+## What is missing
 
-- [ ] Flusso OAuth Google per-utente (`drive.readonly`), token sigillati nello
-      store.
-- [ ] `Runner` che invoca `rclone` per Drive → Nextcloud, con progresso.
-- [ ] `Runner` che invoca `immich-go` per il Takeout → Immich.
-- [ ] Upload resumibile del Takeout (variante B).
-- [ ] Polling della cartella condivisa (variante A).
-- [ ] Verifica (conteggio + campione) e purge dello staging.
-- [ ] Quote: leggere l'utilizzo prima e avvisare se si sfora.
+- [x] Per-person Google OAuth (`drive.readonly`), tokens sealed in the store.
+- [x] A `Runner` that drives `rclone` for Drive → Nextcloud, with progress.
+- [x] A `Runner` that drives `immich-go` for the Takeout → Immich.
+- [x] Resumable Takeout upload (route B).
+- [ ] Import into Nextcloud after `rclone copy`.
+- [ ] Polling of the shared Takeout folder (route A).
+- [ ] Verification (count and sample) and staging purge.
+- [ ] Quotas: read current usage and warn when the migration would exceed it.
 
-Design completo e decisioni in `../homelab/docs/zlatan-service.md`.
+The full design lives in the homelab repository, `docs/zlatan-service.md`.
