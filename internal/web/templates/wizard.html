@@ -143,11 +143,11 @@
 					libraries — not just this one, every app. So the copy has to start
 					with you asking Google for it. After that, you are done.
 				</p>
-				{{ if .CanShare }}
+				{{ if .CanTakeout }}
 				<p class="fine">
-					When the copy is ready we will ask you to share the
-					<span class="said">Takeout</span> folder with
-					<code>{{ .ShareAccount }}</code> — that is all we need to collect it.
+					The export lands in your own Google Drive, in a folder called
+					<span class="said">{{ .TakeoutFolder }}</span>. Nothing to share:
+					we already have read-only access, and we pick it up from there.
 				</p>
 				{{ end }}
 				<details class="why">
@@ -172,21 +172,22 @@
 				</details>
 			</div>
 
-			{{ if .CanStartPhotos }}
-				{{ if .CanShare }}
-				<div class="actions">
-					<form method="post" action="/photos/share/start">
-						<button class="btn btn--primary" type="submit">Show me how</button>
-					</form>
-				</div>
-				{{ else }}
-				<p class="fine">This route is not available right now.</p>
-				{{ end }}
+			{{ if .CanTakeout }}
+			<div class="actions">
+				<form method="post" action="/photos/takeout/start">
+					<button class="btn btn--primary" type="submit">Show me how</button>
+				</form>
+			</div>
+			{{ else if .CanTakeoutRoute }}
+			<p class="fine">
+				Connect Google first (in the Files section above): we collect the
+				export from your own Drive, so we need read access before you ask for it.
+			</p>
 			{{ else }}
-				<p class="fine">This route is not available right now.</p>
+			<p class="fine">This route is not available right now.</p>
 			{{ end }}
 
-			{{ if and .CanUpload (not .CanShare) }}
+			{{ if and .CanUpload (not .CanTakeout) }}
 			<details class="why">
 				<summary>Send the file myself instead</summary>
 				<div>
@@ -337,8 +338,8 @@
 					</p>
 
 					<div class="actions">
-						{{ if and .CanShare .CanStartPhotos }}
-						<form method="post" action="/photos/share/start">
+						{{ if .CanTakeout }}
+						<form method="post" action="/photos/takeout/start">
 							<button class="btn btn--primary" type="submit">I’ve set these four</button>
 						</form>
 						{{ end }}
@@ -359,7 +360,7 @@
 			<li class="step" data-state="todo">
 				<div class="step__label">
 					<span class="step__n">5</span>
-					Share the folder with us
+					Wait for it to land in your Drive — we pick it up on our own
 				</div>
 			</li>
 		</ol>
@@ -386,70 +387,6 @@
 		</div>
 	</section>
 	{{ end }}
-
-{{ else if eq .Screen "share" }}
-	<div class="prose">
-		<a class="back" href="/">← Both tracks</a>
-		<h1>One last thing, and you’re done</h1>
-		<p class="lede">
-			Google is making your copy now. While it works, give us permission to
-			collect it — then you never have to come back here.
-		</p>
-	</div>
-
-	<main class="panel">
-		<ol class="steps">
-			<li class="step" data-state="done">
-				<div class="step__label"><span class="step__n">1–3</span> Set up the export</div>
-			</li>
-
-			<li class="step" data-state="done">
-				<div class="step__label"><span class="step__n">4</span> Asked Google to start</div>
-				<div class="step__body">
-					<p class="fine">Google says it will email you when the copy is ready. That email means the export exists in your Drive.</p>
-				</div>
-			</li>
-
-			<li class="step" data-state="now" aria-current="step">
-				<div class="step__label">
-					<span class="step__n">5</span>
-					<h2>Share the Takeout folder with us</h2>
-				</div>
-				<div class="step__body">
-					<p>
-						Open <a href="https://drive.google.com/" target="_blank" rel="noopener">Google Drive</a>,
-						find the folder called <span class="said">Takeout</span>, right-click it
-						and choose <span class="said">Share</span>. Then paste this address in:
-					</p>
-
-					{{ if .ShareAccount }}
-					<div class="copy">
-						<code id="share-address">{{ .ShareAccount }}</code>
-						<button class="btn btn--ghost" type="button" data-copy="#share-address">Copy</button>
-					</div>
-					{{ end }}
-
-					<p class="fine">
-						<span class="said">Viewer</span> is enough — we only ever read. You can
-						un-share the folder the moment this is finished, and delete it
-						from your Drive afterwards.
-					</p>
-
-					<div class="actions">
-						{{ if and .CanShare .CanStartPhotos }}
-						<form method="post" action="/photos/share/start">
-							<button class="btn btn--primary" type="submit">I’ve shared it</button>
-						</form>
-						{{ end }}
-					</div>
-					<p class="fine">
-						Press it once you have shared the folder. If you are not sure it
-						worked, press it anyway — sharing it twice changes nothing.
-					</p>
-				</div>
-			</li>
-		</ol>
-	</main>
 
 {{ else if eq .Screen "upload" }}
 	<div class="prose">
@@ -539,13 +476,13 @@
 			{{ end }}
 		</div>
 
-		{{ if .ShareAccount }}
+		{{ if .TakeoutFolder }}
 		<div class="calm">
 			<h3>What we are watching for</h3>
 			<p class="fine">
-				A folder called <span class="said">Takeout</span>, shared with
-				<code>{{ .ShareAccount }}</code>, with your export inside it. You only
-				have to share it once.
+				A folder called <span class="said">{{ .TakeoutFolder }}</span> in your own
+				Google Drive, with the export inside it. We already have read-only
+				access, so there is nothing for you to share.
 			</p>
 		</div>
 		{{ end }}
@@ -743,8 +680,8 @@
 		<div class="note">
 			<p>
 				<b>Uploading needs JavaScript.</b> This is the one part of zlatan
-				that lives in your browser. Turn it on, or use the guided route and
-				share the Takeout folder with us instead.
+				that lives in your browser. Turn it on, or use the guided route
+				("Add to Drive") instead.
 			</p>
 		</div>
 	</noscript>

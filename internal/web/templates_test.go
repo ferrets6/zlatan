@@ -19,10 +19,10 @@ func TestScreenFor(t *testing.T) {
 		want   string
 	}{
 		{"both at rest", core.DriveNotStarted, core.PhotosNotStarted, "entry"},
-		{"drive copying keeps both tracks", core.DriveCopying, core.PhotosAwaitingShare, "tracks"},
+		{"drive copying keeps both tracks", core.DriveCopying, core.PhotosAwaitingTakeout, "tracks"},
 		{"drive consenting keeps both tracks", core.DriveConsentPending, core.PhotosTakeoutGuide, "tracks"},
 		{"photos guide alone", core.DriveNotStarted, core.PhotosTakeoutGuide, "takeout"},
-		{"photos awaiting share alone", core.DriveNotStarted, core.PhotosAwaitingShare, "share"},
+		{"photos awaiting takeout alone", core.DriveNotStarted, core.PhotosAwaitingTakeout, "waiting"},
 		{"photos awaiting upload alone", core.DriveNotStarted, core.PhotosAwaitingUpload, "upload"},
 		{"photos importing alone", core.DriveNotStarted, core.PhotosImporting, "waiting"},
 		{"photos verifying alone", core.DriveNotStarted, core.PhotosVerifying, "waiting"},
@@ -49,7 +49,7 @@ func TestPillClassCoversEveryState(t *testing.T) {
 		"verifying", "done", "failed", "cancelled",
 	}
 	photosStates := []string{
-		"not_started", "takeout_guide", "awaiting_share", "awaiting_upload",
+		"not_started", "takeout_guide", "awaiting_takeout", "awaiting_upload",
 		"downloading", "importing", "verifying", "done", "failed", "cancelled",
 	}
 	known := map[string]bool{
@@ -67,9 +67,9 @@ func TestPillClassCoversEveryState(t *testing.T) {
 }
 
 // The wizard must not promise work that does not happen. Independent
-// verification, the shared-folder polling and email notifications are all
-// later phases; until they exist the pages may state what the code does and
-// nothing more. This is the repository's "no unimplemented promises" rule.
+// verification and email notifications are later phases; until they exist the
+// pages may state what the code does and nothing more. This is the
+// repository's "no unimplemented promises" rule.
 func TestScreensDoNotPromiseUnimplementedWork(t *testing.T) {
 	screens := []struct {
 		screen string
@@ -95,7 +95,8 @@ func TestScreensDoNotPromiseUnimplementedWork(t *testing.T) {
 	// Each claim names work that does not exist in the code today.
 	banned := []string{
 		"compared a sample", "byte for byte", "all 500 matched",
-		"we will email you", "we look in your shared folder",
+		"we will email you",
+		"we will send you an email",
 		"every ten minutes",
 	}
 	for _, s := range screens {

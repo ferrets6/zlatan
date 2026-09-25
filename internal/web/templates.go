@@ -90,8 +90,8 @@ func stateLine(track, state string) string {
 	switch core.PhotosState(state) {
 	case core.PhotosTakeoutGuide:
 		return "Asking Google for a copy"
-	case core.PhotosAwaitingShare:
-		return "You have done your part. Google is preparing the copy."
+	case core.PhotosAwaitingTakeout:
+		return "You have done your part. Google is preparing the copy in your Drive."
 	case core.PhotosAwaitingUpload:
 		return "Waiting for your Takeout archive"
 	case core.PhotosDownloading:
@@ -120,7 +120,7 @@ func pillClass(state string) string {
 		return "pill--stopped"
 	case "takeout_guide", "awaiting_upload":
 		return "pill--you"
-	case "consent_pending", "awaiting_nextcloud", "awaiting_share":
+	case "consent_pending", "awaiting_nextcloud", "awaiting_takeout":
 		return "pill--waiting"
 	default:
 		return "pill--running"
@@ -147,8 +147,8 @@ func pillLabel(state string) string {
 		return "Checking"
 	case "takeout_guide":
 		return "Your turn"
-	case "awaiting_share":
-		return "Waiting for the folder"
+	case "awaiting_takeout":
+		return "Waiting for Google"
 	case "awaiting_upload":
 		return "Your turn"
 	case "downloading":
@@ -184,11 +184,9 @@ func screenFor(m core.Migration) string {
 	switch m.PhotosState {
 	case core.PhotosTakeoutGuide:
 		return "takeout"
-	case core.PhotosAwaitingShare:
-		return "share"
 	case core.PhotosAwaitingUpload:
 		return "upload"
-	case core.PhotosDownloading, core.PhotosImporting, core.PhotosVerifying:
+	case core.PhotosAwaitingTakeout, core.PhotosDownloading, core.PhotosImporting, core.PhotosVerifying:
 		return "waiting"
 	}
 	if m.DriveState == core.DriveNotStarted && m.PhotosState == core.PhotosNotStarted {

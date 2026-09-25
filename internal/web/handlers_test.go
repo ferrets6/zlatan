@@ -87,11 +87,11 @@ func (f *fakeRunner) StartPhotosUpload(_ context.Context, user string) error {
 	return nil
 }
 
-func (f *fakeRunner) StartPhotosShare(_ context.Context, user string) error {
+func (f *fakeRunner) StartPhotosTakeout(_ context.Context, user string) error {
 	if f.err != nil {
 		return f.err
 	}
-	f.started = append(f.started, "share:"+user)
+	f.started = append(f.started, "takeout:"+user)
 	return nil
 }
 
@@ -118,10 +118,10 @@ func testOptions(runner Runner) Options {
 		StagingDir:    "/tmp/zlatan-test",
 		MaxConcurrent: 1,
 		Google: config.Google{
-			ClientID:     "id",
-			ClientSecret: "secret",
-			RedirectURL:  "https://zlatan.example/cb",
-			ShareAccount: "family@example.com",
+			ClientID:      "id",
+			ClientSecret:  "secret",
+			RedirectURL:   "https://zlatan.example/cb",
+			TakeoutFolder: "Takeout",
 		},
 		Nextcloud: config.Nextcloud{URL: "http://nextcloud"},
 		Immich:    config.Immich{URL: "http://immich", APIKey: "key"},
@@ -162,8 +162,8 @@ func TestWizardRendersForAuthenticatedUser(t *testing.T) {
 	if !strings.Contains(body, "marco") {
 		t.Error("the page should show who is connected")
 	}
-	if !strings.Contains(body, "family@example.com") {
-		t.Error("the page should show the Takeout share address")
+	if !strings.Contains(body, "Takeout") {
+		t.Error("the page should name the Takeout folder the watcher looks for")
 	}
 }
 
@@ -258,11 +258,11 @@ func TestStartPhotosRoutes(t *testing.T) {
 	handler := Routes(opts)
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, request("POST", "/photos/share/start", "marco"))
+	handler.ServeHTTP(rec, request("POST", "/photos/takeout/start", "marco"))
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, request("POST", "/photos/upload/start", "marco"))
 
-	want := []string{"share:marco", "upload:marco"}
+	want := []string{"takeout:marco", "upload:marco"}
 	if len(runner.started) != len(want) {
 		t.Fatalf("started = %v, want %v", runner.started, want)
 	}
@@ -315,5 +315,38 @@ func TestHealthz(t *testing.T) {
 	}
 	if body["status"] != "ok" {
 		t.Errorf("status = %v", body["status"])
+	}
+}
+
+// The "Add to Drive" route reads the person's Drive, so it must not be offered
+// before they have connected Google: the button would start a wait that could
+// never look anywhere.
+func TestTakeoutRouteNeedsGoogleConnected(t *testing.T) {
+	opts := oauthOptions(&fakeGoogle{}, newFakeTokenStore())
+	opts.Runner = &fakeRunner{}
+	handler := Routes(opts)
+
+	// Not connected: the entry screen explains it and shows no start button.
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, request("GET", "/", "marco"))
+	body := rec.Body.String()
+	if strings.Contains(body, "/photos/takeout/start") {
+		t.Error("the Takeout start form must not be offered before Google is connected")
+	}
+	if !strings.Contains(body, "Connect Google first") {
+		t.Error("the screen should tell the person to connect Google first")
+	}
+
+	// Connected: the route is offered.
+	store := newFakeTokenStore()
+	store.tokens["marco/google"] = core.Token{User: "marco", Provider: "google", Sealed: []byte("x")}
+	opts = oauthOptions(&fakeGoogle{}, store)
+	opts.Runner = &fakeRunner{}
+	handler = Routes(opts)
+
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, request("GET", "/", "marco"))
+	if !strings.Contains(rec.Body.String(), "/photos/takeout/start") {
+		t.Error("the Takeout start form should be offered once Google is connected")
 	}
 }

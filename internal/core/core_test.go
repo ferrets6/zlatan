@@ -72,7 +72,7 @@ func TestTrackTerminal(t *testing.T) {
 		want  bool
 	}{
 		{PhotosDone, true},
-		{PhotosAwaitingShare, false},
+		{PhotosAwaitingTakeout, false},
 		{PhotosImporting, false},
 	}
 	for _, c := range photos {
@@ -152,7 +152,7 @@ func TestSafeNameStaysUnderStaging(t *testing.T) {
 func TestSummaries(t *testing.T) {
 	m := Migration{
 		DriveState:     DriveDone,
-		PhotosState:    PhotosAwaitingShare,
+		PhotosState:    PhotosAwaitingTakeout,
 		DriveProgress:  "copied 1.2 GiB",
 		PhotosProgress: "waiting for the Takeout",
 	}

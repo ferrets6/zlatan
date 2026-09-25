@@ -25,6 +25,20 @@ const (
 	// before the purge. Long enough to answer "wait, did my video arrive?",
 	// short enough not to hoard a hundred gigabytes.
 	DefaultRetentionDays = 14
+
+	// DefaultTakeoutFolder is the folder Google Takeout creates in Drive when
+	// the person chooses "Add to Drive".
+	DefaultTakeoutFolder = "Takeout"
+
+	// DefaultTakeoutPoll is how often the Takeout watcher looks for the
+	// folder. Takeout takes hours to days, so a slow poll costs nothing and a
+	// fast one would only spend quota.
+	DefaultTakeoutPoll = 10 * time.Minute
+
+	// DefaultTakeoutMaxWait is how long the watcher keeps looking before it
+	// gives up and tells the person to use the upload route instead. Google's
+	// own email says the archive link is valid for about 7 days.
+	DefaultTakeoutMaxWait = 7 * 24 * time.Hour
 )
 
 // Config is the whole of Zlatan's configuration. Every secret is a
@@ -64,6 +78,11 @@ type Config struct {
 	// single-node homelab: immich-go and Immich's own jobs already saturate
 	// the CPU, and the memory limits are deliberate.
 	MaxConcurrent int
+
+	// TakeoutPoll is how often the watcher looks for the Takeout folder, and
+	// TakeoutMaxWait how long it keeps looking before giving up.
+	TakeoutPoll    time.Duration
+	TakeoutMaxWait time.Duration
 }
 
 // Google is the OAuth client dedicated to this service, plus the family
@@ -75,10 +94,11 @@ type Google struct {
 	ClientSecret core.Secret
 	RedirectURL  string
 
-	// ShareAccount is the address the wizard shows when it asks the person to
-	// share their Takeout folder. Without it, the "Add to Drive" route cannot
-	// be offered and the wizard falls back to the upload route.
-	ShareAccount string
+	// TakeoutFolder is the name of the folder Google Takeout creates in the
+	// person's Drive when they pick "Add to Drive". Zlatan watches for a folder
+	// with this name under the account it already has read access to, so no
+	// separate share step and no central account are involved.
+	TakeoutFolder string
 }
 
 // Configured reports whether the OAuth client is usable.
@@ -170,10 +190,10 @@ func Load(env map[string]string) (*Config, error) {
 		TrustedProxy:    get("ZLATAN_TRUSTED_PROXY"),
 		TokenKey:        core.Secret(get("ZLATAN_TOKEN_KEY")),
 		Google: Google{
-			ClientID:     core.Secret(get("ZLATAN_GOOGLE_CLIENT_ID")),
-			ClientSecret: core.Secret(get("ZLATAN_GOOGLE_CLIENT_SECRET")),
-			RedirectURL:  get("ZLATAN_GOOGLE_REDIRECT_URL"),
-			ShareAccount: get("ZLATAN_TAKEOUT_SHARE_ACCOUNT"),
+			ClientID:      core.Secret(get("ZLATAN_GOOGLE_CLIENT_ID")),
+			ClientSecret:  core.Secret(get("ZLATAN_GOOGLE_CLIENT_SECRET")),
+			RedirectURL:   get("ZLATAN_GOOGLE_REDIRECT_URL"),
+			TakeoutFolder: or(get("ZLATAN_TAKEOUT_FOLDER"), DefaultTakeoutFolder),
 		},
 		Nextcloud: Nextcloud{
 			URL: get("ZLATAN_NEXTCLOUD_URL"),
@@ -184,6 +204,8 @@ func Load(env map[string]string) (*Config, error) {
 		},
 		StagingRetention: DefaultRetentionDays * 24 * time.Hour,
 		MaxConcurrent:    1,
+		TakeoutPoll:      DefaultTakeoutPoll,
+		TakeoutMaxWait:   DefaultTakeoutMaxWait,
 	}
 
 	level, err := parseLevel(get("ZLATAN_LOG_LEVEL"))
@@ -198,6 +220,23 @@ func Load(env map[string]string) (*Config, error) {
 			problems = append(problems, "ZLATAN_STAGING_RETENTION_DAYS must be a non-negative integer")
 		} else {
 			cfg.StagingRetention = time.Duration(n) * 24 * time.Hour
+		}
+	}
+
+	if v := get("ZLATAN_TAKEOUT_POLL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < time.Minute {
+			problems = append(problems, "ZLATAN_TAKEOUT_POLL must be a duration of at least 1m")
+		} else {
+			cfg.TakeoutPoll = d
+		}
+	}
+	if v := get("ZLATAN_TAKEOUT_MAX_WAIT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < time.Hour {
+			problems = append(problems, "ZLATAN_TAKEOUT_MAX_WAIT must be a duration of at least 1h")
+		} else {
+			cfg.TakeoutMaxWait = d
 		}
 	}
 
@@ -237,10 +276,7 @@ func Load(env map[string]string) (*Config, error) {
 func (c *Config) Warnings() []string {
 	var w []string
 	if !c.Google.Configured() {
-		w = append(w, "the Google OAuth client is not configured, so the Drive route is unavailable")
-	}
-	if c.Google.ShareAccount == "" {
-		w = append(w, "ZLATAN_TAKEOUT_SHARE_ACCOUNT is not set, so the Photos wizard cannot offer the 'Add to Drive' route and falls back to upload")
+		w = append(w, "the Google OAuth client is not configured, so the Drive route is unavailable and the Photos wizard falls back to upload")
 	}
 	if !c.Nextcloud.Configured() {
 		w = append(w, "ZLATAN_NEXTCLOUD_URL is not set, so the Drive route cannot import anything")

@@ -128,7 +128,6 @@ func TestWarningsNameWhatWillNotWork(t *testing.T) {
 	warnings := strings.Join(cfg.Warnings(), "\n")
 	for _, want := range []string{
 		"Google OAuth",
-		"TAKEOUT_SHARE_ACCOUNT",
 		"ZLATAN_NEXTCLOUD_URL",
 		"Immich",
 	} {

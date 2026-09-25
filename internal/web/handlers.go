@@ -32,12 +32,17 @@ type page struct {
 
 	LastError string
 
-	// ShareAccount is the address the wizard shows for the "Add to Drive"
-	// route. Empty means the route is not offered and the upload route is
-	// used instead.
-	ShareAccount string
-	CanShare     bool
-	CanUpload    bool
+	// CanTakeoutRoute is whether the "Add to Drive" route is available on this
+	// instance at all (the Google client and Immich are configured).
+	// CanTakeout is the narrower question of whether it can be offered to this
+	// person right now, which also needs them to have connected Google.
+	CanTakeoutRoute bool
+	CanTakeout      bool
+	CanUpload       bool
+
+	// TakeoutFolder is the folder name the wizard tells the person to look
+	// for. It is Google's own name, not something they choose.
+	TakeoutFolder string
 
 	// CanStartDrive is false when the OAuth client or Nextcloud is not
 	// configured, so the button is not offered when it cannot work.
@@ -78,12 +83,16 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 		DriveFiles:     m.DriveFilesCopied,
 		PhotosAssets:   m.PhotosAssetsAdded,
 		LastError:      m.LastError,
-		ShareAccount:   opts.Config.Google.ShareAccount,
-		CanShare:       opts.Config.Google.ShareAccount != "" && opts.Config.Google.Configured(),
+		TakeoutFolder:  opts.Config.Google.TakeoutFolder,
 		CanUpload:      opts.Config.Immich.Configured(),
 		CanStartDrive:  opts.Google != nil && opts.Sealer != nil && opts.TokenStore != nil && opts.Config.Nextcloud.Configured(),
 		CanStartPhotos: opts.Config.Immich.Configured() && opts.Runner != nil,
 	}
+
+	// The "Add to Drive" route needs the Google client to watch the Drive and
+	// Immich to import. Whether the person has connected Google is filled in
+	// below, with the other credential reads.
+	p.CanTakeoutRoute = opts.Config.Google.Configured() && opts.Config.Immich.Configured() && opts.Runner != nil
 
 	// Both credentials the Drive half needs. A failed read is "not connected",
 	// which is the honest answer and offers the button again.
@@ -93,6 +102,11 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 		_, err = opts.TokenStore.GetToken(r.Context(), user, nextcloud.Provider)
 		p.NextcloudConnected = err == nil
 	}
+
+	// The Takeout watcher reads the person's Drive, so the route can only be
+	// offered once they have connected Google. Without it the button would
+	// start a wait that could never look anywhere.
+	p.CanTakeout = p.CanTakeoutRoute && p.GoogleConnected
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -224,8 +238,8 @@ func (opts Options) startPhotosUpload(w http.ResponseWriter, r *http.Request) {
 	opts.startPhotos(w, r, "upload")
 }
 
-func (opts Options) startPhotosShare(w http.ResponseWriter, r *http.Request) {
-	opts.startPhotos(w, r, "share")
+func (opts Options) startPhotosTakeout(w http.ResponseWriter, r *http.Request) {
+	opts.startPhotos(w, r, "takeout")
 }
 
 func (opts Options) startPhotos(w http.ResponseWriter, r *http.Request, route string) {
@@ -246,8 +260,8 @@ func (opts Options) startPhotos(w http.ResponseWriter, r *http.Request, route st
 
 	var startErr error
 	switch route {
-	case "share":
-		startErr = opts.Runner.StartPhotosShare(r.Context(), user)
+	case "takeout":
+		startErr = opts.Runner.StartPhotosTakeout(r.Context(), user)
 	default:
 		startErr = opts.Runner.StartPhotosUpload(r.Context(), user)
 	}

@@ -90,7 +90,7 @@ type Options struct {
 type Runner interface {
 	StartDrive(ctx context.Context, user string) error
 	StartPhotosUpload(ctx context.Context, user string) error
-	StartPhotosShare(ctx context.Context, user string) error
+	StartPhotosTakeout(ctx context.Context, user string) error
 
 	// StartNextcloud begins the Nextcloud Login Flow and returns the URL the
 	// person opens to grant access. PollNextcloud notices the grant; it is
@@ -117,7 +117,7 @@ func Routes(opts Options) http.Handler {
 	mux.Handle("POST /nextcloud/start", gate(opts.startNextcloud))
 	mux.Handle("POST /drive/start", gate(opts.startDrive))
 	mux.Handle("POST /photos/upload/start", gate(opts.startPhotosUpload))
-	mux.Handle("POST /photos/share/start", gate(opts.startPhotosShare))
+	mux.Handle("POST /photos/takeout/start", gate(opts.startPhotosTakeout))
 
 	// Resumable Takeout upload. Each request is authenticated and scoped to the
 	// caller, so one person can never write into another's staging area.

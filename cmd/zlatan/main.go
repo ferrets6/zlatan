@@ -172,6 +172,14 @@ func serve(ctx context.Context, a *app) int {
 	engine := runner.New(a.cfg, a.db, a.sealer, a.log)
 	uploads := upload.New(a.cfg.StagingDir, 0, 0)
 
+	// The Takeout watcher runs for the life of the process. It is one loop for
+	// everyone: the state lives in the database, so a restart resumes the wait.
+	// It only starts when the Google client exists, because without it there is
+	// no Drive to watch.
+	if a.cfg.Google.Configured() {
+		go engine.WatchTakeout(ctx)
+	}
+
 	// The OAuth provider is optional: with no client configured the wizard
 	// simply does not offer the Drive route.
 	var googleFlow web.GoogleFlow

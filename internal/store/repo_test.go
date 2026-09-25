@@ -82,7 +82,7 @@ func TestDriveAndPhotosStatesAreIndependent(t *testing.T) {
 		t.Errorf("moving drive must not touch photos, got %q", m.PhotosState)
 	}
 
-	if _, err := db.SetPhotosState(ctx, "marco", core.PhotosAwaitingShare, "waiting for the Takeout"); err != nil {
+	if _, err := db.SetPhotosState(ctx, "marco", core.PhotosAwaitingTakeout, "waiting for the Takeout"); err != nil {
 		t.Fatalf("SetPhotosState: %v", err)
 	}
 	m, _ = db.GetMigration(ctx, "marco")
@@ -91,6 +91,54 @@ func TestDriveAndPhotosStatesAreIndependent(t *testing.T) {
 	}
 	if m.PhotosProgress != "waiting for the Takeout" {
 		t.Errorf("photos progress = %q", m.PhotosProgress)
+	}
+}
+
+// The Takeout wait stamp is set on entering the wait and cleared on any other
+// state, and only people actually waiting are listed. The watcher leans on
+// both: a stale stamp would expire a wait that just started, and a missing one
+// would let it watch forever.
+func TestTakeoutWaitStamp(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	if _, err := db.EnsureMigration(ctx, "marco", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Not waiting: not listed, and no stamp.
+	waits, err := db.ListAwaitingTakeout(ctx)
+	if err != nil {
+		t.Fatalf("ListAwaitingTakeout: %v", err)
+	}
+	if len(waits) != 0 {
+		t.Fatalf("a fresh migration should not be waiting, got %v", waits)
+	}
+
+	// Entering the wait stamps it.
+	if _, err := db.SetPhotosState(ctx, "marco", core.PhotosAwaitingTakeout, "waiting"); err != nil {
+		t.Fatal(err)
+	}
+	waits, err = db.ListAwaitingTakeout(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(waits) != 1 || waits[0].User != "marco" {
+		t.Fatalf("expected marco waiting, got %v", waits)
+	}
+	if waits[0].Since.IsZero() {
+		t.Error("the wait start should be stamped")
+	}
+
+	// Leaving the wait clears it.
+	if _, err := db.SetPhotosState(ctx, "marco", core.PhotosImporting, "importing"); err != nil {
+		t.Fatal(err)
+	}
+	waits, err = db.ListAwaitingTakeout(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(waits) != 0 {
+		t.Fatalf("a person no longer waiting must not be listed, got %v", waits)
 	}
 }
 

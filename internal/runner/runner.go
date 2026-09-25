@@ -15,6 +15,7 @@ package runner
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -55,6 +56,7 @@ type Store interface {
 	GetToken(ctx context.Context, user, provider string) (core.Token, error)
 	PutToken(ctx context.Context, t core.Token) error
 	DeleteToken(ctx context.Context, user, provider string) error
+	ListAwaitingTakeout(ctx context.Context) ([]core.TakeoutWait, error)
 }
 
 // Sealer opens the stored tokens. The runner never sees a token in the clear
@@ -277,6 +279,16 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		"--stats", "10s",
 		"--stats-one-line",
 	}
+	// The Takeout folder is not the person's documents. When it lives in their
+	// Drive (the "Add to Drive" route), copying everything would drop tens of
+	// gigabytes of photo archive into Nextcloud as files — the photos belong in
+	// Immich, and the archive is disposable. Exclude it from the Drive copy.
+	takeoutFolder := r.cfg.Google.TakeoutFolder
+	if takeoutFolder == "" {
+		takeoutFolder = config.DefaultTakeoutFolder
+	}
+	args = append(args, "--exclude", "/"+takeoutFolder+"/**")
+
 	env, err := r.rcloneEnv(tokens, creds)
 	if err != nil {
 		r.failDrive(ctx, user, "the copy could not be prepared")
@@ -353,18 +365,226 @@ func (r *Runner) StartPhotosUpload(ctx context.Context, user string) error {
 	return nil
 }
 
-// StartPhotosShare records that the person is on the "Add to Drive" route and
-// leaves them waiting for the shared folder to appear. The polling that
-// notices it is a later phase.
-func (r *Runner) StartPhotosShare(ctx context.Context, user string) error {
-	if r.cfg.Google.ShareAccount == "" {
-		return errors.New("no Takeout share account is configured")
+// StartPhotosTakeout records that the person has asked Google for the export
+// and puts them on the "Add to Drive" route. The watcher picks it up from
+// there: it looks for the Takeout folder in the person's own Drive, using the
+// drive.readonly token the Drive half already holds, so there is no folder to
+// share and no central account to share it with.
+func (r *Runner) StartPhotosTakeout(ctx context.Context, user string) error {
+	if !r.cfg.Immich.Configured() {
+		return errors.New("Immich is not configured")
 	}
-	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosAwaitingShare,
-		"share the Takeout folder with "+r.cfg.Google.ShareAccount); err != nil {
+	if !r.cfg.Google.Configured() {
+		return errors.New("the Google OAuth client is not configured")
+	}
+	// Without the Drive token there is nothing to watch the Drive with: the
+	// person must connect Google first. Say so now rather than leaving them on
+	// a screen that can never move.
+	if _, err := r.store.GetToken(ctx, user, "google"); err != nil {
+		return fmt.Errorf("%w: connect Google before asking for the export", err)
+	}
+	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosAwaitingTakeout,
+		"waiting for Google to put the export in your Drive"); err != nil {
 		return err
 	}
 	return nil
+}
+
+// WatchTakeout polls for Takeout folders that have appeared in the Drive of
+// people waiting for one. It is one loop for everyone rather than a goroutine
+// per person: the state is in the database, so a restart resumes the wait and
+// a person who closes their browser does not lose it.
+//
+// It runs until ctx is cancelled. Each tick is independent: an error for one
+// person is logged and does not stop the others.
+func (r *Runner) WatchTakeout(ctx context.Context) {
+	poll := r.cfg.TakeoutPoll
+	if poll <= 0 {
+		poll = config.DefaultTakeoutPoll
+	}
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
+	r.log.Info("takeout watcher started", "interval", poll)
+	for {
+		select {
+		case <-ctx.Done():
+			r.log.Info("takeout watcher stopped")
+			return
+		case <-ticker.C:
+			r.pollTakeout(ctx)
+		}
+	}
+}
+
+func (r *Runner) pollTakeout(ctx context.Context) {
+	users, err := r.store.ListAwaitingTakeout(ctx)
+	if err != nil {
+		r.log.Error("takeout watcher: list", "error", err)
+		return
+	}
+	for _, w := range users {
+		if err := r.checkTakeout(ctx, w); err != nil {
+			r.log.Error("takeout watcher: check", "user", w.User, "error", err)
+		}
+	}
+}
+
+// checkTakeout looks for the Takeout folder in one person's Drive and, when it
+// is there, downloads it and hands it to the import. It runs in its own
+// goroutine so one slow download does not hold up the whole tick; the heavy
+// work then queues on the shared limiter like every other migration.
+func (r *Runner) checkTakeout(ctx context.Context, w core.TakeoutWait) error {
+	user := w.User
+
+	// Give up after the configured wait and point the person at the upload
+	// route. Watching forever would leave them on a screen that never moves,
+	// and Google's own archive link expires after about a week anyway.
+	maxWait := r.cfg.TakeoutMaxWait
+	if maxWait <= 0 {
+		maxWait = config.DefaultTakeoutMaxWait
+	}
+	if !w.Since.IsZero() && time.Since(w.Since) > maxWait {
+		r.log.Info("takeout wait expired", "user", user, "since", w.Since)
+		r.failPhotos(ctx, user, "the export did not arrive in time: upload the Takeout file instead")
+		return nil
+	}
+
+	tok, err := r.store.GetToken(ctx, user, "google")
+	if err != nil {
+		return err
+	}
+	tokens, err := r.openTokens(tok)
+	if err != nil {
+		return err
+	}
+
+	found, err := r.takeoutReady(ctx, tokens)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+
+	r.log.Info("takeout folder found", "user", user)
+
+	// Move the state off the wait *here*, before the detached goroutine starts,
+	// and not inside it. The goroutine blocks on the shared limiter until any
+	// running migration finishes, which can be hours; if the state stayed on
+	// awaiting_takeout for that long, every tick would launch another download
+	// of the same folder. Claiming the person in the tick makes the claim
+	// atomic with the decision to start.
+	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosDownloading,
+		"downloading the export from your Drive"); err != nil {
+		return err
+	}
+
+	// Detach: the download outlives this tick.
+	go r.runTakeoutDownload(context.WithoutCancel(ctx), user, tokens)
+	return nil
+}
+
+// takeoutReady reports whether the Takeout folder exists in the person's Drive
+// and looks complete. Google writes the archives into the folder over time, so
+// "the folder exists" is not enough: the check waits until every part Google
+// listed is present, because importing a half-written export is the failure
+// this whole step exists to avoid.
+func (r *Runner) takeoutReady(ctx context.Context, tokens oauth.Tokens) (bool, error) {
+	folder := r.cfg.Google.TakeoutFolder
+	if folder == "" {
+		folder = config.DefaultTakeoutFolder
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	// lsjson is a read-only listing. A missing folder is not an error: it just
+	// means the export is not ready yet.
+	var out strings.Builder
+	args := []string{"lsjson", "gdrive:" + folder, "--files-only", "--no-modtime"}
+	if err := r.exec.Run(ctx, "rclone", args, r.driveEnv(tokens), func(line string) {
+		out.WriteString(line)
+	}); err != nil {
+		// rclone exits non-zero when the path does not exist. Distinguish that
+		// from a real failure by checking whether anything was listed.
+		if out.Len() == 0 {
+			return false, nil
+		}
+		return false, fmt.Errorf("listing the Takeout folder: %w", err)
+	}
+
+	var entries []struct {
+		Name string `json:"Name"`
+		Size int64  `json:"Size"`
+	}
+	if err := json.Unmarshal([]byte(out.String()), &entries); err != nil {
+		// An empty listing is valid JSON ("null") only when nothing matched;
+		// anything else is a real parse failure.
+		if strings.TrimSpace(out.String()) == "" || strings.TrimSpace(out.String()) == "null" {
+			return false, nil
+		}
+		return false, fmt.Errorf("reading the Takeout listing: %w", err)
+	}
+
+	// Ready when at least one .zip is present and none of them is still zero
+	// bytes: a zero-byte part is Google still writing it.
+	var zips, nonEmpty int
+	for _, e := range entries {
+		if !strings.HasSuffix(strings.ToLower(e.Name), ".zip") {
+			continue
+		}
+		zips++
+		if e.Size > 0 {
+			nonEmpty++
+		}
+	}
+	return zips > 0 && zips == nonEmpty, nil
+}
+
+// runTakeoutDownload copies the Takeout folder from the person's Drive into
+// their staging area, then runs the same immich-go import the upload route
+// uses. It holds the heavy limiter for the whole download+import, so it cannot
+// run beside another heavy migration.
+func (r *Runner) runTakeoutDownload(ctx context.Context, user string, tokens oauth.Tokens) {
+	r.acquire()
+	defer r.release()
+
+	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
+	defer cancel()
+
+	staging := filepath.Join(r.cfg.StagingDir, core.SafeName(user))
+	if err := os.MkdirAll(staging, 0o750); err != nil {
+		r.failPhotos(ctx, user, "the staging area could not be prepared")
+		r.log.Error("runTakeoutDownload: create staging", "user", user, "error", err)
+		return
+	}
+
+	folder := r.cfg.Google.TakeoutFolder
+	if folder == "" {
+		folder = config.DefaultTakeoutFolder
+	}
+
+	// The state is already downloading: the watcher claimed it before starting
+	// this goroutine, so a second tick cannot start a second download.
+
+	// copy, not move: the person's own Drive is never modified. The staging
+	// area is the same one the upload route writes to, so the import that
+	// follows reads exactly where this wrote.
+	args := []string{
+		"copy", "gdrive:" + folder, staging,
+		"--transfers", "4",
+		"--checkers", "8",
+		"--stats", "10s",
+		"--stats-one-line",
+	}
+	if err := r.exec.Run(ctx, "rclone", args, r.driveEnv(tokens), nil); err != nil {
+		r.failPhotos(ctx, user, "the export could not be downloaded from your Drive")
+		r.log.Error("runTakeoutDownload: rclone", "user", user, "error", err)
+		return
+	}
+
+	r.runPhotosImport(ctx, user)
 }
 
 func (r *Runner) runPhotosImport(ctx context.Context, user string) {
@@ -444,15 +664,24 @@ func (r *Runner) rcloneEnv(tokens oauth.Tokens, nc nextcloud.Credentials) ([]str
 		return nil, err
 	}
 
-	env := append(os.Environ(),
-		"RCLONE_CONFIG_GDRIVE_TYPE=drive",
-		"RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly",
-		"RCLONE_CONFIG_GDRIVE_TOKEN="+tokens.RcloneJSON(),
+	env := append(r.driveEnv(tokens),
 		"RCLONE_CONFIG_NC_TYPE=webdav",
 		"RCLONE_CONFIG_NC_VENDOR=nextcloud",
 		"RCLONE_CONFIG_NC_URL="+r.nc.DAVURL(nc.LoginName),
 		"RCLONE_CONFIG_NC_USER="+nc.LoginName,
 		"RCLONE_CONFIG_NC_PASS="+obscured,
+	)
+	return env, nil
+}
+
+// driveEnv is the Google Drive remote on its own, for the steps that only
+// touch the person's Drive (the Takeout watch and download). It passes the
+// token through the environment, never a config file on disk.
+func (r *Runner) driveEnv(tokens oauth.Tokens) []string {
+	env := append(os.Environ(),
+		"RCLONE_CONFIG_GDRIVE_TYPE=drive",
+		"RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly",
+		"RCLONE_CONFIG_GDRIVE_TOKEN="+tokens.RcloneJSON(),
 	)
 	if !r.cfg.Google.ClientID.Empty() {
 		env = append(env,
@@ -460,7 +689,7 @@ func (r *Runner) rcloneEnv(tokens oauth.Tokens, nc nextcloud.Credentials) ([]str
 			"RCLONE_CONFIG_GDRIVE_CLIENT_SECRET="+r.cfg.Google.ClientSecret.Reveal(),
 		)
 	}
-	return env, nil
+	return env
 }
 
 // acquire blocks until a heavy slot is free.

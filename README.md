@@ -7,10 +7,11 @@
 > Status: **v0.2.0** (2026-09-25). The service runs, the schema is applied, the
 > wizard renders and gates access; the Google OAuth flow, the Nextcloud Login
 > Flow (per-person app password), the runner that drives `rclone` straight into
-> Nextcloud over WebDAV, the runner that drives `immich-go`, and the resumable
-> Takeout upload all work. The image is published at
-> `ghcr.io/marcodellemarche/zlatan`. Not yet: the polling of the shared Takeout
-> folder, verification, quotas and staging purge. See "What is missing".
+> Nextcloud over WebDAV, the runner that drives `immich-go`, the resumable
+> Takeout upload and the watcher that collects a Takeout from the person's own
+> Drive all work. The image is published at
+> `ghcr.io/marcodellemarche/zlatan`. Not yet: verification, quotas and staging
+> purge. See "What is missing".
 
 zlatan is a self-guided migration service for self-hosted stacks. A person who
 is not technical — a family member, a friend — opens it in a browser, signs in
@@ -48,6 +49,21 @@ internal/
 
 Two independent tracks, `drive` and `photos`: a person may run one, the other,
 or both in parallel. The state of one never touches the other.
+
+## How the Photos half collects a Takeout
+
+Google cannot be asked for a Takeout by a program, so the person asks for it
+once, choosing **"Add to Drive"**. That puts the export in their own Drive,
+under a folder Google names `Takeout`. Zlatan already holds a `drive.readonly`
+token for that account from the Drive half, so a watcher simply looks for the
+folder: when it appears, and only once every part Google listed is present and
+non-empty, it downloads the parts and imports them with `immich-go`.
+
+Nothing is shared with anybody: there is no central Google account and no
+folder-sharing step. The Drive copy excludes the `Takeout` folder, so the
+archive does not also land in Nextcloud as files — the photos belong in Immich
+and the archive is disposable. A wait that outlives `ZLATAN_TAKEOUT_MAX_WAIT`
+ends with a pointer to the upload route, rather than a screen that never moves.
 
 ## How the Drive half reaches Nextcloud
 
@@ -111,7 +127,10 @@ make image    # build the image
 - [x] Resumable Takeout upload (route B).
 - [x] Import into Nextcloud: rclone copies Drive straight to WebDAV, with a
       per-person app password from the Nextcloud Login Flow v2.
-- [ ] Polling of the shared Takeout folder (route A).
+- [x] The "Add to Drive" route: a watcher looks for the Takeout folder in the
+      person's own Drive (with the token it already holds), waits until every
+      part is complete, downloads it and imports it. No folder to share and no
+      central account.
 - [ ] Verification (count and sample) and staging purge.
 - [ ] Quotas: read current usage and warn when the migration would exceed it.
 

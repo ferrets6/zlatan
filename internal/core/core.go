@@ -70,16 +70,20 @@ const (
 type PhotosState string
 
 const (
-	PhotosNotStarted     PhotosState = "not_started"
-	PhotosTakeoutGuide   PhotosState = "takeout_guide"
-	PhotosAwaitingShare  PhotosState = "awaiting_share"
-	PhotosAwaitingUpload PhotosState = "awaiting_upload"
-	PhotosDownloading    PhotosState = "downloading"
-	PhotosImporting      PhotosState = "importing"
-	PhotosVerifying      PhotosState = "verifying"
-	PhotosDone           PhotosState = "done"
-	PhotosFailed         PhotosState = "failed"
-	PhotosCancelled      PhotosState = "cancelled"
+	PhotosNotStarted   PhotosState = "not_started"
+	PhotosTakeoutGuide PhotosState = "takeout_guide"
+	// PhotosAwaitingTakeout is the "Add to Drive" route: the person has asked
+	// Google for the export, and it will appear in their own Drive when it is
+	// ready. Zlatan watches for it with the drive.readonly token it already
+	// holds, so there is nobody to share anything with.
+	PhotosAwaitingTakeout PhotosState = "awaiting_takeout"
+	PhotosAwaitingUpload  PhotosState = "awaiting_upload"
+	PhotosDownloading     PhotosState = "downloading"
+	PhotosImporting       PhotosState = "importing"
+	PhotosVerifying       PhotosState = "verifying"
+	PhotosDone            PhotosState = "done"
+	PhotosFailed          PhotosState = "failed"
+	PhotosCancelled       PhotosState = "cancelled"
 )
 
 // Terminal reports whether the state is an end state for its track.
@@ -162,6 +166,13 @@ type Token struct {
 	Scopes    string
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// TakeoutWait is one person waiting for a Takeout to appear in their Drive,
+// and since when. It is the unit the watcher works in.
+type TakeoutWait struct {
+	User  string
+	Since time.Time
 }
 
 // Verify is the outcome of comparing a migrated sample against its source.

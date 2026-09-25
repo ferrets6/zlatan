@@ -67,6 +67,7 @@ type fakeStore struct {
 	driveBytes int64
 	driveFiles int64
 	photos     int64
+	waitSince  time.Time
 }
 
 func newFakeStore() *fakeStore {
@@ -141,6 +142,15 @@ func (f *fakeStore) DeleteToken(_ context.Context, _, provider string) error {
 	return nil
 }
 
+func (f *fakeStore) ListAwaitingTakeout(_ context.Context) ([]core.TakeoutWait, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.migration.PhotosState == core.PhotosAwaitingTakeout {
+		return []core.TakeoutWait{{User: f.migration.User, Since: f.waitSince}}, nil
+	}
+	return nil, nil
+}
+
 func (f *fakeStore) state() core.Migration {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -152,10 +162,10 @@ func testConfig() *config.Config {
 		StagingDir:    t_TempDir(),
 		MaxConcurrent: 1,
 		Google: config.Google{
-			ClientID:     "client-id",
-			ClientSecret: "client-secret",
-			RedirectURL:  "https://zlatan.example/cb",
-			ShareAccount: "family@example.com",
+			ClientID:      "client-id",
+			ClientSecret:  "client-secret",
+			RedirectURL:   "https://zlatan.example/cb",
+			TakeoutFolder: "Takeout",
 		},
 		Nextcloud: config.Nextcloud{URL: "http://nextcloud"},
 		Immich:    config.Immich{URL: "http://immich:2283", APIKey: "immich-key"},
@@ -493,31 +503,115 @@ func TestRunPhotosImportRefusesWithoutArchives(t *testing.T) {
 	}
 }
 
-func TestStartPhotosShareRecordsTheRoute(t *testing.T) {
+func TestStartPhotosTakeoutRecordsTheRoute(t *testing.T) {
 	store := newFakeStore()
 	r := newRunner(t, store, &fakeExecutor{})
+	seedToken(t, store, sealerOf(t, r))
 
-	if err := r.StartPhotosShare(context.Background(), "marco"); err != nil {
-		t.Fatalf("StartPhotosShare: %v", err)
+	if err := r.StartPhotosTakeout(context.Background(), "marco"); err != nil {
+		t.Fatalf("StartPhotosTakeout: %v", err)
 	}
-	m := store.state()
-	if m.PhotosState != core.PhotosAwaitingShare {
-		t.Fatalf("photos state = %q, want awaiting_share", m.PhotosState)
-	}
-	if !strings.Contains(m.PhotosProgress, "family@example.com") {
-		t.Errorf("the progress should name the share address, got %q", m.PhotosProgress)
+	if m := store.state(); m.PhotosState != core.PhotosAwaitingTakeout {
+		t.Fatalf("photos state = %q, want awaiting_takeout", m.PhotosState)
 	}
 }
 
-func TestStartPhotosShareRefusesWithoutAccount(t *testing.T) {
+// Without the Drive token there is no Drive to watch, so the route is refused
+// up front rather than leaving the person on a screen that can never move.
+func TestStartPhotosTakeoutRefusesWithoutGoogleToken(t *testing.T) {
 	store := newFakeStore()
-	cfg := testConfig()
-	cfg.Google.ShareAccount = ""
-	sealer, _ := core.NewSealer(core.Secret("k"))
-	r := New(cfg, store, sealer, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	r := newRunner(t, store, &fakeExecutor{})
 
-	if err := r.StartPhotosShare(context.Background(), "marco"); err == nil {
-		t.Fatal("expected an error when no share account is configured")
+	if err := r.StartPhotosTakeout(context.Background(), "marco"); err == nil {
+		t.Fatal("expected an error when Google is not connected")
+	}
+}
+
+// takeoutReady must say "not yet" for a folder that is missing or still being
+// written, and only "ready" once every part is present and non-empty: an
+// import of a half-written export is the failure this whole step prevents.
+func TestTakeoutReady(t *testing.T) {
+	sealedTokens := func(t *testing.T, r *Runner) oauth.Tokens {
+		t.Helper()
+		return oauth.Tokens{AccessToken: "a", RefreshToken: "r", TokenType: "Bearer", Expiry: time.Now().Add(time.Hour)}
+	}
+
+	cases := []struct {
+		name string
+		out  []string
+		err  error
+		want bool
+	}{
+		{name: "folder not there yet", err: errors.New("directory not found"), want: false},
+		{name: "empty listing", out: []string{"null"}, want: false},
+		{name: "one complete part", out: []string{`[{"Name":"takeout-1.zip","Size":100}]`}, want: true},
+		{name: "a part still being written", out: []string{`[{"Name":"takeout-1.zip","Size":100},{"Name":"takeout-2.zip","Size":0}]`}, want: false},
+		{name: "only a non-zip", out: []string{`[{"Name":"archive_browser.html","Size":10}]`}, want: false},
+		{name: "zip plus a non-zip", out: []string{`[{"Name":"takeout-1.zip","Size":10},{"Name":"archive_browser.html","Size":10}]`}, want: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			store := newFakeStore()
+			exec := &fakeExecutor{lines: c.out, err: c.err}
+			r := newRunner(t, store, exec)
+			got, err := r.takeoutReady(context.Background(), sealedTokens(t, r))
+			if err != nil {
+				t.Fatalf("takeoutReady: %v", err)
+			}
+			if got != c.want {
+				t.Errorf("takeoutReady = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// A wait that has run past the configured limit must end, not run forever: the
+// person is told to use the upload route instead. Otherwise they sit on a
+// screen that can never move, and Google's own archive link expires anyway.
+func TestCheckTakeoutGivesUpAfterMaxWait(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{}
+	r := newRunner(t, store, exec)
+	seedToken(t, store, sealerOf(t, r))
+	// The wait started well past the limit.
+	r.cfg.TakeoutMaxWait = time.Hour
+
+	w := core.TakeoutWait{User: "marco", Since: time.Now().Add(-48 * time.Hour)}
+	if err := r.checkTakeout(context.Background(), w); err != nil {
+		t.Fatalf("checkTakeout: %v", err)
+	}
+
+	m := store.state()
+	if m.PhotosState != core.PhotosFailed {
+		t.Fatalf("photos state = %q, want failed", m.PhotosState)
+	}
+	if !strings.Contains(m.LastError, "upload") {
+		t.Errorf("the message should point at the upload route, got %q", m.LastError)
+	}
+	// No rclone call should have been made: there was nothing to look at.
+	if _, ok := exec.last(); ok {
+		t.Error("an expired wait must not run a command")
+	}
+}
+
+// The Drive copy must exclude the Takeout folder: otherwise the "Add to Drive"
+// archive lands in Nextcloud as files, when the photos belong in Immich.
+func TestRunDriveExcludesTheTakeoutFolder(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{}
+	r := newRunner(t, store, exec)
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+
+	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
+
+	cmd, ok := exec.last()
+	if !ok {
+		t.Fatal("no command was run")
+	}
+	joined := strings.Join(cmd.args, " ")
+	if !strings.Contains(joined, "--exclude") || !strings.Contains(joined, "/Takeout/**") {
+		t.Errorf("the Drive copy should exclude the Takeout folder, got: %v", cmd.args)
 	}
 }
 

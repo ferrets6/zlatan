@@ -99,19 +99,53 @@ func (db *DB) SetDriveState(ctx context.Context, user string, state core.DriveSt
 	return db.GetMigration(ctx, user)
 }
 
-// SetPhotosState moves the Photos half.
+// SetPhotosState moves the Photos half. Entering the Takeout wait stamps the
+// wait start, so the watcher can give up after a while; leaving it clears the
+// stamp.
 func (db *DB) SetPhotosState(ctx context.Context, user string, state core.PhotosState, progress string) (core.Migration, error) {
+	// The stamp is set on entering the wait and cleared on any other state, so
+	// it always means "waiting since", never a stale value from a past wait.
+	waitSince := ""
+	if state == core.PhotosAwaitingTakeout {
+		waitSince = now()
+	}
 	if err := db.Tx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 			UPDATE migrations
-			SET photos_state = ?, photos_progress = ?, updated_at = ?
+			SET photos_state = ?, photos_progress = ?, updated_at = ?, photos_wait_since = ?
 			WHERE user = ?`,
-			string(state), progress, now(), user)
+			string(state), progress, now(), waitSince, user)
 		return err
 	}); err != nil {
 		return core.Migration{}, fmt.Errorf("set photos state for %s: %w", user, err)
 	}
 	return db.GetMigration(ctx, user)
+}
+
+// ListAwaitingTakeout returns the users whose Photos half is waiting for a
+// Takeout to appear in their Drive. The watcher reads this every tick rather
+// than holding a goroutine per person, so a restart resumes the wait instead
+// of losing it.
+func (db *DB) ListAwaitingTakeout(ctx context.Context) ([]core.TakeoutWait, error) {
+	rows, err := db.R.QueryContext(ctx,
+		`SELECT user, photos_wait_since FROM migrations WHERE photos_state = ?`,
+		string(core.PhotosAwaitingTakeout))
+	if err != nil {
+		return nil, fmt.Errorf("list awaiting takeout: %w", err)
+	}
+	defer rows.Close()
+
+	var waits []core.TakeoutWait
+	for rows.Next() {
+		var w core.TakeoutWait
+		var since string
+		if err := rows.Scan(&w.User, &since); err != nil {
+			return nil, fmt.Errorf("scan awaiting takeout: %w", err)
+		}
+		w.Since = parseTime(since)
+		waits = append(waits, w)
+	}
+	return waits, rows.Err()
 }
 
 // SetError records why a track stopped, without moving its state: the caller
