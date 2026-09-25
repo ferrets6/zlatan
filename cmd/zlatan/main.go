@@ -23,6 +23,7 @@ import (
 	"github.com/marcodellemarche/zlatan/internal/oauth"
 	"github.com/marcodellemarche/zlatan/internal/runner"
 	"github.com/marcodellemarche/zlatan/internal/store"
+	"github.com/marcodellemarche/zlatan/internal/upload"
 	"github.com/marcodellemarche/zlatan/internal/web"
 )
 
@@ -169,6 +170,7 @@ func serve(ctx context.Context, a *app) int {
 	}
 
 	engine := runner.New(a.cfg, a.db, a.sealer, a.log)
+	uploads := upload.New(a.cfg.StagingDir, 0, 0)
 
 	// The OAuth provider is optional: with no client configured the wizard
 	// simply does not offer the Drive route.
@@ -194,6 +196,7 @@ func serve(ctx context.Context, a *app) int {
 			Google:     googleFlow,
 			Sealer:     a.sealer,
 			TokenStore: a.db,
+			Uploads:    uploads,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,

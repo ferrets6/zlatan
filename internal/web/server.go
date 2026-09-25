@@ -7,6 +7,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
 	"github.com/marcodellemarche/zlatan/internal/oauth"
+	"github.com/marcodellemarche/zlatan/internal/upload"
 )
 
 // Pinger is the part of the store /healthz needs, kept narrow so the handler
@@ -48,6 +50,15 @@ type Sealer interface {
 	Open(sealed []byte) ([]byte, error)
 }
 
+// UploadStore holds a Takeout archive being uploaded in chunks.
+type UploadStore interface {
+	Begin(user, name string, size, chunkSize int64) (upload.Session, error)
+	WriteChunk(user, name string, index int64, r io.Reader) (upload.Session, error)
+	Status(user, name string) (upload.Session, error)
+	Complete(user, name string) (string, error)
+	Abort(user, name string) error
+}
+
 // Options wires the server.
 type Options struct {
 	Version string
@@ -62,6 +73,9 @@ type Options struct {
 	Google     GoogleFlow
 	Sealer     Sealer
 	TokenStore TokenStore
+
+	// Uploads is optional too: without it the upload route is not offered.
+	Uploads UploadStore
 
 	// Runner is the machinery that actually moves data. It is an interface so
 	// the HTTP layer can be tested without rclone or immich-go, and so a
@@ -96,6 +110,14 @@ func Routes(opts Options) http.Handler {
 	mux.Handle("POST /drive/start", gate(opts.startDrive))
 	mux.Handle("POST /photos/upload/start", gate(opts.startPhotosUpload))
 	mux.Handle("POST /photos/share/start", gate(opts.startPhotosShare))
+
+	// Resumable Takeout upload. Each request is authenticated and scoped to the
+	// caller, so one person can never write into another's staging area.
+	mux.Handle("POST /upload/begin", gate(opts.uploadBegin))
+	mux.Handle("PUT /upload/chunk", gate(opts.uploadChunk))
+	mux.Handle("GET /upload/status", gate(opts.uploadStatus))
+	mux.Handle("POST /upload/complete", gate(opts.uploadComplete))
+	mux.Handle("DELETE /upload", gate(opts.uploadAbort))
 	mux.Handle("GET /static/", gate(http.StripPrefix("/static/", staticHandler()).ServeHTTP))
 
 	return mux

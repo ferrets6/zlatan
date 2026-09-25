@@ -200,6 +200,31 @@ func RedactURL(raw string) string {
 	return "***@" + withoutUser
 }
 
+// SafeName turns an untrusted string into a safe path element. It is the one
+// sanitizer the whole service uses, so the runner and the upload store always
+// agree on where a person's staging directory is: two implementations that
+// drift apart would silently stop finding each other's files.
+//
+// Only letters, digits, dash and underscore survive. Dots are replaced, so no
+// value can be "." or ".." or contain a path separator.
+func SafeName(in string) string {
+	var b strings.Builder
+	for _, r := range in {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		return "unknown"
+	}
+	return out
+}
+
 // FormatBytes renders a byte count for the wizard, in the units a person
 // thinks in.
 func FormatBytes(n int64) string {

@@ -332,38 +332,6 @@ func TestStartPhotosShareRefusesWithoutAccount(t *testing.T) {
 	}
 }
 
-func TestSanitizeRejectsTraversal(t *testing.T) {
-	cases := []struct {
-		in   string
-		want string
-	}{
-		{"marco", "marco"},
-		{"../../etc/passwd", "______etc_passwd"},
-		{"a/b", "a_b"},
-		{"..", "unknown"},
-		{"", "unknown"},
-		{".hidden", "_hidden"},
-		{"user@example.com", "user_example_com"},
-		{"a..b", "a__b"},
-	}
-	for _, c := range cases {
-		if got := sanitize(c.in); got != c.want {
-			t.Errorf("sanitize(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
-// A sanitized identity must never escape the staging root.
-func TestSanitizedPathStaysUnderStaging(t *testing.T) {
-	base := "/staging"
-	for _, hostile := range []string{"../../etc", "..", "/etc/passwd", "a/../../b"} {
-		got := base + "/" + sanitize(hostile)
-		if !strings.HasPrefix(got, base+"/") || strings.Contains(got, "..") {
-			t.Errorf("sanitize(%q) escaped the staging root: %s", hostile, got)
-		}
-	}
-}
-
 func TestParseRcloneStats(t *testing.T) {
 	cases := []struct {
 		line      string

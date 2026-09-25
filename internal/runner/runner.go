@@ -130,7 +130,7 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		return
 	}
 
-	staging := filepath.Join(r.cfg.StagingDir, sanitize(user), "drive")
+	staging := filepath.Join(r.cfg.StagingDir, core.SafeName(user), "drive")
 	if err := os.MkdirAll(staging, 0o750); err != nil {
 		r.failDrive(ctx, user, "non riesco a preparare l'area temporanea")
 		r.log.Error("runDrive: create staging", "user", user, "error", err)
@@ -244,8 +244,11 @@ func (r *Runner) runPhotosImport(ctx context.Context, user string) {
 		return
 	}
 
-	staging := filepath.Join(r.cfg.StagingDir, sanitize(user), "photos")
-	archives, err := filepath.Glob(filepath.Join(staging, "takeout-*.zip"))
+	// The upload store writes completed archives directly under the person's
+	// staging directory, so the glob reads the same place it writes. Two
+	// different layouts here would mean an import that silently finds nothing.
+	staging := filepath.Join(r.cfg.StagingDir, core.SafeName(user))
+	archives, err := filepath.Glob(filepath.Join(staging, "*.zip"))
 	if err != nil {
 		r.failPhotos(ctx, user, "non riesco a leggere l'area temporanea")
 		return
@@ -314,31 +317,6 @@ func (r *Runner) rcloneEnv(tokens oauth.Tokens) []string {
 // acquire blocks until a heavy slot is free.
 func (r *Runner) acquire() { r.limiter <- struct{}{} }
 func (r *Runner) release() { <-r.limiter }
-
-// sanitize turns an identity into a safe directory name. The identity comes
-// from the proxy header, so it is not trusted to be filesystem-safe.
-//
-// Dots are replaced rather than kept: a name of ".." would escape the staging
-// root, and trimming only the ends would still leave "a/.." as "a_..", which
-// is harmless but needlessly confusing. Allowing only letters, digits, dash
-// and underscore means no value can produce a path separator or a dot.
-func sanitize(user string) string {
-	var b strings.Builder
-	for _, r := range user {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
-			r == '-', r == '_':
-			b.WriteRune(r)
-		default:
-			b.WriteRune('_')
-		}
-	}
-	out := b.String()
-	if strings.Trim(out, "_") == "" {
-		return "unknown"
-	}
-	return out
-}
 
 // rcloneStats matches the one-line stats rclone prints with
 // --stats-one-line, e.g. "1.234 GiB / 5.678 GiB, 21%, ...".

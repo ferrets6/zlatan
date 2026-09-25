@@ -88,14 +88,18 @@
 		</p>
 		{{ end }}
 
-		<form method="post" action="/photos/upload/start">
-			<button type="submit" class="secondary">Ho già il file e lo carico qui</button>
-		</form>
-		<p class="hint">
-			Se hai scaricato l'archivio sul tuo computer, puoi caricarlo qui
-			direttamente: {{ if .CanShare }}usa questa via se l'esportazione non
-			entra nel tuo spazio Google.{{ end }}
-		</p>
+		<div id="upload" class="upload" data-upload-url="/upload">
+			<p class="hint">
+				Se hai scaricato l'archivio sul tuo computer, trascinalo qui
+				oppure scegli il file: il caricamento riprende da solo se si
+				interrompe, e puoi chiudere la pagina.{{ if .CanShare }} È la via
+				giusta se l'esportazione non entra nel tuo spazio Google.{{ end }}
+			</p>
+			<input type="file" id="upload-input" accept=".zip,application/zip">
+			<button type="button" id="upload-button" class="secondary">Carica l'archivio</button>
+			<div id="upload-drop" class="dropzone" hidden>Rilascia qui il file</div>
+			<p id="upload-progress" class="progress" hidden></p>
+		</div>
 		{{ else }}
 		<p class="hint disabled">
 			Questo percorso non è disponibile in questo momento.

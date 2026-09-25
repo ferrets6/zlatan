@@ -116,6 +116,39 @@ func TestFormatBytes(t *testing.T) {
 	}
 }
 
+func TestSafeNameRejectsTraversal(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"marco", "marco"},
+		{"../../etc/passwd", "etc_passwd"},
+		{"a/b", "a_b"},
+		{"..", "unknown"},
+		{"", "unknown"},
+		{".hidden", "hidden"},
+		{"user@example.com", "user_example_com"},
+		{"a..b", "a__b"},
+		{"...", "unknown"},
+	}
+	for _, c := range cases {
+		if got := SafeName(c.in); got != c.want {
+			t.Errorf("SafeName(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// A sanitized identity must never escape a staging root.
+func TestSafeNameStaysUnderStaging(t *testing.T) {
+	base := "/staging"
+	for _, hostile := range []string{"../../etc", "..", "/etc/passwd", "a/../../b", "....//...."} {
+		got := base + "/" + SafeName(hostile)
+		if !strings.HasPrefix(got, base+"/") || strings.Contains(got, "..") {
+			t.Errorf("SafeName(%q) escaped the staging root: %s", hostile, got)
+		}
+	}
+}
+
 func TestSummaries(t *testing.T) {
 	m := Migration{
 		DriveState:     DriveDone,
