@@ -49,7 +49,11 @@ const (
 type DriveState string
 
 const (
-	DriveNotStarted     DriveState = "not_started"
+	DriveNotStarted DriveState = "not_started"
+	// DriveConsentPending covers both authorisations the Drive half needs: the
+	// Google OAuth consent and the Nextcloud Login Flow grant. They are two
+	// steps but one waiting state, because from the person's point of view they
+	// are both "grant access in the browser and come back".
 	DriveConsentPending DriveState = "consent_pending"
 	DriveSelecting      DriveState = "selecting"
 	DriveCopying        DriveState = "copying"

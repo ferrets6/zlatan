@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/nextcloud"
 	"github.com/marcodellemarche/zlatan/internal/oauth"
 )
 
@@ -59,15 +61,14 @@ func (f *fakeExecutor) last() (command, bool) {
 type fakeStore struct {
 	mu         sync.Mutex
 	migration  core.Migration
-	token      core.Token
-	haveToken  bool
+	tokens     map[string]core.Token
 	driveBytes int64
 	driveFiles int64
 	photos     int64
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{migration: core.Migration{User: "marco"}}
+	return &fakeStore{migration: core.Migration{User: "marco"}, tokens: map[string]core.Token{}}
 }
 
 func (f *fakeStore) GetMigration(_ context.Context, user string) (core.Migration, error) {
@@ -114,19 +115,27 @@ func (f *fakeStore) SetError(_ context.Context, _ string, message string) error 
 	return nil
 }
 
-func (f *fakeStore) GetToken(_ context.Context, _, _ string) (core.Token, error) {
+func (f *fakeStore) GetToken(_ context.Context, _, provider string) (core.Token, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !f.haveToken {
+	t, ok := f.tokens[provider]
+	if !ok {
 		return core.Token{}, errors.New("no token")
 	}
-	return f.token, nil
+	return t, nil
 }
 
 func (f *fakeStore) PutToken(_ context.Context, t core.Token) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.token, f.haveToken = t, true
+	f.tokens[t.Provider] = t
+	return nil
+}
+
+func (f *fakeStore) DeleteToken(_ context.Context, _, provider string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.tokens, provider)
 	return nil
 }
 
@@ -146,7 +155,7 @@ func testConfig() *config.Config {
 			RedirectURL:  "https://zlatan.example/cb",
 			ShareAccount: "family@example.com",
 		},
-		Nextcloud: config.Nextcloud{URL: "http://nextcloud", AdminUser: "admin", AdminPassword: "pw"},
+		Nextcloud: config.Nextcloud{URL: "http://nextcloud"},
 		Immich:    config.Immich{URL: "http://immich:2283", APIKey: "immich-key"},
 	}
 }
@@ -178,8 +187,22 @@ func seedToken(t *testing.T, store *fakeStore, sealer oauth.Sealer) {
 	if err != nil {
 		t.Fatalf("SealJSON: %v", err)
 	}
-	store.token = core.Token{User: "marco", Provider: "google", Sealed: sealed, Scopes: oauth.DriveScope}
-	store.haveToken = true
+	store.tokens["google"] = core.Token{User: "marco", Provider: "google", Sealed: sealed, Scopes: oauth.DriveScope}
+}
+
+// seedNextcloud stores a Nextcloud app password the runner can open, so a test
+// can reach the copy step without a live Login Flow.
+func seedNextcloud(t *testing.T, store *fakeStore, sealer oauth.Sealer) {
+	t.Helper()
+	sealed, err := nextcloud.SealCredentials(sealer, nextcloud.Credentials{
+		Server:      "https://cloud.example",
+		LoginName:   "marco-uid",
+		AppPassword: "app-password-1234",
+	})
+	if err != nil {
+		t.Fatalf("SealCredentials: %v", err)
+	}
+	store.tokens[nextcloud.Provider] = core.Token{User: "marco", Provider: nextcloud.Provider, Sealed: sealed}
 }
 
 // sealerOf reaches into the runner for the sealer it was built with, so a
@@ -187,6 +210,17 @@ func seedToken(t *testing.T, store *fakeStore, sealer oauth.Sealer) {
 func sealerOf(t *testing.T, r *Runner) oauth.Sealer {
 	t.Helper()
 	return r.sealer
+}
+
+func mustToken(t *testing.T, store *fakeStore, provider string) core.Token {
+	t.Helper()
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	tok, ok := store.tokens[provider]
+	if !ok {
+		t.Fatalf("no %s token was seeded", provider)
+	}
+	return tok
 }
 
 func TestStartDriveRefusesWithoutToken(t *testing.T) {
@@ -221,8 +255,9 @@ func TestRunDriveUsesRcloneAndPassesTokenViaEnv(t *testing.T) {
 	exec := &fakeExecutor{}
 	r := newRunner(t, store, exec)
 	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
 
-	r.runDrive(context.Background(), "marco", store.token)
+	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
 
 	cmd, ok := exec.last()
 	if !ok {
@@ -247,6 +282,25 @@ func TestRunDriveUsesRcloneAndPassesTokenViaEnv(t *testing.T) {
 	if !strings.Contains(env, "drive.readonly") {
 		t.Error("the scope was not passed through the environment")
 	}
+
+	// The copy writes into Nextcloud, so the WebDAV remote must be there too,
+	// with the password obscured the way rclone requires.
+	if !strings.Contains(env, "RCLONE_CONFIG_NC_TYPE=webdav") {
+		t.Error("the Nextcloud remote was not configured")
+	}
+	if !strings.Contains(env, "RCLONE_CONFIG_NC_URL=http://nextcloud/remote.php/dav/files/marco-uid") {
+		t.Errorf("the Nextcloud DAV URL is wrong:\n%s", env)
+	}
+	if strings.Contains(env, "RCLONE_CONFIG_NC_PASS=app-password-1234") {
+		t.Error("the Nextcloud password must be obscured, not cleartext")
+	}
+	if !strings.Contains(env, "RCLONE_CONFIG_NC_PASS=") {
+		t.Error("the Nextcloud password was not passed through the environment")
+	}
+	// The destination must be the Nextcloud remote, not a local staging path.
+	if !slices.Contains(cmd.args, "nc:Google Drive") {
+		t.Errorf("the destination should be the Nextcloud remote, got %v", cmd.args)
+	}
 }
 
 func TestRunDriveRecordsProgress(t *testing.T) {
@@ -259,8 +313,9 @@ func TestRunDriveRecordsProgress(t *testing.T) {
 	}
 	r := newRunner(t, store, exec)
 	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
 
-	r.runDrive(context.Background(), "marco", store.token)
+	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
 
 	// Cumulative stats must be turned into deltas: 2 GiB total, not 3.
 	got := store.driveBytes
@@ -278,8 +333,9 @@ func TestRunDriveFailureMarksTheTrackFailed(t *testing.T) {
 	exec := &fakeExecutor{err: errors.New("rclone exited 1")}
 	r := newRunner(t, store, exec)
 	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
 
-	r.runDrive(context.Background(), "marco", store.token)
+	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
 
 	if got := store.state().DriveState; got != core.DriveFailed {
 		t.Fatalf("drive state = %q, want failed", got)

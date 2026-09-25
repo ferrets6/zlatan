@@ -95,6 +95,21 @@ func (f *fakeRunner) StartPhotosShare(_ context.Context, user string) error {
 	return nil
 }
 
+func (f *fakeRunner) StartNextcloud(_ context.Context, user string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	f.started = append(f.started, "nextcloud:"+user)
+	return "https://cloud.example/login/v2/flow/abc", nil
+}
+
+func (f *fakeRunner) PollNextcloud(_ context.Context, _ string) (core.DriveState, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return core.DriveConsentPending, nil
+}
+
 func testOptions(runner Runner) Options {
 	cfg := &config.Config{
 		ProxySecret:   "proxy-secret",
@@ -108,7 +123,7 @@ func testOptions(runner Runner) Options {
 			RedirectURL:  "https://zlatan.example/cb",
 			ShareAccount: "family@example.com",
 		},
-		Nextcloud: config.Nextcloud{URL: "http://nextcloud", AdminUser: "admin", AdminPassword: "pw"},
+		Nextcloud: config.Nextcloud{URL: "http://nextcloud"},
 		Immich:    config.Immich{URL: "http://immich", APIKey: "key"},
 	}
 	return Options{

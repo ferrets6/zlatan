@@ -129,7 +129,7 @@ func TestWarningsNameWhatWillNotWork(t *testing.T) {
 	for _, want := range []string{
 		"Google OAuth",
 		"TAKEOUT_SHARE_ACCOUNT",
-		"Nextcloud",
+		"ZLATAN_NEXTCLOUD_URL",
 		"Immich",
 	} {
 		if !strings.Contains(warnings, want) {

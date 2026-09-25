@@ -211,7 +211,7 @@ func (opts Options) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := opts.State.SetDriveState(r.Context(), user, core.DriveSelecting, "Google è collegato: pronto per la copia"); err != nil {
+	if _, err := opts.State.SetDriveState(r.Context(), user, core.DriveSelecting, "Google is connected: ready for the copy"); err != nil {
 		opts.Log.Error("oauthCallback: set state", "user", user, "error", err)
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)

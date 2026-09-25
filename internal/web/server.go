@@ -91,6 +91,13 @@ type Runner interface {
 	StartDrive(ctx context.Context, user string) error
 	StartPhotosUpload(ctx context.Context, user string) error
 	StartPhotosShare(ctx context.Context, user string) error
+
+	// StartNextcloud begins the Nextcloud Login Flow and returns the URL the
+	// person opens to grant access. PollNextcloud notices the grant; it is
+	// called from the status polling, so the person does not have to come back
+	// and click again.
+	StartNextcloud(ctx context.Context, user string) (string, error)
+	PollNextcloud(ctx context.Context, user string) (core.DriveState, error)
 }
 
 // Routes builds the wizard's surface. Every page is behind the proxy gate and
@@ -107,6 +114,7 @@ func Routes(opts Options) http.Handler {
 	mux.Handle("GET /status", gate(opts.status))
 	mux.Handle("GET /oauth/google/start", gate(opts.oauthStart))
 	mux.Handle("GET /oauth/google/callback", gate(opts.oauthCallback))
+	mux.Handle("POST /nextcloud/start", gate(opts.startNextcloud))
 	mux.Handle("POST /drive/start", gate(opts.startDrive))
 	mux.Handle("POST /photos/upload/start", gate(opts.startPhotosUpload))
 	mux.Handle("POST /photos/share/start", gate(opts.startPhotosShare))

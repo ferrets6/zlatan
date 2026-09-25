@@ -30,8 +30,19 @@ import (
 
 	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/nextcloud"
 	"github.com/marcodellemarche/zlatan/internal/oauth"
 )
+
+// DriveDestination is the folder inside Nextcloud that the Drive half writes
+// into. It matches the folder the manual runbook uses
+// (docs/migration-new-users.md), so a person who migrated by hand and one who
+// used Zlatan end up with the same layout.
+const DriveDestination = "Google Drive"
+
+// nextcloudFlowProvider is the token provider under which the in-flight Login
+// Flow poll token is stored, separate from the granted credentials.
+const nextcloudFlowProvider = "nextcloud-flow"
 
 // Store is the persistence the runner writes progress to.
 type Store interface {
@@ -43,6 +54,7 @@ type Store interface {
 	SetError(ctx context.Context, user, message string) error
 	GetToken(ctx context.Context, user, provider string) (core.Token, error)
 	PutToken(ctx context.Context, t core.Token) error
+	DeleteToken(ctx context.Context, user, provider string) error
 }
 
 // Sealer opens the stored tokens. The runner never sees a token in the clear
@@ -50,6 +62,15 @@ type Store interface {
 type Sealer interface {
 	Open(sealed []byte) ([]byte, error)
 	Seal(plaintext []byte) ([]byte, error)
+}
+
+// NextcloudFlow is the Login Flow v2 the runner drives to obtain a per-user
+// app password. It is an interface so the runner can be tested without a live
+// Nextcloud.
+type NextcloudFlow interface {
+	BeginFlow(ctx context.Context) (nextcloud.Flow, error)
+	Poll(ctx context.Context, token string) (nextcloud.Credentials, bool, error)
+	DAVURL(loginName string) string
 }
 
 // Executor runs a command and streams its output. It is an interface so the
@@ -65,6 +86,7 @@ type Runner struct {
 	sealer  Sealer
 	log     *slog.Logger
 	exec    Executor
+	nc      NextcloudFlow
 	limiter chan struct{}
 }
 
@@ -76,7 +98,7 @@ func New(cfg *config.Config, store Store, sealer Sealer, log *slog.Logger) *Runn
 	if limit < 1 {
 		limit = 1
 	}
-	return &Runner{
+	r := &Runner{
 		cfg:     cfg,
 		store:   store,
 		sealer:  sealer,
@@ -84,12 +106,105 @@ func New(cfg *config.Config, store Store, sealer Sealer, log *slog.Logger) *Runn
 		exec:    &OSExecutor{Log: log},
 		limiter: make(chan struct{}, limit),
 	}
+	if cfg.Nextcloud.URL != "" {
+		client, err := nextcloud.New(cfg.Nextcloud.URL, 0)
+		if err != nil {
+			log.Error("build the Nextcloud client", "error", err)
+		} else {
+			r.nc = client
+		}
+	}
+	return r
 }
 
 // WithExecutor replaces the process runner. Used by tests.
 func (r *Runner) WithExecutor(e Executor) *Runner {
 	r.exec = e
 	return r
+}
+
+// WithNextcloud replaces the Login Flow client. Used by tests.
+func (r *Runner) WithNextcloud(nc NextcloudFlow) *Runner {
+	r.nc = nc
+	return r
+}
+
+// StartNextcloud begins the Nextcloud Login Flow and returns the URL the
+// person must open to grant access. Nothing is polled yet: the person has to
+// click first, and the wizard's status polling is what notices the grant.
+func (r *Runner) StartNextcloud(ctx context.Context, user string) (string, error) {
+	if r.nc == nil {
+		return "", errors.New("Nextcloud is not configured")
+	}
+	flow, err := r.nc.BeginFlow(ctx)
+	if err != nil {
+		return "", err
+	}
+	// Store the poll token so a later request can finish the flow, and so a
+	// restart does not lose it. It is short-lived and single-use.
+	sealed, err := r.sealer.Seal([]byte(flow.PollToken))
+	if err != nil {
+		return "", err
+	}
+	if err := r.store.PutToken(ctx, core.Token{
+		User:     user,
+		Provider: nextcloudFlowProvider,
+		Sealed:   sealed,
+	}); err != nil {
+		return "", err
+	}
+	return flow.LoginURL, nil
+}
+
+// PollNextcloud asks whether the person granted access. It is called from the
+// wizard's status polling, so the grant is picked up without a second click.
+// When it succeeds, the app password is sealed and stored, and the Drive
+// track moves to "selecting".
+func (r *Runner) PollNextcloud(ctx context.Context, user string) (core.DriveState, error) {
+	if r.nc == nil {
+		return "", errors.New("Nextcloud is not configured")
+	}
+	// Already granted: nothing to do.
+	if _, err := r.store.GetToken(ctx, user, nextcloud.Provider); err == nil {
+		return core.DriveSelecting, nil
+	}
+
+	flowTok, err := r.store.GetToken(ctx, user, nextcloudFlowProvider)
+	if err != nil {
+		return "", nil // no flow in progress; the wizard offers to start one
+	}
+	raw, err := r.sealer.Open(flowTok.Sealed)
+	if err != nil {
+		return "", err
+	}
+
+	creds, done, err := r.nc.Poll(ctx, string(raw))
+	if err != nil {
+		return "", err
+	}
+	if !done {
+		return core.DriveConsentPending, nil
+	}
+
+	sealed, err := nextcloud.SealCredentials(r.sealer, creds)
+	if err != nil {
+		return "", err
+	}
+	if err := r.store.PutToken(ctx, core.Token{
+		User:     user,
+		Provider: nextcloud.Provider,
+		Sealed:   sealed,
+	}); err != nil {
+		return "", err
+	}
+	// The flow token is spent: the credentials replace it.
+	_ = r.store.DeleteToken(ctx, user, nextcloudFlowProvider)
+
+	if _, err := r.store.SetDriveState(ctx, user, core.DriveSelecting,
+		"Nextcloud is connected: ready to copy"); err != nil {
+		return "", err
+	}
+	return core.DriveSelecting, nil
 }
 
 // StartDrive queues the Drive migration and returns immediately: the copy runs
@@ -105,6 +220,9 @@ func (r *Runner) StartDrive(ctx context.Context, user string) error {
 	tok, err := r.store.GetToken(ctx, user, "google")
 	if err != nil {
 		return fmt.Errorf("%w: connect Google before starting the Drive copy", err)
+	}
+	if _, err := r.store.GetToken(ctx, user, nextcloud.Provider); err != nil {
+		return fmt.Errorf("%w: connect Nextcloud before starting the Drive copy", err)
 	}
 
 	// Detach from the request context: the work outlives the HTTP request.
@@ -130,15 +248,28 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		return
 	}
 
-	staging := filepath.Join(r.cfg.StagingDir, core.SafeName(user), "drive")
-	if err := os.MkdirAll(staging, 0o750); err != nil {
-		r.failDrive(ctx, user, "the staging area could not be prepared")
-		r.log.Error("runDrive: create staging", "user", user, "error", err)
+	// The Nextcloud app password the person granted through the Login Flow.
+	ncTok, err := r.store.GetToken(ctx, user, nextcloud.Provider)
+	if err != nil {
+		r.failDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
+		return
+	}
+	creds, err := nextcloud.OpenCredentials(r.sealer, ncTok.Sealed)
+	if err != nil {
+		r.failDrive(ctx, user, "the Nextcloud credential cannot be read: reconnect Nextcloud")
+		return
+	}
+	if r.nc == nil {
+		r.failDrive(ctx, user, "Nextcloud is not configured")
 		return
 	}
 
+	// rclone copies Google Drive straight into Nextcloud over WebDAV, so there
+	// is no local staging for the Drive half and no second import step: the
+	// files land in the person's space as themselves, with their own rights.
+	dest := "nc:" + DriveDestination
 	args := []string{
-		"copy", "gdrive:", staging,
+		"copy", "gdrive:", dest,
 		"--transfers", "4",
 		"--checkers", "8",
 		"--fast-list",
@@ -146,7 +277,12 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		"--stats", "10s",
 		"--stats-one-line",
 	}
-	env := r.rcloneEnv(tokens)
+	env, err := r.rcloneEnv(tokens, creds)
+	if err != nil {
+		r.failDrive(ctx, user, "the copy could not be prepared")
+		r.log.Error("runDrive: build environment", "user", user, "error", err)
+		return
+	}
 
 	// rclone's stats are cumulative totals, not deltas, so the counters are
 	// advanced by the difference from the previous line. Summing the totals
@@ -187,12 +323,8 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		return
 	}
 
-	if _, err := r.store.SetDriveState(ctx, user, core.DriveImporting, "importing into Nextcloud"); err != nil {
-		r.log.Error("runDrive: set importing", "user", user, "error", err)
-	}
-
-	// The import into Nextcloud is the next phase; the copy is verified by the
-	// caller before the state moves to done.
+	// The copy writes into Nextcloud directly, so there is no separate import
+	// step; verification is the next phase and is run by the caller.
 	if _, err := r.store.SetDriveState(ctx, user, core.DriveVerifying, "verifying the copied files"); err != nil {
 		r.log.Error("runDrive: set verifying", "user", user, "error", err)
 	}
@@ -294,16 +426,28 @@ func (r *Runner) openTokens(tok core.Token) (oauth.Tokens, error) {
 	return oauth.OpenJSON(r.sealer, tok.Sealed)
 }
 
-// rcloneEnv builds the environment rclone needs, passing the token through the
-// environment rather than a config file so no secret is written to disk.
+// rcloneEnv builds the environment rclone needs, passing every secret through
+// the environment rather than a config file so nothing is written to disk.
 //
-// rclone's convention is RCLONE_CONFIG_<REMOTE>_<KEY>; the remote is named
-// "gdrive" so the arguments read the same as the documentation.
-func (r *Runner) rcloneEnv(tokens oauth.Tokens) []string {
+// rclone's convention is RCLONE_CONFIG_<REMOTE>_<KEY>; the remotes are named
+// "gdrive" (Google Drive) and "nc" (Nextcloud) so the arguments read the same
+// as the documentation. The Nextcloud password must be obscured the way rclone
+// expects, because that is the only form its config parser accepts.
+func (r *Runner) rcloneEnv(tokens oauth.Tokens, nc nextcloud.Credentials) ([]string, error) {
+	obscured, err := obscurePassword(nc.AppPassword)
+	if err != nil {
+		return nil, err
+	}
+
 	env := append(os.Environ(),
 		"RCLONE_CONFIG_GDRIVE_TYPE=drive",
 		"RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly",
 		"RCLONE_CONFIG_GDRIVE_TOKEN="+tokens.RcloneJSON(),
+		"RCLONE_CONFIG_NC_TYPE=webdav",
+		"RCLONE_CONFIG_NC_VENDOR=nextcloud",
+		"RCLONE_CONFIG_NC_URL="+r.nc.DAVURL(nc.LoginName),
+		"RCLONE_CONFIG_NC_USER="+nc.LoginName,
+		"RCLONE_CONFIG_NC_PASS="+obscured,
 	)
 	if !r.cfg.Google.ClientID.Empty() {
 		env = append(env,
@@ -311,7 +455,7 @@ func (r *Runner) rcloneEnv(tokens oauth.Tokens) []string {
 			"RCLONE_CONFIG_GDRIVE_CLIENT_SECRET="+r.cfg.Google.ClientSecret.Reveal(),
 		)
 	}
-	return env
+	return env, nil
 }
 
 // acquire blocks until a heavy slot is free.

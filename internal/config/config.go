@@ -86,16 +86,16 @@ func (g Google) Configured() bool {
 	return !g.ClientID.Empty() && !g.ClientSecret.Empty() && g.RedirectURL != ""
 }
 
-// Nextcloud is the import destination for the Drive half.
+// Nextcloud is the import destination for the Drive half. Only the internal
+// URL is configured: the write credential is a per-user app password obtained
+// through Nextcloud's Login Flow v2, so no admin account is stored here.
 type Nextcloud struct {
-	URL           string
-	AdminUser     string
-	AdminPassword core.Secret
+	URL string
 }
 
-// Configured reports whether Nextcloud can be reached and written to.
+// Configured reports whether Nextcloud can be reached.
 func (n Nextcloud) Configured() bool {
-	return n.URL != "" && n.AdminUser != "" && !n.AdminPassword.Empty()
+	return n.URL != ""
 }
 
 // Immich is the import destination for the Photos half.
@@ -176,9 +176,7 @@ func Load(env map[string]string) (*Config, error) {
 			ShareAccount: get("ZLATAN_TAKEOUT_SHARE_ACCOUNT"),
 		},
 		Nextcloud: Nextcloud{
-			URL:           get("ZLATAN_NEXTCLOUD_URL"),
-			AdminUser:     get("ZLATAN_NEXTCLOUD_ADMIN_USER"),
-			AdminPassword: core.Secret(get("ZLATAN_NEXTCLOUD_ADMIN_PASSWORD")),
+			URL: get("ZLATAN_NEXTCLOUD_URL"),
 		},
 		Immich: Immich{
 			URL:    get("ZLATAN_IMMICH_URL"),
@@ -245,7 +243,7 @@ func (c *Config) Warnings() []string {
 		w = append(w, "ZLATAN_TAKEOUT_SHARE_ACCOUNT is not set, so the Photos wizard cannot offer the 'Add to Drive' route and falls back to upload")
 	}
 	if !c.Nextcloud.Configured() {
-		w = append(w, "Nextcloud is not configured, so the Drive route cannot import anything")
+		w = append(w, "ZLATAN_NEXTCLOUD_URL is not set, so the Drive route cannot import anything")
 	}
 	if !c.Immich.Configured() {
 		w = append(w, "Immich is not configured, so the Photos route cannot import anything")

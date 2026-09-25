@@ -36,19 +36,20 @@ func trackName(t core.Track) string {
 // stateLabel turns a state constant into something a person reads.
 func stateLabel(state string) string {
 	labels := map[string]string{
-		"not_started":     "Not started",
-		"consent_pending": "Waiting for your Google consent",
-		"selecting":       "Choosing what to copy",
-		"copying":         "Copying",
-		"importing":       "Importing",
-		"verifying":       "Checking the result",
-		"takeout_guide":   "Preparing the export",
-		"awaiting_share":  "Waiting for the shared Takeout folder",
-		"awaiting_upload": "Waiting for the Takeout upload",
-		"downloading":     "Downloading the Takeout",
-		"done":            "Done",
-		"failed":          "Something stopped",
-		"cancelled":       "Cancelled",
+		"not_started":        "Not started",
+		"consent_pending":    "Waiting for your consent in the browser",
+		"awaiting_nextcloud": "Waiting for your Nextcloud consent",
+		"selecting":          "Choosing what to copy",
+		"copying":            "Copying",
+		"importing":          "Importing",
+		"verifying":          "Checking the result",
+		"takeout_guide":      "Preparing the export",
+		"awaiting_share":     "Waiting for the shared Takeout folder",
+		"awaiting_upload":    "Waiting for the Takeout upload",
+		"downloading":        "Downloading the Takeout",
+		"done":               "Done",
+		"failed":             "Something stopped",
+		"cancelled":          "Cancelled",
 	}
 	if label, ok := labels[state]; ok {
 		return label

@@ -37,12 +37,30 @@
 		{{ end }}
 
 		{{ if .CanStartDrive }}
+		<p class="steps">
+			<span class="step{{ if .GoogleConnected }} done{{ end }}">1. Google</span>
+			<span class="step{{ if .NextcloudConnected }} done{{ end }}">2. Nextcloud</span>
+		</p>
+
+		{{ if not .GoogleConnected }}
 		<p><a class="button" href="/oauth/google/start">Connect Google</a></p>
 		<p class="hint">
 			Google will ask you to allow read access to your Drive. It is
 			read-only: nothing you have on Google is changed.
 		</p>
-		{{ if eq (index (index .Tracks 0).State) "selecting" }}
+		{{ end }}
+
+		{{ if and .GoogleConnected (not .NextcloudConnected) }}
+		<form method="post" action="/nextcloud/start">
+			<button type="submit">Connect Nextcloud</button>
+		</form>
+		<p class="hint">
+			Nextcloud will ask you to grant this service access to your files.
+			It is a one-click confirmation; you are not sharing a password.
+		</p>
+		{{ end }}
+
+		{{ if and .GoogleConnected .NextcloudConnected }}
 		<form method="post" action="/drive/start">
 			<button type="submit">Start copying the files</button>
 		</form>

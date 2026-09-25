@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/nextcloud"
 	"github.com/marcodellemarche/zlatan/internal/store"
 )
 
@@ -37,6 +38,12 @@ type page struct {
 	// configured, so the button is not offered when it cannot work.
 	CanStartDrive  bool
 	CanStartPhotos bool
+
+	// GoogleConnected and NextcloudConnected drive which button the Drive
+	// section shows: connect Google, connect Nextcloud, or start the copy.
+	// The copy needs both.
+	GoogleConnected    bool
+	NextcloudConnected bool
 }
 
 // wizard renders the person's own progress. The identity is resolved from the
@@ -72,6 +79,15 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 		CanStartPhotos: opts.Config.Immich.Configured() && opts.Runner != nil,
 	}
 
+	// Both credentials the Drive half needs. A failed read is "not connected",
+	// which is the honest answer and offers the button again.
+	if opts.TokenStore != nil {
+		_, err := opts.TokenStore.GetToken(r.Context(), user, "google")
+		p.GoogleConnected = err == nil
+		_, err = opts.TokenStore.GetToken(r.Context(), user, nextcloud.Provider)
+		p.NextcloudConnected = err == nil
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	if err := wizardTemplate.ExecuteTemplate(w, "wizard.html", p); err != nil {
@@ -86,6 +102,15 @@ func (opts Options) status(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
+	}
+
+	// While the person is expected to be granting Nextcloud access, check
+	// whether they have. Doing it here means the grant is picked up by the
+	// polling the page already does, so no extra click is needed.
+	if opts.Runner != nil {
+		if _, err := opts.Runner.PollNextcloud(r.Context(), user); err != nil {
+			opts.Log.Warn("status: poll Nextcloud", "user", user, "error", err)
+		}
 	}
 
 	m, err := opts.State.GetMigration(r.Context(), user)
@@ -141,6 +166,37 @@ func (opts Options) startDrive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// startNextcloud begins the Nextcloud Login Flow and sends the person to the
+// grant page. The grant itself is picked up by the status polling.
+func (opts Options) startNextcloud(w http.ResponseWriter, r *http.Request) {
+	user, email, err := identityFrom(r, opts.Config.TrustedProxy)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if opts.Runner == nil {
+		http.Error(w, "the Drive route is not available on this instance", http.StatusServiceUnavailable)
+		return
+	}
+	if _, err := opts.State.EnsureMigration(r.Context(), user, email); err != nil {
+		opts.Log.Error("startNextcloud: ensure migration", "user", user, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	loginURL, err := opts.Runner.StartNextcloud(r.Context(), user)
+	if err != nil {
+		opts.Log.Error("startNextcloud: begin flow", "user", user, "error", err)
+		http.Error(w, "could not start the Nextcloud connection", http.StatusBadGateway)
+		return
+	}
+	if _, err := opts.State.SetDriveState(r.Context(), user, core.DriveConsentPending,
+		"Waiting for your Nextcloud consent"); err != nil {
+		opts.Log.Error("startNextcloud: set state", "user", user, "error", err)
+	}
+	http.Redirect(w, r, loginURL, http.StatusSeeOther)
 }
 
 func (opts Options) startPhotosUpload(w http.ResponseWriter, r *http.Request) {
