@@ -1,14 +1,7 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later
-     Screen 3 — The Takeout guidance, route A (export into Drive, then share
-     the folder). This is the unavoidable human step, and the whole design of
-     this page is about making it feel small and bounded:
-
-       · one instruction on screen at a time, the rest collapsed;
-       · every value quoted exactly as Google writes it on its own page;
-       · the step you are on is server state, so closing the tab and coming
-         back tomorrow lands you right here;
-       · the way out (route B) is always visible but never the default. -->
+     Takeout guidance, route A: export into Drive, then share the folder.
+     One step open at a time; the current step is server state, so a reload lands here. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -42,9 +35,7 @@
 		<a class="back" href="02-tracks.html">← Both tracks</a>
 		<h1>Ask Google for a copy of your photos</h1>
 		<p class="lede">
-			Five short steps, on Google’s own pages. You are on step three.
-			Nothing here is urgent: this page remembers where you got to, so you can
-			stop and come back tomorrow.
+			Five steps on Google’s own pages. This page remembers where you got to, so you can stop and come back.
 		</p>
 	</div>
 
@@ -62,7 +53,7 @@
 			<li class="step" data-state="done">
 				<div class="step__label">
 					<span class="step__n">2</span>
-					Chose Google Photos, and nothing else
+					Chose Google Photos only
 					<a class="step__redo" href="/photos/takeout/step/2">Change this</a>
 				</div>
 			</li>
@@ -74,9 +65,7 @@
 				</div>
 				<div class="step__body">
 					<p>
-						At the bottom of the Takeout page, press
-						<span class="said">Next step</span>. Google then asks four things.
-						Set them exactly like this:
+						At the bottom of the Takeout page press <span class="said">Next step</span>, then set these four:
 					</p>
 
 					<div class="split" role="group" aria-label="Settings to choose">
@@ -99,16 +88,13 @@
 					</div>
 
 					<p class="fine">
-						<b>Add to Drive</b> is the one that matters: it puts the copy in
-						your own Google Drive, where we can pick it up without you
-						downloading anything. The large file size just means fewer pieces
-						to keep track of.
+						<b>Add to Drive</b> is the one that matters: the copy lands in your own Drive and we collect it from there. The large file size means fewer pieces.
 					</p>
 
 					<div class="actions">
 						<form method="post" action="/photos/takeout/step/3"
 						      hx-post="/photos/takeout/step/3" hx-target="#guide" hx-swap="outerHTML">
-							<button class="btn btn--primary" type="submit">I’ve set these four</button>
+							<button class="btn btn--primary" type="submit">I’ve set these</button>
 						</form>
 						<a class="btn btn--ghost" href="https://takeout.google.com/" target="_blank" rel="noopener">
 							Open Takeout again
@@ -134,22 +120,18 @@
 
 		<div class="note">
 			<p>
-				<b>If the page looks different from what we describe</b>, Google has
-				moved something again. Choose the closest thing, or send us the file
-				yourself instead — both routes end in the same place.
+				<b>If the page looks different</b>, Google has moved something. Pick the closest option, or send us the file yourself. Both routes end in the same place.
 			</p>
 		</div>
 	</main>
 
 	<section class="calm narrow">
-		<h3>Your Google storage might be too small</h3>
+		<h3>If it will not fit in your Google storage</h3>
 		<p class="fine">
-			<span class="said">Add to Drive</span> needs room in your Google account
-			for the whole copy. If Google tells you it will not fit, do not delete
-			anything to make space — come this way instead.
+			<span class="said">Add to Drive</span> needs room for the whole copy. Do not delete anything to make space; come this way instead.
 		</p>
 		<div class="actions">
-			<a class="btn btn--ghost" href="04-upload.html">Send me the file myself</a>
+			<a class="btn btn--ghost" href="04-upload.html">Send the file myself</a>
 		</div>
 	</section>
 

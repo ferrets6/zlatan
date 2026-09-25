@@ -1,12 +1,6 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later
-     Screen 5 — The long wait. The person has done everything they can, and now
-     nothing will happen for hours, possibly a day.
-
-     There is no progress to show, so this page shows none. What it shows
-     instead is evidence of life (when we last looked, how often we look), an
-     honest horizon, and the list of things that will happen without them. The
-     email promise is what actually lets someone walk away. -->
+     The long wait. No progress to measure, so no bar: last check, horizon, email. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -38,10 +32,9 @@
 
 	<div class="prose">
 		<a class="back" href="02-tracks.html">← Both tracks</a>
-		<h1>Your part is finished</h1>
+		<h1>Your part is done</h1>
 		<p class="lede">
-			Google is making the copy now. That takes as long as it takes, and there
-			is nothing left for you to do — not now, not when it arrives.
+			Google is making the copy. Nothing else is needed from you, now or when it arrives.
 		</p>
 	</div>
 
@@ -56,47 +49,39 @@
 		     aria-live="polite">
 			<p class="wait">
 				<span class="beat" aria-hidden="true"></span>
-				Checked <b>4 minutes ago</b> — nothing yet
+				Checked <b>4 minutes ago</b>. Nothing yet.
 			</p>
 			<p class="fine">
-				We look in your shared folder every ten minutes, day and night, for as
-				long as it takes.
+				We look in your shared folder every ten minutes.
 			</p>
 		</div>
 
 		<div class="calm">
 			<h3>What we are watching for</h3>
 			<p class="fine">
-				A folder called <span class="said">Takeout</span>, shared with
-				<code>zlatan@ferretti.link</code>, with your export inside it. You
-				shared it at <span class="num">14:26 today</span>, and we can see it.
+				A folder called <span class="said">Takeout</span> shared with <code>zlatan@ferretti.link</code>. You shared it at <span class="num">14:26 today</span> and we can see it.
 			</p>
 		</div>
 
 		<div class="note">
 			<p>
-				<b>How long this usually takes.</b> A few hours for most libraries. A
-				very large one can take Google a day or more, and it often arrives in
-				several parts — we wait until all of them are there before starting, so
-				nothing lands in Immich half-finished.
+				<b>How long this takes.</b> A few hours for most libraries, up to a day for a very large one. It often arrives in several parts and we wait for all of them, so nothing lands in Immich half-finished.
 			</p>
 		</div>
 
 		<div class="stack">
-			<h3>What happens the moment it arrives</h3>
+			<h3>What happens when it arrives</h3>
 			<ol class="steps steps--auto">
-				<li class="step"><div class="step__label">Copy the export from your Drive to the home server</div></li>
-				<li class="step"><div class="step__label">Unpack it and read Google’s notes about each photo</div></li>
-				<li class="step"><div class="step__label">Put back the dates taken, the places and the albums</div></li>
-				<li class="step"><div class="step__label">Fill up Immich, then check a sample against the original</div></li>
+				<li class="step"><div class="step__label">Copy it from your Drive to the home server</div></li>
+				<li class="step"><div class="step__label">Unpack it and read Google’s notes on each photo</div></li>
+				<li class="step"><div class="step__label">Restore the dates, places and albums</div></li>
+				<li class="step"><div class="step__label">Fill Immich, then check a sample against the original</div></li>
 			</ol>
 		</div>
 
 		<div class="note">
 			<p>
-				<b>You can close this tab now.</b> We will email you at
-				<b>marco@ferretti.link</b> when your photos are in Immich — and also if
-				something goes wrong and we need you.
+				<b>You can close this tab.</b> We will email <b>marco@ferretti.link</b> when your photos are in Immich, or if we need you.
 			</p>
 		</div>
 
@@ -104,18 +89,14 @@
 			<form method="post" action="/photos/check" hx-post="/photos/check" hx-target="#photos-state" hx-swap="outerHTML">
 				<button class="btn btn--ghost" type="submit">Check now</button>
 			</form>
-			<a class="btn btn--quiet" href="04-upload.html">Send the file myself instead</a>
+			<a class="btn btn--quiet" href="04-upload.html">Send the file myself</a>
 		</div>
 	</main>
 
 	<section class="calm narrow">
 		<h3>If it has been more than a day</h3>
 		<p class="fine">
-			That happens, and it is usually still fine. Open
-			<a href="https://takeout.google.com/manage" target="_blank" rel="noopener">your exports at Google</a>
-			and see whether it says the copy is ready. If it does and we still have not
-			noticed, the sharing may not have gone through —
-			<a href="03b-share.html">go back to that step</a>.
+			That happens and is usually still fine. Check <a href="https://takeout.google.com/manage" target="_blank" rel="noopener">your exports at Google</a>. If it says ready and we have not noticed, the sharing may not have gone through: <a href="03b-share.html">go back to that step</a>.
 		</p>
 	</section>
 

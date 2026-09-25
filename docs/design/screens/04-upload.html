@@ -1,12 +1,7 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later
-     Screen 4 — Route B, the fallback: the export will not fit in the person's
-     Google storage, so they download it and hand it over themselves.
-
-     One honesty note that shapes this screen: an upload needs the tab open.
-     The copy says so, instead of repeating the "you can close this" promise
-     that is true everywhere else in this service. What survives a closed tab
-     is the *progress*, not the transfer. -->
+     Route B: the export will not fit in Google storage, so the person sends it.
+     The only screen that needs the tab open, and it says so. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -40,9 +35,7 @@
 		<a class="back" href="03-takeout.html">← The guided route</a>
 		<h1>Send us the file yourself</h1>
 		<p class="lede">
-			For when the copy will not fit in your Google storage. You download it
-			from Google onto this device, and hand it straight to us — it never
-			passes through anyone else.
+			For when the copy will not fit in your Google storage. It goes from this device straight to the home server.
 		</p>
 	</div>
 
@@ -51,14 +44,14 @@
 			<li class="step" data-state="done">
 				<div class="step__label"><span class="step__n">1</span> Asked Google for the copy</div>
 				<div class="step__body">
-					<p class="fine">Same as before, with one thing changed: <span class="said">Send download link by email</span> instead of <span class="said">Add to Drive</span>.</p>
+					<p class="fine">Same as before, but <span class="said">Send download link by email</span> instead of <span class="said">Add to Drive</span>.</p>
 				</div>
 			</li>
 
 			<li class="step" data-state="done">
 				<div class="step__label"><span class="step__n">2</span> Downloaded it from Google’s email</div>
 				<div class="step__body">
-					<p class="fine">Google split your export into <b>4 files</b>. Add them one at a time — the order does not matter.</p>
+					<p class="fine">Google split the export into <b>4 files</b>. Add them one at a time, in any order.</p>
 				</div>
 			</li>
 
@@ -89,13 +82,10 @@
 
 					<div class="note">
 						<p>
-							<b>Keep this tab open while it sends.</b> This is the one part of
-							zlatan that lives in your browser, so closing the tab pauses it.
+							<b>Keep this tab open while it sends.</b> This part runs in your browser, so closing the tab pauses it.
 						</p>
 						<p>
-							Nothing is lost if it does stop. We remember every piece that
-							arrived, and when you come back it carries on from there — even
-							days later, even on another device.
+							Nothing is lost if it does. Come back and it continues from the last piece that arrived, days later or on another device.
 						</p>
 					</div>
 
@@ -113,10 +103,10 @@
 
 	<section class="panel" aria-labelledby="more-h">
 		<h3 id="more-h">The other three parts</h3>
-		<p class="fine">Add the next one whenever you like. They can go in any order, and you do not have to do them in one sitting.</p>
+		<p class="fine">Add the next one whenever you like. Any order, no need to do them in one sitting.</p>
 		<label class="drop" for="file">
 			<span><b>Drop a file here</b>, or choose one</span>
-			<span class="fine">Zip files from Google Takeout — up to 50 GB each</span>
+			<span class="fine">Takeout .zip files, up to 50 GB each</span>
 			<input id="file" type="file" accept=".zip,application/zip">
 			<span class="btn btn--ghost" aria-hidden="true">Choose a file</span>
 		</label>

@@ -1,7 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-  <!-- The favicon cannot inherit a colour, so it states one, and swaps it with
-       the browser's theme. The arc stays monochrome here: at 16 px Google's
-       four bands are three pixels of mud. -->
+  <!-- Monochrome: at 16px the four Google bands are three pixels of mud. -->
   <style>
     path { stroke: #1c1c1a }
     @media (prefers-color-scheme: dark) { path { stroke: #e6e6e3 } }

@@ -1,7 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="zlatan">
   <title>zlatan</title>
-  <!-- A launcher tile does not follow the system theme, so it commits: the dark
-       ground from the palette, the light foreground on top. -->
+  <!-- A launcher tile does not follow the system theme, so it commits. -->
   <rect width="512" height="512" rx="114" fill="#15161a"/>
   <defs>
     <linearGradient id="zl-google-tile" x1="6.5" y1="0" x2="17.5" y2="0" gradientUnits="userSpaceOnUse">

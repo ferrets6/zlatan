@@ -70,6 +70,7 @@ type Config struct {
 	Google    Google
 	Nextcloud Nextcloud
 	Immich    Immich
+	Ntfy      Ntfy
 
 	// StagingRetention is how long a completed migration's staging is kept.
 	StagingRetention time.Duration
@@ -127,6 +128,19 @@ type Immich struct {
 // Configured reports whether Immich can be reached and written to.
 func (i Immich) Configured() bool {
 	return i.URL != "" && !i.APIKey.Empty()
+}
+
+// Ntfy is the push service notifications go to. Without it the service still
+// runs; it just does not tell anybody, which Warnings() says out loud.
+type Ntfy struct {
+	URL   string
+	Topic string
+	Token core.Secret
+}
+
+// Configured reports whether notifications can be sent.
+func (n Ntfy) Configured() bool {
+	return n.URL != "" && n.Topic != ""
 }
 
 // Resolve reads an optional env-style file and overlays the real environment
@@ -201,6 +215,11 @@ func Load(env map[string]string) (*Config, error) {
 		Immich: Immich{
 			URL:    get("ZLATAN_IMMICH_URL"),
 			APIKey: core.Secret(get("ZLATAN_IMMICH_API_KEY")),
+		},
+		Ntfy: Ntfy{
+			URL:   get("ZLATAN_NTFY_URL"),
+			Topic: get("ZLATAN_NTFY_TOPIC"),
+			Token: core.Secret(get("ZLATAN_NTFY_TOKEN")),
 		},
 		StagingRetention: DefaultRetentionDays * 24 * time.Hour,
 		MaxConcurrent:    1,
@@ -283,6 +302,9 @@ func (c *Config) Warnings() []string {
 	}
 	if !c.Immich.Configured() {
 		w = append(w, "Immich is not configured, so the Photos route cannot import anything")
+	}
+	if !c.Ntfy.Configured() {
+		w = append(w, "ZLATAN_NTFY_URL or ZLATAN_NTFY_TOPIC is not set, so nobody is told when a migration finishes or stops")
 	}
 	return w
 }

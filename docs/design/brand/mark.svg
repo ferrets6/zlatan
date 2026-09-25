@@ -1,7 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="zlatan">
   <title>zlatan</title>
-  <!-- An arc you leave, a crossing, a flat bar you land on. Drawn on the same
-       24 grid, 2 units of stroke and round caps as Nuno's ring. -->
+  <!-- An arc you leave, a crossing, a bar you land on. -->
   <path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2 L6.5 17.2 H17.5"
         fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round"/>

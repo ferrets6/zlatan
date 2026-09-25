@@ -1,41 +1,31 @@
-/* SPDX-License-Identifier: AGPL-3.0-or-later
- *
- * zlatan — the whole visual system, in one file.
- *
- * It is written to be dropped into internal/web/static/ as-is: no build step,
- * no preprocessor, no framework. Every colour comes from Nuno's palette or is
- * mixed from it at a stated percentage, so there is exactly one place to change
- * the brand. One font file, subset to latin, self-hosted.
- */
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
 
-/* ---------------------------------------------------------------- the font */
+/* Font */
 
 @font-face {
 	font-family: "Space Grotesk";
 	font-style: normal;
-	font-weight: 300 700;          /* one variable file covers every weight used */
+	font-weight: 300 700;
 	font-display: swap;
 	src: url("space-grotesk.woff2") format("woff2");
 	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+2000-206F, U+2190-2193, U+2212;
 }
 
-/* -------------------------------------------------------------- the tokens */
+/* Tokens */
 
 :root {
 	color-scheme: light dark;
 
-	/* Nuno's palette. These six values are the whole brand. */
+	/* From Nuno. */
 	--bg: #fbfbfa;
 	--fg: #1c1c1a;
 	--accent: #3f7d4f;
 
-	/* The one addition: same lightness and chroma as the accent in OKLCH,
-	   rotated to hue 40. It reads as clay, not as alarm, and it carries the
-	   same visual weight as the green instead of shouting over it.
-	   Used for one meaning only: this needs you, or this stopped. */
+	/* Added: the accent's OKLCH lightness and chroma at hue 40.
+	   Means "needs you" or "stopped", nothing else. */
 	--attention: #9c5841;
 
-	/* Derived, not invented: the foreground mixed into the background. */
+	/* Mixed from the three above. */
 	--surface: color-mix(in srgb, var(--fg) 3%, var(--bg));
 	--surface-2: color-mix(in srgb, var(--fg) 7%, var(--bg));
 	--line: color-mix(in srgb, var(--fg) 13%, var(--bg));
@@ -45,9 +35,8 @@
 	--attention-wash: color-mix(in srgb, var(--attention) 9%, var(--bg));
 	--on-accent: var(--bg);                        /* 4.8:1 — text on a button */
 
-	/* Quoted, not owned: Google's four colours, used only on the arc of the
-	   mark. The yellow is deepened on light grounds, where the published
-	   value disappears as a 2px stroke. */
+	/* Only ever on the arc of the mark. The published yellow vanishes as a
+	   2px stroke on a light ground, so it is deepened there. */
 	--google-blue: #4285f4;
 	--google-red: #ea4335;
 	--google-yellow: #e3a008;
@@ -75,12 +64,12 @@
 	:root { --gutter: 2rem; }
 }
 
-/* --------------------------------------------------------------- the basis */
+/* Base */
 
 *, *::before, *::after { box-sizing: border-box; }
 
-/* The upload script toggles the drop highlight with the `hidden` attribute,
-   and the component's own `display: flex` would otherwise win over it. */
+/* The upload script toggles the drop zone with `hidden`; its own display:flex
+   would otherwise win. */
 [hidden] { display: none !important; }
 
 html { -webkit-text-size-adjust: 100%; }
@@ -111,7 +100,6 @@ a { color: inherit; }
 
 ::selection { background: var(--accent-wash); }
 
-/* Numbers that change in place must not make the layout twitch. */
 .num { font-variant-numeric: tabular-nums; }
 
 code, .mono {
@@ -122,7 +110,7 @@ code, .mono {
 	padding: 0.1em 0.35em;
 }
 
-/* ---------------------------------------------------------------- the page */
+/* Page */
 
 .page {
 	max-width: 64rem;
@@ -165,13 +153,13 @@ code, .mono {
 	color: var(--muted);
 }
 
-/* -------------------------------------------------------------- the tracks */
+/* Tracks */
 
 .tracks {
 	display: grid;
 	gap: 1.25rem;
 	grid-template-columns: 1fr;
-	align-items: start;       /* two tracks of different lengths stay independent */
+	align-items: start;
 }
 
 @media (min-width: 56rem) {
@@ -198,7 +186,7 @@ code, .mono {
 	letter-spacing: 0.01em;
 }
 
-/* --------------------------------------------------------------- the pills */
+/* State pills */
 
 .pill {
 	display: inline-flex;
@@ -235,7 +223,7 @@ code, .mono {
 	background: var(--accent-wash);
 }
 
-/* Waiting is deliberately colourless. Nothing is wrong; nothing needs you. */
+/* Waiting has no colour: nothing is wrong. */
 .pill--waiting::before { animation: beat 3.2s ease-in-out infinite; }
 
 .pill--you,
@@ -247,11 +235,9 @@ code, .mono {
 
 @keyframes beat { 0%, 100% { opacity: 0.3 } 50% { opacity: 1 } }
 
-/* --------------------------------------------- your part / our part */
+/* Your part / our part */
 
-/* The answer to the hardest problem in this interface: the manual step is
-   never presented as a failure, it is presented as a division of labour, and
-   the same component appears on both tracks so neither looks broken. */
+/* On both tracks, so neither looks like the broken one. */
 .split {
 	display: grid;
 	grid-template-columns: 1fr;
@@ -282,10 +268,8 @@ code, .mono {
 .split ul { margin: 0; padding-left: 1.1rem; color: var(--muted); }
 .split .cost { font-size: 0.8125rem; color: var(--muted); }
 
-/* ----------------------------------------------------------- the step rail */
+/* Step rail */
 
-/* Steps are a real sequence, so they are drawn as one: a line with nodes on
-   it. The node says where you are without a word. */
 .steps { list-style: none; margin: 0; padding: 0; }
 
 .step { position: relative; padding-left: 2.1rem; padding-bottom: 1.4rem; }
@@ -344,7 +328,7 @@ code, .mono {
 .step__body { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.45rem; }
 .step__body p { font-size: 0.9375rem; }
 
-/* What you literally tap, quoted as you will see it on Google's page. */
+/* A word quoted from Google's own page. */
 .said {
 	font-weight: 500;
 	background: var(--surface-2);
@@ -353,7 +337,7 @@ code, .mono {
 	white-space: nowrap;
 }
 
-/* --------------------------------------------------------------- progress */
+/* Progress */
 
 .state { display: flex; flex-direction: column; gap: 0.5rem; }
 .state__line { font-weight: 500; }
@@ -372,8 +356,7 @@ code, .mono {
 	border-radius: inherit;
 }
 
-/* No denominator yet, so no bar: a moving line that promises nothing and is
-   labelled with what is actually happening. */
+/* Shown instead of a bar when there is no denominator yet. */
 .scan { height: 3px; background: var(--surface-2); position: relative; overflow: hidden; border-radius: 999px; }
 
 .scan::after {
@@ -383,8 +366,7 @@ code, .mono {
 	width: 32%;
 	background: var(--accent);
 	border-radius: inherit;
-	/* It alternates rather than loops, so the line is on screen in every
-	   still frame instead of sometimes being parked off the edge. */
+	/* Alternates so it is never parked off the edge in a still frame. */
 	animation: scan 2.6s ease-in-out infinite alternate;
 }
 
@@ -412,7 +394,7 @@ code, .mono {
 	vertical-align: baseline;
 }
 
-/* ---------------------------------------------------------------- blocks */
+/* Blocks */
 
 .note {
 	border-top: 1px solid var(--line);
@@ -475,7 +457,7 @@ code, .mono {
 .why[open] > summary::after { transform: rotate(-135deg) translate(-1px, -1px); }
 .why > div { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.6rem; color: var(--muted); }
 
-/* --------------------------------------------------------------- controls */
+/* Controls */
 
 .actions { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
 
@@ -484,7 +466,7 @@ code, .mono {
 	align-items: center;
 	justify-content: center;
 	gap: 0.5rem;
-	min-height: 2.75rem;                 /* a thumb, not a mouse */
+	min-height: 2.75rem;      /* thumb-sized */
 	padding: 0.6rem 1.1rem;
 	border: 1px solid transparent;
 	border-radius: var(--radius-sm);
@@ -527,7 +509,7 @@ code, .mono {
 
 .copy code { background: none; padding: 0; font-size: 0.9375rem; }
 
-/* ------------------------------------------------------------------ upload */
+/* Upload */
 
 .drop {
 	border: 2px dashed var(--line-strong);
@@ -544,20 +526,18 @@ code, .mono {
 .drop--over { border-color: var(--accent); background: var(--accent-wash); color: var(--fg); }
 .drop input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; }
 
-/* ------------------------------------------------------------------ totals */
+/* Totals */
 
-/* The design draws three tiles. The wizard has two numbers for Drive and one
-   for Photos, so the tracks are sized to what is actually there rather than
-   left with an empty grey cell. */
 .totals { display: grid; grid-template-columns: 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
 
+/* Drive reports two numbers, Photos three, so the row fits what is there. */
 @media (min-width: 30rem) { .totals { grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); } }
 
 .totals > div { background: var(--bg); padding: 0.85rem 0.95rem; display: flex; flex-direction: column; gap: 0.15rem; }
 .totals dt { font-size: 0.6875rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
 .totals dd { margin: 0; font-size: 1.375rem; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 
-/* ------------------------------------------------------------------ motion */
+/* Motion */
 
 @media (prefers-reduced-motion: reduce) {
 	*, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
@@ -565,11 +545,9 @@ code, .mono {
 	.beat, .pill--waiting::before { opacity: 0.7; }
 }
 
-/* ------------------------------------------------------------ the lockup */
+/* Lockup */
 
-/* The mark is inline SVG so it inherits colour and the page's Google tokens;
-   the word is live text, because the page already loads the face. The
-   outlined wordmark.svg is for everywhere that has no font. */
+/* Inline SVG plus live text. wordmark.svg is for where there is no font. */
 .brand { gap: 0.45rem; }
 .brand .mark { width: 1.75rem; height: 1.75rem; display: block; flex: none; }
 .brand .word { font-size: 1.3125rem; font-weight: 500; letter-spacing: -0.035em; }
@@ -586,7 +564,7 @@ code, .mono {
 
 .back:hover { color: var(--fg); }
 
-/* A single-track page: the same panel, given the whole width. */
+/* Single-track page. */
 .panel {
 	border: 1px solid var(--line);
 	border-radius: var(--radius);
@@ -600,7 +578,7 @@ code, .mono {
 
 @media (min-width: 40rem) { .panel { padding: 1.5rem; } }
 
-/* The steps the server will take on its own: same rail, no nodes to reach. */
+/* Steps the server takes on its own: no nodes to reach. */
 .steps--auto .step { padding-bottom: 0.85rem; color: var(--muted); }
 .steps--auto .step::before { width: 0.5rem; height: 0.5rem; left: 0.2rem; top: 0.5rem; border-width: 0; background: var(--line-strong); }
 .steps--auto .step::after { top: 1.1rem; }
@@ -615,8 +593,7 @@ code, .mono {
 
 .hgroup { display: flex; flex-direction: column; gap: 0.35rem; }
 
-/* CSS custom properties do not work inside the stop-color presentation
-   attribute, so the mark's Google bands are set from here instead. */
+/* var() does not work in the stop-color attribute, so the bands live here. */
 .mark .g-b { stop-color: var(--google-blue); }
 .mark .g-r { stop-color: var(--google-red); }
 .mark .g-y { stop-color: var(--google-yellow); }
@@ -626,9 +603,7 @@ code, .mono {
 
 .stack { display: flex; flex-direction: column; gap: 0.75rem; }
 
-/* The service itself only ever follows the system preference. These two blocks
-   exist so the mockup gallery can put a light frame next to a dark one, and so
-   a future "always dark" preference has somewhere to live. */
+/* The service follows the system. These let the gallery force a theme. */
 :root[data-theme="light"] {
 	--bg: #fbfbfa; --fg: #1c1c1a; --accent: #3f7d4f; --attention: #9c5841;
 	--on-accent: #fbfbfa; --google-yellow: #e3a008;
@@ -639,7 +614,6 @@ code, .mono {
 	--on-accent: #15161a; --google-yellow: #fbbc05;
 }
 
-/* A button that is the only child of a column needs telling not to stretch. */
 .step__body > .btn { align-self: flex-start; }
 
 .step__redo {

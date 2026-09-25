@@ -33,13 +33,11 @@
 
 {{ if eq .Screen "entry" }}
 	<div class="prose">
-		<h1>Let’s get your things off Google</h1>
+		<h1>Move your things off Google</h1>
 		<p class="lede">
-			Two moves, and they have nothing to do with each other: your files go to
-			Nextcloud, your photos go to Immich. Do one, do both at the same time, or
-			stop either one whenever you like.
+			Two moves, independent of each other. Your files go to Nextcloud, your photos to Immich. Start either one, or both.
 		</p>
-		<p class="fine">Nothing is ever deleted from Google. Everything here is a copy.</p>
+		<p class="fine">Nothing is deleted from Google. Everything here is a copy.</p>
 	</div>
 
 	<main class="tracks">
@@ -53,9 +51,7 @@
 			</div>
 
 			<p>
-				Everything in your Drive — documents, folders, the things you keep
-				meaning to sort out — copied into Nextcloud with the folders as they
-				are.
+				Everything in your Drive, copied into Nextcloud with the folders as they are.
 			</p>
 
 			<div class="split">
@@ -80,8 +76,7 @@
 					<a class="btn btn--primary" href="/oauth/google/start">Connect Google</a>
 				</div>
 				<p class="fine">
-					Google will ask you to allow read-only access. Read-only means nothing
-					on Google can change, not even by accident.
+					Read-only access. Nothing on Google can change.
 				</p>
 				{{ else if not .NextcloudConnected }}
 				<div class="actions">
@@ -90,8 +85,7 @@
 					</form>
 				</div>
 				<p class="fine">
-					Nextcloud will ask you to grant this service access to your files.
-					It is a one-click confirmation; you are not sharing a password.
+					One confirmation in Nextcloud. You are not sharing a password.
 				</p>
 				{{ else }}
 				<div class="actions">
@@ -115,33 +109,30 @@
 			</div>
 
 			<p>
-				Every photo and every video, with the dates they were taken and the
-				albums you made.
+				Every photo and video, with the dates they were taken and the albums you made.
 			</p>
 
 			<div class="split">
 				<div class="yours">
 					<h4>Your part</h4>
-					<p>Asking Google for a copy. We walk you through it, one step at a time.</p>
-					<p class="cost">About five minutes, once.</p>
+					<p>Asking Google for a copy. We walk you through it.</p>
+					<p class="cost">Five minutes, once.</p>
 				</div>
 				<div class="ours">
 					<h4>Our part</h4>
 					<ul>
-						<li>Watching for your copy to arrive</li>
+						<li>Watching for it to arrive</li>
 						<li>Downloading and unpacking it</li>
-						<li>Putting back dates and albums</li>
-						<li>Filling up Immich</li>
+						<li>Restoring dates and albums</li>
+						<li>Filling Immich</li>
 					</ul>
 				</div>
 			</div>
 
 			<div class="calm">
-				<p><b>There is one step only you can do.</b></p>
+				<p><b>One step only you can do.</b></p>
 				<p class="fine">
-					In March 2025 Google closed the door that let apps read photo
-					libraries — not just this one, every app. So the copy has to start
-					with you asking Google for it. After that, you are done.
+					In March 2025 Google stopped letting apps read photo libraries. Any app. So you ask Google for the copy yourself, once.
 				</p>
 				{{ if .CanTakeout }}
 				<p class="fine">
@@ -151,22 +142,16 @@
 				</p>
 				{{ end }}
 				<details class="why">
-					<summary>Why can’t zlatan do this part?</summary>
+					<summary>Why not?</summary>
 					<div>
 						<p>
-							Until March 2025 a program could ask Google for permission to
-							read your photos, and you could grant it on a single screen.
-							Google removed that permission for everyone.
+							Until March 2025 an app could ask permission to read your photos and you granted it on one screen. Google removed that permission.
 						</p>
 						<p>
-							What is left is Google Takeout: a page where <em>you</em> ask
-							Google for a copy of your own library. There is no way for a
-							program to press that button for you — Google does not offer one.
+							What is left is Google Takeout, where <em>you</em> ask for a copy of your own library. No program can press that button for you.
 						</p>
 						<p>
-							So we do not pretend. You press it, we take it from there, and
-							we will never show you a progress bar for something that is not
-							moving.
+							So we do not pretend otherwise. You press it, we do the rest.
 						</p>
 					</div>
 				</details>
@@ -189,7 +174,7 @@
 
 			{{ if and .CanUpload (not .CanTakeout) }}
 			<details class="why">
-				<summary>Send the file myself instead</summary>
+				<summary>Send the file myself</summary>
 				<div>
 					{{ template "upload" . }}
 				</div>
@@ -202,8 +187,7 @@
 	<div class="prose">
 		<h1>Your moves are under way</h1>
 		<p class="lede">
-			You can close this tab. Everything below carries on without you — the
-			work is happening on the home server, not in this browser.
+			You can close this tab. The work happens on the home server.
 		</p>
 	</div>
 
@@ -231,9 +215,7 @@
 
 			<div class="note">
 				<p>
-					If the copy is interrupted — the server reboots, your Google account
-					has a bad hour — it starts again where it stopped. It never copies
-					the same file twice.
+					If it stops, it starts again where it left off. No file is copied twice.
 				</p>
 			</div>
 		</section>
@@ -258,15 +240,13 @@
 
 			<div class="note">
 				<p>
-					Google usually takes a few hours. A large library can take a day, and
-					it often arrives in several parts — we wait for all of them before
-					starting.
+					Usually a few hours. A large library can take a day and can arrive in several parts. We wait for all of them.
 				</p>
 			</div>
 
 			{{ if .CanUpload }}
 			<div class="stack">
-				<h3>Send the file myself instead</h3>
+				<h3>Send the file myself</h3>
 				{{ template "upload" . }}
 			</div>
 			{{ end }}
@@ -295,7 +275,7 @@
 			<li class="step" data-state="done">
 				<div class="step__label">
 					<span class="step__n">2</span>
-					Chose Google Photos, and nothing else
+					Chose Google Photos only
 				</div>
 			</li>
 
@@ -306,9 +286,7 @@
 				</div>
 				<div class="step__body">
 					<p>
-						At the bottom of the Takeout page, press
-						<span class="said">Next step</span>. Google then asks four things.
-						Set them exactly like this:
+						At the bottom of the Takeout page press <span class="said">Next step</span>, then set these four:
 					</p>
 
 					<div class="split" role="group" aria-label="Settings to choose">
@@ -331,16 +309,13 @@
 					</div>
 
 					<p class="fine">
-						<b>Add to Drive</b> is the one that matters: it puts the copy in
-						your own Google Drive, where we can pick it up without you
-						downloading anything. The large file size just means fewer pieces
-						to keep track of.
+						<b>Add to Drive</b> is the one that matters: the copy lands in your own Drive and we collect it from there. The large file size means fewer pieces.
 					</p>
 
 					<div class="actions">
 						{{ if .CanTakeout }}
 						<form method="post" action="/photos/takeout/start">
-							<button class="btn btn--primary" type="submit">I’ve set these four</button>
+							<button class="btn btn--primary" type="submit">I’ve set these</button>
 						</form>
 						{{ end }}
 						<a class="btn btn--ghost" href="https://takeout.google.com/" target="_blank" rel="noopener">
@@ -360,27 +335,23 @@
 			<li class="step" data-state="todo">
 				<div class="step__label">
 					<span class="step__n">5</span>
-					Wait for it to land in your Drive — we pick it up on our own
+					Wait for it to land in your Drive. We collect it from there.
 				</div>
 			</li>
 		</ol>
 
 		<div class="note">
 			<p>
-				<b>If the page looks different from what we describe</b>, Google has
-				moved something again. Choose the closest thing, or send us the file
-				yourself instead — both routes end in the same place.
+				<b>If the page looks different</b>, Google has moved something. Pick the closest option, or send us the file yourself. Both routes end in the same place.
 			</p>
 		</div>
 	</main>
 
 	{{ if .CanUpload }}
 	<section class="calm narrow">
-		<h3>Your Google storage might be too small</h3>
+		<h3>If it will not fit in your Google storage</h3>
 		<p class="fine">
-			<span class="said">Add to Drive</span> needs room in your Google account
-			for the whole copy. If Google tells you it will not fit, do not delete
-			anything to make space — come this way instead.
+			<span class="said">Add to Drive</span> needs room for the whole copy. Do not delete anything to make space; come this way instead.
 		</p>
 		<div class="stack">
 			{{ template "upload" . }}
@@ -393,9 +364,7 @@
 		<a class="back" href="/">← Both tracks</a>
 		<h1>Send us the file yourself</h1>
 		<p class="lede">
-			For when the copy will not fit in your Google storage. You download it
-			from Google onto this device, and hand it straight to us — it never
-			passes through anyone else.
+			For when the copy will not fit in your Google storage. It goes from this device straight to the home server.
 		</p>
 	</div>
 
@@ -404,14 +373,14 @@
 			<li class="step" data-state="done">
 				<div class="step__label"><span class="step__n">1</span> Asked Google for the copy</div>
 				<div class="step__body">
-					<p class="fine">Same as before, with one thing changed: <span class="said">Send download link by email</span> instead of <span class="said">Add to Drive</span>.</p>
+					<p class="fine">Same as before, but <span class="said">Send download link by email</span> instead of <span class="said">Add to Drive</span>.</p>
 				</div>
 			</li>
 
 			<li class="step" data-state="done">
 				<div class="step__label"><span class="step__n">2</span> Downloaded it from Google’s email</div>
 				<div class="step__body">
-					<p class="fine">Google can split your export into several files. Add them one at a time — the order does not matter.</p>
+					<p class="fine">Google can split the export into several files. Add them one at a time, in any order.</p>
 				</div>
 			</li>
 
@@ -428,13 +397,10 @@
 
 					<div class="note">
 						<p>
-							<b>Keep this tab open while it sends.</b> This is the one part of
-							zlatan that lives in your browser, so closing the tab pauses it.
+							<b>Keep this tab open while it sends.</b> This part runs in your browser, so closing the tab pauses it.
 						</p>
 						<p>
-							Nothing is lost if it does stop. We remember every piece that
-							arrived, and when you come back it carries on from there — even
-							days later, even on another device.
+							Nothing is lost if it does. Come back and it continues from the last piece that arrived, days later or on another device.
 						</p>
 					</div>
 
@@ -455,10 +421,9 @@
 {{ else if eq .Screen "waiting" }}
 	<div class="prose">
 		<a class="back" href="/">← Both tracks</a>
-		<h1>Your part is finished</h1>
+		<h1>Your part is done</h1>
 		<p class="lede">
-			Google is making the copy now. That takes as long as it takes, and there
-			is nothing left for you to do — not now, not when it arrives.
+			Google is making the copy. Nothing else is needed from you, now or when it arrives.
 		</p>
 	</div>
 
@@ -489,19 +454,16 @@
 
 		<div class="note">
 			<p>
-				<b>How long this usually takes.</b> A few hours for most libraries. A
-				very large one can take Google a day or more, and it often arrives in
-				several parts — we wait until all of them are there before starting, so
-				nothing lands in Immich half-finished.
+				<b>How long this takes.</b> A few hours for most libraries, up to a day for a very large one. It often arrives in several parts and we wait for all of them, so nothing lands in Immich half-finished.
 			</p>
 		</div>
 
 		<div class="stack">
-			<h3>What happens the moment it arrives</h3>
+			<h3>What happens when it arrives</h3>
 			<ol class="steps steps--auto">
-				<li class="step"><div class="step__label">Copy the export from your Drive to the home server</div></li>
-				<li class="step"><div class="step__label">Unpack it and read Google’s notes about each photo</div></li>
-				<li class="step"><div class="step__label">Put back the dates taken, the places and the albums</div></li>
+				<li class="step"><div class="step__label">Copy it from your Drive to the home server</div></li>
+				<li class="step"><div class="step__label">Unpack it and read Google’s notes on each photo</div></li>
+				<li class="step"><div class="step__label">Restore the dates, places and albums</div></li>
 				<li class="step"><div class="step__label">Fill up Immich with the photos and their albums</div></li>
 			</ol>
 		</div>
@@ -515,7 +477,7 @@
 
 		{{ if .CanUpload }}
 		<div class="stack">
-			<h3>Send the file myself instead</h3>
+			<h3>Send the file myself</h3>
 			{{ template "upload" . }}
 		</div>
 		{{ end }}
@@ -572,10 +534,7 @@
 	<section class="calm narrow">
 		<h3>Google still has all of it</h3>
 		<p class="fine">
-			Nothing was removed from your Google account — zlatan only ever read. Your
-			photos and files are in two places now, which is a good place to sit for a
-			while. When you are ready to clear out Google, do it yourself, from
-			Google, after you have had a proper look at what is here.
+			Nothing was removed; zlatan only ever read. Everything is in two places now. Clear out Google yourself, once you have had a proper look at what is here.
 		</p>
 	</section>
 
@@ -584,7 +543,7 @@
 		<h1>Something stopped</h1>
 		<p class="lede">
 			{{ if and $drive.Failed $photos.Failed }}Both moves stopped. Nothing has been lost on either side.
-			{{ else if $drive.Failed }}Your photos are unaffected and still on their way. Nothing has been lost on either side.
+			{{ else if $drive.Failed }}Your photos are unaffected. Nothing has been lost.
 			{{ else }}Your files are unaffected and still on their way. Nothing has been lost on either side.{{ end }}
 		</p>
 	</div>
@@ -606,14 +565,13 @@
 				<p>
 					<b>Nothing was lost.</b>
 					{{ if gt .DriveFiles 0 }}<span class="num">{{ count .DriveFiles }}</span> files are already in Nextcloud and they stay there.{{ end }}
-					Starting again picks up from where it stopped — it will not copy
-					anything twice.
+					Starting again continues from there and copies nothing twice.
 				</p>
 			</div>
 			<div class="actions">
 				{{ if .CanStartDrive }}
 				<form method="post" action="/drive/start">
-					<button class="btn btn--primary" type="submit">Try again now</button>
+					<button class="btn btn--primary" type="submit">Try again</button>
 				</form>
 				{{ end }}
 			</div>
@@ -622,7 +580,7 @@
 				<p class="state__line" data-track="drive">{{ stateLine "drive" $drive.State }}</p>
 				{{ if or $drive.Done $drive.Failed }}{{ else }}<div class="scan" aria-hidden="true"></div>{{ end }}
 			</div>
-			<div class="note"><p>This track is fine. The two never depend on each other.</p></div>
+			<div class="note"><p>This track is unaffected. The two are independent.</p></div>
 			{{ end }}
 		</section>
 
@@ -648,7 +606,7 @@
 			<div class="actions">
 				{{ if .CanUpload }}
 				<form method="post" action="/photos/upload/start">
-					<button class="btn btn--primary" type="submit">Try again now</button>
+					<button class="btn btn--primary" type="submit">Try again</button>
 				</form>
 				{{ end }}
 			</div>
@@ -657,7 +615,7 @@
 				<p class="state__line" data-track="photos">{{ stateLine "photos" $photos.State }}</p>
 				{{ if or $photos.Done $photos.Failed }}{{ else }}<div class="scan" aria-hidden="true"></div>{{ end }}
 			</div>
-			<div class="note"><p>This track is fine. The two never depend on each other.</p></div>
+			<div class="note"><p>This track is unaffected. The two are independent.</p></div>
 			{{ end }}
 		</section>
 	</main>
@@ -666,7 +624,6 @@
 
 	<footer class="foot">
 		<p>zlatan {{ .Version }} — running on the home server</p>
-		<p>Your data goes from Google to this house. Nowhere else.</p>
 	</footer>
 </div>
 
@@ -687,7 +644,7 @@
 	</noscript>
 	<label class="drop" for="upload-input" data-upload-when-js hidden>
 		<span><b>Drop a file here</b>, or choose one</span>
-		<span class="fine">Zip files from Google Takeout — up to 50 GB each</span>
+		<span class="fine">Takeout .zip files, up to 50 GB each</span>
 		<input id="upload-input" type="file" accept=".zip,application/zip">
 	</label>
 	<div id="upload-drop" class="drop drop--over" hidden>Drop the file here</div>

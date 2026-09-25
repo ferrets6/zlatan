@@ -1,11 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="zlatan">
   <title>zlatan</title>
-  <!-- The expressive variant: the arc you are leaving carries Google's four
-       colours, and the colour stops at the crossing. Use at 32 px and above;
-       below that the bands turn to noise and mark.svg is the right file. -->
+  <!-- 32px and up. Below that use mark.svg: the bands turn to mud. -->
   <style>
-    .zl-y { stop-color: #E3A008 }            /* Google's yellow is invisible as a
-                                                thin stroke on a light ground */
+    .zl-y { stop-color: #E3A008 }
     @media (prefers-color-scheme: dark) { .zl-y { stop-color: #FBBC05 } }
   </style>
   <defs>

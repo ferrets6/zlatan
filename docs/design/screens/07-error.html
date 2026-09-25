@@ -1,14 +1,7 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later
-     Screen 7 — Something stopped.
-
-     Four things, in this order, because that is the order a worried person
-     needs them in: what happened, what it means for their data, what to do,
-     and only then the technical detail — folded away, and addressed to whoever
-     runs the server rather than to the person reading.
-
-     The other track is untouched and says so. One failure must never make the
-     whole page look broken. -->
+     Stopped. What happened, what it means, what to do; detail folded away.
+     The other track is untouched and says so. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -39,10 +32,9 @@
 	</header>
 
 	<div class="prose">
-		<h1>The file copy has stopped</h1>
+		<h1>The file copy stopped</h1>
 		<p class="lede">
-			Your photos are unaffected and still on their way. Nothing has been lost
-			on either side.
+			Your photos are unaffected. Nothing has been lost.
 		</p>
 	</div>
 
@@ -58,23 +50,20 @@
 			</div>
 
 			<div class="notice" role="status">
-				<h3>Google stopped answering, about an hour ago</h3>
+				<h3>Google stopped answering an hour ago</h3>
 				<p>
-					This usually means Google decided the account was being asked for too
-					much at once. It clears on its own, normally within a few hours.
+					Usually it means the account was asked for too much at once. It clears by itself, normally within a few hours.
 				</p>
 				<p>
-					<b>Nothing was lost.</b> <span class="num">12,480</span> files are
-					already in Nextcloud and they stay there. Starting again picks up from
-					where it stopped — it will not copy anything twice.
+					<b>Nothing was lost.</b> <span class="num">12,480</span> files are already in Nextcloud. Starting again continues from there and copies nothing twice.
 				</p>
 			</div>
 
 			<div class="actions">
 				<form method="post" action="/drive/retry">
-					<button class="btn btn--primary" type="submit">Try again now</button>
+					<button class="btn btn--primary" type="submit">Try again</button>
 				</form>
-				<a class="btn btn--quiet" href="/drive/later">Try again automatically in an hour</a>
+				<a class="btn btn--quiet" href="/drive/later">Try again in an hour</a>
 			</div>
 
 			<details class="why">
@@ -109,7 +98,7 @@
 			</div>
 
 			<div class="note">
-				<p>This track is fine. The two never depend on each other.</p>
+				<p>This track is unaffected. The two are independent.</p>
 			</div>
 		</section>
 	</main>

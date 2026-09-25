@@ -1,7 +1,6 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later
-     Screen 1 — Entry. Both tracks at rest. The person has just arrived through
-     the household SSO and has not started anything. -->
+     Entry. Both tracks at rest. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -32,13 +31,11 @@
 	</header>
 
 	<div class="prose">
-		<h1>Let’s get your things off Google</h1>
+		<h1>Move your things off Google</h1>
 		<p class="lede">
-			Two moves, and they have nothing to do with each other: your files go to
-			Nextcloud, your photos go to Immich. Do one, do both at the same time, or
-			stop either one whenever you like.
+			Two moves, independent of each other. Your files go to Nextcloud, your photos to Immich. Start either one, or both.
 		</p>
-		<p class="fine">Nothing is ever deleted from Google. Everything here is a copy.</p>
+		<p class="fine">Nothing is deleted from Google. Everything here is a copy.</p>
 	</div>
 
 	<main class="tracks">
@@ -54,9 +51,7 @@
 			</div>
 
 			<p>
-				Everything in your Drive — documents, folders, the things you keep
-				meaning to sort out — copied into Nextcloud with the folders as they
-				are.
+				Everything in your Drive, copied into Nextcloud with the folders as they are.
 			</p>
 
 			<div class="split">
@@ -79,8 +74,7 @@
 				<a class="btn btn--primary" href="/oauth/google/start">Connect Google</a>
 			</div>
 			<p class="fine">
-				Google will ask you to allow read-only access. Read-only means nothing
-				on Google can change, not even by accident.
+				Read-only access. Nothing on Google can change.
 			</p>
 		</section>
 
@@ -95,51 +89,42 @@
 			</div>
 
 			<p>
-				Every photo and every video, with the dates they were taken and the
-				albums you made.
+				Every photo and video, with the dates they were taken and the albums you made.
 			</p>
 
 			<div class="split">
 				<div class="yours">
 					<h4>Your part</h4>
-					<p>Asking Google for a copy. We walk you through it, one step at a time.</p>
-					<p class="cost">About five minutes, once.</p>
+					<p>Asking Google for a copy. We walk you through it.</p>
+					<p class="cost">Five minutes, once.</p>
 				</div>
 				<div class="ours">
 					<h4>Our part</h4>
 					<ul>
-						<li>Watching for your copy to arrive</li>
+						<li>Watching for it to arrive</li>
 						<li>Downloading and unpacking it</li>
-						<li>Putting back dates and albums</li>
-						<li>Filling up Immich</li>
+						<li>Restoring dates and albums</li>
+						<li>Filling Immich</li>
 					</ul>
 				</div>
 			</div>
 
 			<div class="calm">
-				<p><b>There is one step only you can do.</b></p>
+				<p><b>One step only you can do.</b></p>
 				<p class="fine">
-					In March 2025 Google closed the door that let apps read photo
-					libraries — not just this one, every app. So the copy has to start
-					with you asking Google for it. After that, you are done.
+					In March 2025 Google stopped letting apps read photo libraries. Any app. So you ask Google for the copy yourself, once.
 				</p>
 				<details class="why">
-					<summary>Why can’t zlatan do this part?</summary>
+					<summary>Why not?</summary>
 					<div>
 						<p>
-							Until March 2025 a program could ask Google for permission to
-							read your photos, and you could grant it on a single screen.
-							Google removed that permission for everyone.
+							Until March 2025 an app could ask permission to read your photos and you granted it on one screen. Google removed that permission.
 						</p>
 						<p>
-							What is left is Google Takeout: a page where <em>you</em> ask
-							Google for a copy of your own library. There is no way for a
-							program to press that button for you — Google does not offer one.
+							What is left is Google Takeout, where <em>you</em> ask for a copy of your own library. No program can press that button for you.
 						</p>
 						<p>
-							So we do not pretend. You press it, we take it from there, and
-							we will never show you a progress bar for something that is not
-							moving.
+							So we do not pretend otherwise. You press it, we do the rest.
 						</p>
 					</div>
 				</details>
@@ -153,7 +138,6 @@
 
 	<footer class="foot">
 		<p>zlatan 0.3.0 — running on the home server</p>
-		<p>Your data goes from Google to this house. Nowhere else.</p>
 	</footer>
 </div>
 </body>
