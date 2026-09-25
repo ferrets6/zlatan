@@ -1,0 +1,122 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+:root {
+	color-scheme: light dark;
+	--bg: #f7f7f8;
+	--fg: #1b1b1f;
+	--muted: #5c5c66;
+	--card: #ffffff;
+	--line: #e2e2e6;
+	--accent: #2f6f4f;
+	--danger: #a33;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #14151a;
+		--fg: #ececf1;
+		--muted: #a0a0ab;
+		--card: #1d1e25;
+		--line: #2c2d36;
+		--accent: #6fbf94;
+		--danger: #e88;
+	}
+}
+
+* { box-sizing: border-box; }
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+	font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+main {
+	max-width: 44rem;
+	margin: 0 auto;
+	padding: 2rem 1.25rem 4rem;
+}
+
+h1 { font-size: 1.6rem; line-height: 1.25; margin: 0 0 .5rem; }
+h2 { font-size: 1.15rem; margin: 0 0 .75rem; }
+
+.lede { color: var(--muted); margin: 0 0 .5rem; }
+.who { color: var(--muted); font-size: .9rem; margin: 0 0 2rem; }
+
+.alert {
+	border: 1px solid var(--danger);
+	border-radius: .5rem;
+	padding: .75rem 1rem;
+	margin-bottom: 1.5rem;
+}
+
+.track {
+	background: var(--card);
+	border: 1px solid var(--line);
+	border-radius: .75rem;
+	padding: 1.25rem;
+	margin-bottom: 1.25rem;
+}
+
+.state {
+	font-weight: 600;
+	margin: 0 0 .5rem;
+}
+
+.progress { color: var(--muted); margin: 0 0 .5rem; }
+.counts { color: var(--muted); margin: 0 0 1rem; }
+
+.hint { color: var(--muted); font-size: .9rem; margin: .5rem 0 0; }
+.hint.disabled { color: var(--danger); }
+
+.explain {
+	background: color-mix(in srgb, var(--accent) 8%, transparent);
+	border-left: 3px solid var(--accent);
+	padding: .5rem 1rem;
+	margin: 0 0 1rem;
+	border-radius: 0 .375rem .375rem 0;
+}
+
+button {
+	font: inherit;
+	font-weight: 600;
+	color: #fff;
+	background: var(--accent);
+	border: 0;
+	border-radius: .5rem;
+	padding: .65rem 1.1rem;
+	cursor: pointer;
+}
+
+button.secondary {
+	color: var(--fg);
+	background: transparent;
+	border: 1px solid var(--line);
+}
+
+button:hover { filter: brightness(1.08); }
+
+/* A link styled as a button, for the actions that are a redirect (the OAuth
+   flow) rather than a form post. */
+a.button {
+	display: inline-block;
+	font-weight: 600;
+	text-decoration: none;
+	color: #fff;
+	background: var(--accent);
+	border-radius: .5rem;
+	padding: .65rem 1.1rem;
+}
+
+a.button:hover { filter: brightness(1.08); }
+
+code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: .9em;
+	background: color-mix(in srgb, var(--fg) 8%, transparent);
+	padding: .1em .35em;
+	border-radius: .25rem;
+}
+
+footer { margin-top: 2rem; }
+.version { color: var(--muted); font-size: .8rem; text-align: center; }

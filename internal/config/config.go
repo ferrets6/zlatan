@@ -1,0 +1,276 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+// Package config loads Migrate's configuration from the environment and from
+// an optional env-style file. There is no interactive setup.
+package config
+
+import (
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/marcodellemarche/migrate/internal/core"
+)
+
+const (
+	DefaultAddr    = "127.0.0.1:8080"
+	DefaultDataDir = "/data"
+	DefaultStaging = "/staging"
+
+	// DefaultRetentionDays is how long a finished migration's staging is kept
+	// before the purge. Long enough to answer "wait, did my video arrive?",
+	// short enough not to hoard a hundred gigabytes.
+	DefaultRetentionDays = 14
+)
+
+// Config is the whole of Migrate's configuration. Every secret is a
+// core.Secret, so printing the struct cannot leak one.
+type Config struct {
+	Addr            string
+	AllowPublicBind bool
+	DataDir         string
+	StagingDir      string
+	LogLevel        slog.Level
+
+	// ProxySecret is a header Caddy injects on the way in. The service shares
+	// a Docker network with every other container, so without this any of them
+	// could reach it directly and skip the SSO in front of the public name.
+	// Empty means no gate.
+	ProxySecret core.Secret
+
+	// TrustedProxy is the network the forward-auth header (Remote-User) may
+	// come from. A Remote-User header is believed only when the request
+	// arrives from it, so a container on the same network cannot claim to be
+	// somebody else. Empty means no header is trusted, and every request is
+	// refused — the safe default.
+	TrustedProxy string
+
+	// TokenKey seals OAuth refresh tokens at rest. Losing it makes every
+	// stored token unreadable, so the running migrations must be re-authorised.
+	TokenKey core.Secret
+
+	Google    Google
+	Nextcloud Nextcloud
+	Immich    Immich
+
+	// StagingRetention is how long a completed migration's staging is kept.
+	StagingRetention time.Duration
+
+	// MaxConcurrent is how many heavy migrations may run at once. One on this
+	// single-node homelab: immich-go and Immich's own jobs already saturate
+	// the CPU, and the memory limits are deliberate.
+	MaxConcurrent int
+}
+
+// Google is the OAuth client dedicated to this service, plus the family
+// account people share their Takeout with. It is deliberately separate from
+// Nextcloud's integration_google client: different scopes, different blast
+// radius.
+type Google struct {
+	ClientID     core.Secret
+	ClientSecret core.Secret
+	RedirectURL  string
+
+	// ShareAccount is the address the wizard shows when it asks the person to
+	// share their Takeout folder. Without it, the "Add to Drive" route cannot
+	// be offered and the wizard falls back to the upload route.
+	ShareAccount string
+}
+
+// Configured reports whether the OAuth client is usable.
+func (g Google) Configured() bool {
+	return !g.ClientID.Empty() && !g.ClientSecret.Empty() && g.RedirectURL != ""
+}
+
+// Nextcloud is the import destination for the Drive half.
+type Nextcloud struct {
+	URL           string
+	AdminUser     string
+	AdminPassword core.Secret
+}
+
+// Configured reports whether Nextcloud can be reached and written to.
+func (n Nextcloud) Configured() bool {
+	return n.URL != "" && n.AdminUser != "" && !n.AdminPassword.Empty()
+}
+
+// Immich is the import destination for the Photos half.
+type Immich struct {
+	URL    string
+	APIKey core.Secret
+}
+
+// Configured reports whether Immich can be reached and written to.
+func (i Immich) Configured() bool {
+	return i.URL != "" && !i.APIKey.Empty()
+}
+
+// Resolve reads an optional env-style file and overlays the real environment
+// on top of it. The real environment always wins.
+func Resolve() (map[string]string, error) {
+	env := map[string]string{}
+	if path := os.Getenv("MIGRATE_CONFIG"); path != "" {
+		fileEnv, err := parseEnvFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("reading MIGRATE_CONFIG: %w", err)
+		}
+		for k, v := range fileEnv {
+			env[k] = v
+		}
+	}
+	for _, kv := range os.Environ() {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		env[k] = v
+	}
+	return env, nil
+}
+
+func parseEnvFile(path string) (map[string]string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	env := map[string]string{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		v = strings.Trim(v, `"'`)
+		env[k] = v
+	}
+	return env, nil
+}
+
+// Load builds the configuration, reporting every problem at once so one pass
+// fixes all of them.
+func Load(env map[string]string) (*Config, error) {
+	var problems []string
+	get := func(key string) string { return strings.TrimSpace(env[key]) }
+
+	cfg := &Config{
+		Addr:            or(get("MIGRATE_ADDR"), DefaultAddr),
+		DataDir:         or(get("MIGRATE_DATA_DIR"), DefaultDataDir),
+		StagingDir:      or(get("MIGRATE_STAGING_DIR"), DefaultStaging),
+		AllowPublicBind: get("MIGRATE_ALLOW_PUBLIC_BIND") == "true",
+		ProxySecret:     core.Secret(get("MIGRATE_PROXY_SECRET")),
+		TrustedProxy:    get("MIGRATE_TRUSTED_PROXY"),
+		TokenKey:        core.Secret(get("MIGRATE_TOKEN_KEY")),
+		Google: Google{
+			ClientID:     core.Secret(get("MIGRATE_GOOGLE_CLIENT_ID")),
+			ClientSecret: core.Secret(get("MIGRATE_GOOGLE_CLIENT_SECRET")),
+			RedirectURL:  get("MIGRATE_GOOGLE_REDIRECT_URL"),
+			ShareAccount: get("MIGRATE_TAKEOUT_SHARE_ACCOUNT"),
+		},
+		Nextcloud: Nextcloud{
+			URL:           get("MIGRATE_NEXTCLOUD_URL"),
+			AdminUser:     get("MIGRATE_NEXTCLOUD_ADMIN_USER"),
+			AdminPassword: core.Secret(get("MIGRATE_NEXTCLOUD_ADMIN_PASSWORD")),
+		},
+		Immich: Immich{
+			URL:    get("MIGRATE_IMMICH_URL"),
+			APIKey: core.Secret(get("MIGRATE_IMMICH_API_KEY")),
+		},
+		StagingRetention: DefaultRetentionDays * 24 * time.Hour,
+		MaxConcurrent:    1,
+	}
+
+	level, err := parseLevel(get("MIGRATE_LOG_LEVEL"))
+	if err != nil {
+		problems = append(problems, err.Error())
+	}
+	cfg.LogLevel = level
+
+	if days := get("MIGRATE_STAGING_RETENTION_DAYS"); days != "" {
+		n, err := strconv.Atoi(days)
+		if err != nil || n < 0 {
+			problems = append(problems, "MIGRATE_STAGING_RETENTION_DAYS must be a non-negative integer")
+		} else {
+			cfg.StagingRetention = time.Duration(n) * 24 * time.Hour
+		}
+	}
+
+	if conc := get("MIGRATE_MAX_CONCURRENT"); conc != "" {
+		n, err := strconv.Atoi(conc)
+		if err != nil || n < 1 {
+			problems = append(problems, "MIGRATE_MAX_CONCURRENT must be a positive integer")
+		} else {
+			cfg.MaxConcurrent = n
+		}
+	}
+
+	// Binding a public interface without a proxy secret would expose the
+	// service to anything that can reach the port, with no gate at all.
+	if cfg.AllowPublicBind && cfg.ProxySecret.Empty() {
+		problems = append(problems,
+			"MIGRATE_ALLOW_PUBLIC_BIND=true requires MIGRATE_PROXY_SECRET: a public bind with no gate exposes every user's migration")
+	}
+	if cfg.TrustedProxy == "" {
+		problems = append(problems,
+			"MIGRATE_TRUSTED_PROXY is not set: no forward-auth header will be believed, so every request is refused")
+	}
+	if cfg.TokenKey.Empty() {
+		problems = append(problems,
+			"MIGRATE_TOKEN_KEY is not set: OAuth tokens cannot be sealed at rest")
+	}
+
+	if len(problems) > 0 {
+		return nil, errors.New(strings.Join(problems, "\n"))
+	}
+	return cfg, nil
+}
+
+// Warnings returns things that are not fatal but mean a route will not work.
+// They are logged rather than refused: the service starts and says what is
+// missing, instead of crashing on a partial setup.
+func (c *Config) Warnings() []string {
+	var w []string
+	if !c.Google.Configured() {
+		w = append(w, "the Google OAuth client is not configured, so the Drive route is unavailable")
+	}
+	if c.Google.ShareAccount == "" {
+		w = append(w, "MIGRATE_TAKEOUT_SHARE_ACCOUNT is not set, so the Photos wizard cannot offer the 'Add to Drive' route and falls back to upload")
+	}
+	if !c.Nextcloud.Configured() {
+		w = append(w, "Nextcloud is not configured, so the Drive route cannot import anything")
+	}
+	if !c.Immich.Configured() {
+		w = append(w, "Immich is not configured, so the Photos route cannot import anything")
+	}
+	return w
+}
+
+func or(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func parseLevel(s string) (slog.Level, error) {
+	switch strings.ToLower(s) {
+	case "", "info":
+		return slog.LevelInfo, nil
+	case "debug":
+		return slog.LevelDebug, nil
+	case "warn", "warning":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return slog.LevelInfo, fmt.Errorf("MIGRATE_LOG_LEVEL %q is not one of debug, info, warn, error", s)
+	}
+}
