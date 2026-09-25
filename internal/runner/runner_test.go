@@ -205,6 +205,33 @@ func seedNextcloud(t *testing.T, store *fakeStore, sealer oauth.Sealer) {
 	store.tokens[nextcloud.Provider] = core.Token{User: "marco", Provider: nextcloud.Provider, Sealed: sealed}
 }
 
+// fakeNextcloud is a Login Flow that a test drives by hand.
+type fakeNextcloud struct {
+	flow        nextcloud.Flow
+	creds       nextcloud.Credentials
+	done        bool
+	pollErr     error
+	loginName   string
+	beginCalled bool
+}
+
+func (f *fakeNextcloud) BeginFlow(context.Context) (nextcloud.Flow, error) {
+	f.beginCalled = true
+	return f.flow, nil
+}
+
+func (f *fakeNextcloud) Poll(context.Context, string) (nextcloud.Credentials, bool, error) {
+	if f.pollErr != nil {
+		return nextcloud.Credentials{}, false, f.pollErr
+	}
+	return f.creds, f.done, nil
+}
+
+func (f *fakeNextcloud) DAVURL(loginName string) string {
+	f.loginName = loginName
+	return "http://nextcloud/remote.php/dav/files/" + loginName
+}
+
 // sealerOf reaches into the runner for the sealer it was built with, so a
 // test can seed a token the runner will be able to open.
 func sealerOf(t *testing.T, r *Runner) oauth.Sealer {
@@ -221,6 +248,73 @@ func mustToken(t *testing.T, store *fakeStore, provider string) core.Token {
 		t.Fatalf("no %s token was seeded", provider)
 	}
 	return tok
+}
+
+func TestStartNextcloudReturnsTheLoginURL(t *testing.T) {
+	store := newFakeStore()
+	nc := &fakeNextcloud{flow: nextcloud.Flow{PollToken: "poll", LoginURL: "https://cloud.example/login/v2/flow/x"}}
+	r := newRunner(t, store, &fakeExecutor{}).WithNextcloud(nc)
+
+	url, err := r.StartNextcloud(context.Background(), "marco")
+	if err != nil {
+		t.Fatalf("StartNextcloud: %v", err)
+	}
+	if url != "https://cloud.example/login/v2/flow/x" {
+		t.Errorf("url = %q", url)
+	}
+	// The poll token must be sealed and stored, so a later request (or a
+	// restart) can finish the flow without starting a new one.
+	if _, err := store.GetToken(context.Background(), "marco", nextcloudFlowProvider); err != nil {
+		t.Errorf("the poll token was not stored: %v", err)
+	}
+}
+
+func TestPollNextcloudStoresCredentialsWhenGranted(t *testing.T) {
+	store := newFakeStore()
+	nc := &fakeNextcloud{
+		flow:  nextcloud.Flow{PollToken: "poll"},
+		creds: nextcloud.Credentials{Server: "https://cloud.example", LoginName: "marco-uid", AppPassword: "pw"},
+		done:  true,
+	}
+	r := newRunner(t, store, &fakeExecutor{}).WithNextcloud(nc)
+	if _, err := r.StartNextcloud(context.Background(), "marco"); err != nil {
+		t.Fatalf("StartNextcloud: %v", err)
+	}
+
+	state, err := r.PollNextcloud(context.Background(), "marco")
+	if err != nil {
+		t.Fatalf("PollNextcloud: %v", err)
+	}
+	if state != core.DriveSelecting {
+		t.Errorf("state = %q, want selecting", state)
+	}
+	// The credentials must be stored, the spent flow token gone.
+	if _, err := store.GetToken(context.Background(), "marco", nextcloud.Provider); err != nil {
+		t.Errorf("the credentials were not stored: %v", err)
+	}
+	if _, err := store.GetToken(context.Background(), "marco", nextcloudFlowProvider); err == nil {
+		t.Error("the spent flow token should have been deleted")
+	}
+}
+
+func TestPollNextcloudStaysPendingUntilGranted(t *testing.T) {
+	store := newFakeStore()
+	nc := &fakeNextcloud{flow: nextcloud.Flow{PollToken: "poll"}, done: false}
+	r := newRunner(t, store, &fakeExecutor{}).WithNextcloud(nc)
+	if _, err := r.StartNextcloud(context.Background(), "marco"); err != nil {
+		t.Fatalf("StartNextcloud: %v", err)
+	}
+
+	state, err := r.PollNextcloud(context.Background(), "marco")
+	if err != nil {
+		t.Fatalf("PollNextcloud: %v", err)
+	}
+	if state != core.DriveConsentPending {
+		t.Errorf("state = %q, want consent_pending", state)
+	}
+	if _, err := store.GetToken(context.Background(), "marco", nextcloud.Provider); err == nil {
+		t.Error("no credentials should be stored while the flow is pending")
+	}
 }
 
 func TestStartDriveRefusesWithoutToken(t *testing.T) {

@@ -4,12 +4,13 @@
 
 # zlatan
 
-> Status: **v0.1.0** (2026-09-25). The service runs, the schema is applied, the
-> wizard renders and gates access; the Google OAuth flow, the runner that drives
-> `rclone` and `immich-go`, and the resumable Takeout upload all work. The image
-> is published at `ghcr.io/marcodellemarche/zlatan`. Not yet: the import into
-> Nextcloud after the copy, and the polling of the shared Takeout folder. See
-> "What is missing".
+> Status: **v0.2.0** (2026-09-25). The service runs, the schema is applied, the
+> wizard renders and gates access; the Google OAuth flow, the Nextcloud Login
+> Flow (per-person app password), the runner that drives `rclone` straight into
+> Nextcloud over WebDAV, the runner that drives `immich-go`, and the resumable
+> Takeout upload all work. The image is published at
+> `ghcr.io/marcodellemarche/zlatan`. Not yet: the polling of the shared Takeout
+> folder, verification, quotas and staging purge. See "What is missing".
 
 zlatan is a self-guided migration service for self-hosted stacks. A person who
 is not technical — a family member, a friend — opens it in a browser, signs in
@@ -39,6 +40,7 @@ internal/
 ├── config/     configuration from the environment, every error in one pass
 ├── store/      SQLite, migrations, repository
 ├── oauth/      the Google client, sealed tokens
+├── nextcloud/  Login Flow v2, per-person app passwords
 ├── runner/     drives rclone and immich-go
 ├── upload/     the Takeout upload, in chunks, resumable
 └── web/        the wizard: routes, authentication, templates
@@ -47,11 +49,28 @@ internal/
 Two independent tracks, `drive` and `photos`: a person may run one, the other,
 or both in parallel. The state of one never touches the other.
 
+## How the Drive half reaches Nextcloud
+
+rclone copies Google Drive **straight into the person's Nextcloud over
+WebDAV**, so there is no local staging for the Drive half and no second import
+step. The write credential is a per-user **app password obtained through
+Nextcloud's Login Flow v2**: the person clicks "Grant access" once, behind the
+same SSO, and Zlatan receives a credential with exactly that person's rights.
+
+This was chosen over the alternatives on purpose. The Nextcloud admin over
+WebDAV can *read* another person's files but cannot *write* into their space
+(MKCOL answers 403), so an admin-driven import does not work. The direct
+filesystem route (write into the data directory and run `occ files:scan`)
+would need the Docker socket — root-equivalent access on the host — and a
+coupling to Nextcloud's internal layout. The Login Flow needs neither: only
+public APIs, and no standing privilege beyond what each person already has.
+
 ## Security
 
 The service **holds the Google OAuth refresh token of every person who uses
-it**, and each one grants read access to that person's entire Drive. It is the
-most sensitive secret in the homelab.
+it**, and each one grants read access to that person's entire Drive. It also
+holds each person's Nextcloud app password. They are the most sensitive
+secrets in the homelab.
 
 - **Tokens are encrypted at rest** (AES-GCM). The key (`ZLATAN_TOKEN_KEY`) lives
   only in the environment; the database holds ciphertext.
@@ -90,7 +109,8 @@ make image    # build the image
 - [x] A `Runner` that drives `rclone` for Drive → Nextcloud, with progress.
 - [x] A `Runner` that drives `immich-go` for the Takeout → Immich.
 - [x] Resumable Takeout upload (route B).
-- [ ] Import into Nextcloud after `rclone copy`.
+- [x] Import into Nextcloud: rclone copies Drive straight to WebDAV, with a
+      per-person app password from the Nextcloud Login Flow v2.
 - [ ] Polling of the shared Takeout folder (route A).
 - [ ] Verification (count and sample) and staging purge.
 - [ ] Quotas: read current usage and warn when the migration would exceed it.
