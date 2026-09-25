@@ -9,12 +9,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/marcodellemarche/migrate/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/core"
 )
 
 func newTestDB(t *testing.T) *DB {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "migrate.db")
+	path := filepath.Join(t.TempDir(), "zlatan.db")
 	db, err := Open(path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

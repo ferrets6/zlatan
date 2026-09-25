@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/marcodellemarche/migrate/internal/core"
-	"github.com/marcodellemarche/migrate/internal/oauth"
+	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/oauth"
 )
 
 // oauthStateTTL is how long an authorisation may sit before the callback is

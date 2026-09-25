@@ -40,19 +40,19 @@ jobs:
         run: go test -race ./...
 
       - name: build
-        run: CGO_ENABLED=0 go build -trimpath ./cmd/migrate
+        run: CGO_ENABLED=0 go build -trimpath ./cmd/zlatan
 
   image:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: build the image
-        run: docker build --build-arg VERSION=ci -t migrate:ci .
+        run: docker build --build-arg VERSION=ci -t zlatan:ci .
       - name: check the image size
         # The distroless build plus the two tools is small. A regression means
         # something pulled in a base image by accident.
         run: |
-          size=$(docker image inspect migrate:ci --format '{{.Size}}')
+          size=$(docker image inspect zlatan:ci --format '{{.Size}}')
           limit=$((200 * 1024 * 1024))
           echo "image is $((size / 1024 / 1024)) MB"
           test "$size" -lt "$limit"

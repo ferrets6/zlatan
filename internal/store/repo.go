@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/marcodellemarche/migrate/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/core"
 )
 
 // timeFormat is how timestamps are stored: RFC3339 in UTC, so they sort

@@ -10,7 +10,7 @@ COPY . .
 ARG VERSION=dev
 # A static binary, so the runtime image needs no libc. The SQLite driver is
 # modernc.org/sqlite precisely so this works with CGO off.
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/migrate ./cmd/migrate
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/zlatan ./cmd/zlatan
 
 # The two tools Migrate drives. They are pinned to a version and verified
 # against a checksum recorded here: an unpinned download in a build is how a
@@ -43,7 +43,7 @@ RUN set -eux; \
     install -m 0755 /tmp/ig/immich-go /out/immich-go
 
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /out/migrate /usr/local/bin/migrate
+COPY --from=build /out/zlatan /usr/local/bin/zlatan
 COPY --from=tools /out/rclone /usr/local/bin/rclone
 COPY --from=tools /out/immich-go /usr/local/bin/immich-go
 
@@ -53,5 +53,5 @@ COPY --from=tools /out/immich-go /usr/local/bin/immich-go
 VOLUME ["/data", "/staging"]
 EXPOSE 8080
 USER nonroot:nonroot
-ENTRYPOINT ["/usr/local/bin/migrate"]
+ENTRYPOINT ["/usr/local/bin/zlatan"]
 CMD ["serve"]

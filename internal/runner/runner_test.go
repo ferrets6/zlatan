@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/marcodellemarche/migrate/internal/config"
-	"github.com/marcodellemarche/migrate/internal/core"
-	"github.com/marcodellemarche/migrate/internal/oauth"
+	"github.com/marcodellemarche/zlatan/internal/config"
+	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/oauth"
 )
 
 // fakeExecutor records the commands it was asked to run.
@@ -143,7 +143,7 @@ func testConfig() *config.Config {
 		Google: config.Google{
 			ClientID:     "client-id",
 			ClientSecret: "client-secret",
-			RedirectURL:  "https://migrate.example/cb",
+			RedirectURL:  "https://zlatan.example/cb",
 			ShareAccount: "family@example.com",
 		},
 		Nextcloud: config.Nextcloud{URL: "http://nextcloud", AdminUser: "admin", AdminPassword: "pw"},
@@ -153,7 +153,7 @@ func testConfig() *config.Config {
 
 // t_TempDir exists because testConfig has no *testing.T; the caller overrides
 // StagingDir when it needs a real directory.
-func t_TempDir() string { return "/tmp/migrate-test-staging" }
+func t_TempDir() string { return "/tmp/zlatan-test-staging" }
 
 func newRunner(t *testing.T, store Store, exec Executor) *Runner {
 	t.Helper()

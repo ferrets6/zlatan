@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/marcodellemarche/migrate/internal/core"
-	"github.com/marcodellemarche/migrate/internal/oauth"
+	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/oauth"
 )
 
 func TestStateSignerRoundTrip(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/marcodellemarche/migrate/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/core"
 )
 
 func TestIdentityFromTrustedProxy(t *testing.T) {
@@ -86,7 +86,7 @@ func TestProxyGate(t *testing.T) {
 
 	// With the header: allowed.
 	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("X-Migrate-Proxy-Secret", "shh")
+	req.Header.Set("X-Zlatan-Proxy-Secret", "shh")
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !reached {

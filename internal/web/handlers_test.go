@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/marcodellemarche/migrate/internal/config"
-	"github.com/marcodellemarche/migrate/internal/core"
-	"github.com/marcodellemarche/migrate/internal/store"
+	"github.com/marcodellemarche/zlatan/internal/config"
+	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/store"
 )
 
 // fakeState is an in-memory State, so the HTTP layer is tested without SQLite.
@@ -100,12 +100,12 @@ func testOptions(runner Runner) Options {
 		ProxySecret:   "proxy-secret",
 		TrustedProxy:  "172.18.0.0/16",
 		TokenKey:      "token-key",
-		StagingDir:    "/tmp/migrate-test",
+		StagingDir:    "/tmp/zlatan-test",
 		MaxConcurrent: 1,
 		Google: config.Google{
 			ClientID:     "id",
 			ClientSecret: "secret",
-			RedirectURL:  "https://migrate.example/cb",
+			RedirectURL:  "https://zlatan.example/cb",
 			ShareAccount: "family@example.com",
 		},
 		Nextcloud: config.Nextcloud{URL: "http://nextcloud", AdminUser: "admin", AdminPassword: "pw"},
@@ -125,7 +125,7 @@ func testOptions(runner Runner) Options {
 func request(method, target, user string) *http.Request {
 	r := httptest.NewRequest(method, target, nil)
 	r.RemoteAddr = "172.18.0.5:44444"
-	r.Header.Set("X-Migrate-Proxy-Secret", "proxy-secret")
+	r.Header.Set("X-Zlatan-Proxy-Secret", "proxy-secret")
 	if user != "" {
 		r.Header.Set("Remote-User", user)
 		r.Header.Set("Remote-Email", user+"@example.com")
@@ -171,7 +171,7 @@ func TestWizardRefusesWithoutProxySecret(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "172.18.0.5:44444"
 	r.Header.Set("Remote-User", "marco")
-	// No X-Migrate-Proxy-Secret.
+	// No X-Zlatan-Proxy-Secret.
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, r)

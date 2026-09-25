@@ -1,6 +1,6 @@
-# migrate
+# zlatan
 
-Servizio di **migrazione autoguidata** da Google: `migrate.feretti.link`.
+Servizio di **migrazione autoguidata** da Google: `zlatan.feretti.link`.
 Un utente entra, fa login col suo account homelab, e un wizard lo porta a
 spostare **Google Drive → Nextcloud** e **Google Photos → Immich** senza
 vedere un terminale. Un backend fa girare la migrazione in automatico; chi
@@ -23,7 +23,7 @@ superabile con più codice — è Google.
 
 ## Come è fatto
 
-Un solo binario Go (`migrate`), dentro un container con `rclone` e `immich-go`.
+Un solo binario Go (`zlatan`), dentro un container con `rclone` e `immich-go`.
 SQLite per lo stato: una migrazione dura ore o giorni, non può vivere in una
 richiesta HTTP.
 
@@ -44,13 +44,13 @@ Il servizio **custodisce i refresh token OAuth Google di ogni utente**: ogni
 token dà lettura dell'intero Drive di quella persona. È il segreto più
 sensibile dell'homelab.
 
-- **Token cifrati a riposo** (AES-GCM). La chiave (`MIGRATE_TOKEN_KEY`) vive
+- **Token cifrati a riposo** (AES-GCM). La chiave (`ZLATAN_TOKEN_KEY`) vive
   solo nell'ambiente; il database contiene solo ciphertext.
 - **L'identità viene solo dall'header forward-auth** (`Remote-User`), ed è
   creduta solo se la richiesta arriva dalla rete proxy configurata. Mai da un
   parametro URL o da un cookie: una persona può vedere solo la propria
   migrazione, per costruzione.
-- **Segreto condiviso con il proxy** (`X-Migrate-Proxy-Secret`): un container
+- **Segreto condiviso con il proxy** (`X-Zlatan-Proxy-Secret`): un container
   sulla stessa rete Docker non può raggiungere il servizio direttamente e
   saltare l'SSO.
 - **Un bind pubblico senza segreto è rifiutato all'avvio**, non accettato in
@@ -58,15 +58,15 @@ sensibile dell'homelab.
 
 ## Configurazione
 
-Vedi `.env.example`. Le variabili obbligatorie sono `MIGRATE_TRUSTED_PROXY`,
-`MIGRATE_TOKEN_KEY` e — se il bind è pubblico — `MIGRATE_PROXY_SECRET`.
+Vedi `.env.example`. Le variabili obbligatorie sono `ZLATAN_TRUSTED_PROXY`,
+`ZLATAN_TOKEN_KEY` e — se il bind è pubblico — `ZLATAN_PROXY_SECRET`.
 
 ## Comandi
 
 ```bash
-migrate serve      # migra lo schema e ascolta
-migrate migrate    # applica le migrazioni ed esce
-migrate version
+zlatan serve      # migra lo schema e ascolta
+zlatan migrate    # applica le migrazioni ed esce
+zlatan version
 ```
 
 ## Sviluppo
@@ -87,4 +87,4 @@ make image    # costruisce l'immagine
 - [ ] Verifica (conteggio + campione) e purge dello staging.
 - [ ] Quote: leggere l'utilizzo prima e avvisare se si sfora.
 
-Design completo e decisioni in `../homelab/docs/migrate-service.md`.
+Design completo e decisioni in `../homelab/docs/zlatan-service.md`.

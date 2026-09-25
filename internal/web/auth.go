@@ -10,10 +10,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/marcodellemarche/migrate/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/core"
 )
 
-// ErrUnauthenticated means the request carries no identity Migrate is willing
+// ErrUnauthenticated means the request carries no identity Zlatan is willing
 // to believe.
 var ErrUnauthenticated = errors.New("no authenticated user")
 
@@ -70,7 +70,7 @@ func fromTrustedProxy(r *http.Request, trusted string) bool {
 }
 
 // proxyGate answers only requests carrying the secret the proxy injects, so a
-// container sharing the Docker network cannot reach Migrate directly and skip
+// container sharing the Docker network cannot reach Zlatan directly and skip
 // the SSO in front of the public name. With no secret configured it is a
 // no-op, which is why a public bind without one is refused at config load.
 func proxyGate(secret core.Secret, next http.Handler) http.Handler {
@@ -79,7 +79,7 @@ func proxyGate(secret core.Secret, next http.Handler) http.Handler {
 	}
 	expected := sha256.Sum256([]byte(secret.Reveal()))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		presented := sha256.Sum256([]byte(r.Header.Get("X-Migrate-Proxy-Secret")))
+		presented := sha256.Sum256([]byte(r.Header.Get("X-Zlatan-Proxy-Secret")))
 		if subtle.ConstantTimeCompare(expected[:], presented[:]) != 1 {
 			http.Error(w, "this service is reachable only through the proxy", http.StatusForbidden)
 			return

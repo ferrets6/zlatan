@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/marcodellemarche/migrate/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/core"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )

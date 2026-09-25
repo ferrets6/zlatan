@@ -1,4 +1,4 @@
-module github.com/marcodellemarche/migrate
+module github.com/marcodellemarche/zlatan
 
 go 1.26.0
 

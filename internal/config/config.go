@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Package config loads Migrate's configuration from the environment and from
+// Package config loads Zlatan's configuration from the environment and from
 // an optional env-style file. There is no interactive setup.
 package config
 
@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/marcodellemarche/migrate/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/core"
 )
 
 const (
@@ -27,7 +27,7 @@ const (
 	DefaultRetentionDays = 14
 )
 
-// Config is the whole of Migrate's configuration. Every secret is a
+// Config is the whole of Zlatan's configuration. Every secret is a
 // core.Secret, so printing the struct cannot leak one.
 type Config struct {
 	Addr            string
@@ -113,10 +113,10 @@ func (i Immich) Configured() bool {
 // on top of it. The real environment always wins.
 func Resolve() (map[string]string, error) {
 	env := map[string]string{}
-	if path := os.Getenv("MIGRATE_CONFIG"); path != "" {
+	if path := os.Getenv("ZLATAN_CONFIG"); path != "" {
 		fileEnv, err := parseEnvFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("reading MIGRATE_CONFIG: %w", err)
+			return nil, fmt.Errorf("reading ZLATAN_CONFIG: %w", err)
 		}
 		for k, v := range fileEnv {
 			env[k] = v
@@ -162,51 +162,51 @@ func Load(env map[string]string) (*Config, error) {
 	get := func(key string) string { return strings.TrimSpace(env[key]) }
 
 	cfg := &Config{
-		Addr:            or(get("MIGRATE_ADDR"), DefaultAddr),
-		DataDir:         or(get("MIGRATE_DATA_DIR"), DefaultDataDir),
-		StagingDir:      or(get("MIGRATE_STAGING_DIR"), DefaultStaging),
-		AllowPublicBind: get("MIGRATE_ALLOW_PUBLIC_BIND") == "true",
-		ProxySecret:     core.Secret(get("MIGRATE_PROXY_SECRET")),
-		TrustedProxy:    get("MIGRATE_TRUSTED_PROXY"),
-		TokenKey:        core.Secret(get("MIGRATE_TOKEN_KEY")),
+		Addr:            or(get("ZLATAN_ADDR"), DefaultAddr),
+		DataDir:         or(get("ZLATAN_DATA_DIR"), DefaultDataDir),
+		StagingDir:      or(get("ZLATAN_STAGING_DIR"), DefaultStaging),
+		AllowPublicBind: get("ZLATAN_ALLOW_PUBLIC_BIND") == "true",
+		ProxySecret:     core.Secret(get("ZLATAN_PROXY_SECRET")),
+		TrustedProxy:    get("ZLATAN_TRUSTED_PROXY"),
+		TokenKey:        core.Secret(get("ZLATAN_TOKEN_KEY")),
 		Google: Google{
-			ClientID:     core.Secret(get("MIGRATE_GOOGLE_CLIENT_ID")),
-			ClientSecret: core.Secret(get("MIGRATE_GOOGLE_CLIENT_SECRET")),
-			RedirectURL:  get("MIGRATE_GOOGLE_REDIRECT_URL"),
-			ShareAccount: get("MIGRATE_TAKEOUT_SHARE_ACCOUNT"),
+			ClientID:     core.Secret(get("ZLATAN_GOOGLE_CLIENT_ID")),
+			ClientSecret: core.Secret(get("ZLATAN_GOOGLE_CLIENT_SECRET")),
+			RedirectURL:  get("ZLATAN_GOOGLE_REDIRECT_URL"),
+			ShareAccount: get("ZLATAN_TAKEOUT_SHARE_ACCOUNT"),
 		},
 		Nextcloud: Nextcloud{
-			URL:           get("MIGRATE_NEXTCLOUD_URL"),
-			AdminUser:     get("MIGRATE_NEXTCLOUD_ADMIN_USER"),
-			AdminPassword: core.Secret(get("MIGRATE_NEXTCLOUD_ADMIN_PASSWORD")),
+			URL:           get("ZLATAN_NEXTCLOUD_URL"),
+			AdminUser:     get("ZLATAN_NEXTCLOUD_ADMIN_USER"),
+			AdminPassword: core.Secret(get("ZLATAN_NEXTCLOUD_ADMIN_PASSWORD")),
 		},
 		Immich: Immich{
-			URL:    get("MIGRATE_IMMICH_URL"),
-			APIKey: core.Secret(get("MIGRATE_IMMICH_API_KEY")),
+			URL:    get("ZLATAN_IMMICH_URL"),
+			APIKey: core.Secret(get("ZLATAN_IMMICH_API_KEY")),
 		},
 		StagingRetention: DefaultRetentionDays * 24 * time.Hour,
 		MaxConcurrent:    1,
 	}
 
-	level, err := parseLevel(get("MIGRATE_LOG_LEVEL"))
+	level, err := parseLevel(get("ZLATAN_LOG_LEVEL"))
 	if err != nil {
 		problems = append(problems, err.Error())
 	}
 	cfg.LogLevel = level
 
-	if days := get("MIGRATE_STAGING_RETENTION_DAYS"); days != "" {
+	if days := get("ZLATAN_STAGING_RETENTION_DAYS"); days != "" {
 		n, err := strconv.Atoi(days)
 		if err != nil || n < 0 {
-			problems = append(problems, "MIGRATE_STAGING_RETENTION_DAYS must be a non-negative integer")
+			problems = append(problems, "ZLATAN_STAGING_RETENTION_DAYS must be a non-negative integer")
 		} else {
 			cfg.StagingRetention = time.Duration(n) * 24 * time.Hour
 		}
 	}
 
-	if conc := get("MIGRATE_MAX_CONCURRENT"); conc != "" {
+	if conc := get("ZLATAN_MAX_CONCURRENT"); conc != "" {
 		n, err := strconv.Atoi(conc)
 		if err != nil || n < 1 {
-			problems = append(problems, "MIGRATE_MAX_CONCURRENT must be a positive integer")
+			problems = append(problems, "ZLATAN_MAX_CONCURRENT must be a positive integer")
 		} else {
 			cfg.MaxConcurrent = n
 		}
@@ -216,15 +216,15 @@ func Load(env map[string]string) (*Config, error) {
 	// service to anything that can reach the port, with no gate at all.
 	if cfg.AllowPublicBind && cfg.ProxySecret.Empty() {
 		problems = append(problems,
-			"MIGRATE_ALLOW_PUBLIC_BIND=true requires MIGRATE_PROXY_SECRET: a public bind with no gate exposes every user's migration")
+			"ZLATAN_ALLOW_PUBLIC_BIND=true requires ZLATAN_PROXY_SECRET: a public bind with no gate exposes every user's migration")
 	}
 	if cfg.TrustedProxy == "" {
 		problems = append(problems,
-			"MIGRATE_TRUSTED_PROXY is not set: no forward-auth header will be believed, so every request is refused")
+			"ZLATAN_TRUSTED_PROXY is not set: no forward-auth header will be believed, so every request is refused")
 	}
 	if cfg.TokenKey.Empty() {
 		problems = append(problems,
-			"MIGRATE_TOKEN_KEY is not set: OAuth tokens cannot be sealed at rest")
+			"ZLATAN_TOKEN_KEY is not set: OAuth tokens cannot be sealed at rest")
 	}
 
 	if len(problems) > 0 {
@@ -242,7 +242,7 @@ func (c *Config) Warnings() []string {
 		w = append(w, "the Google OAuth client is not configured, so the Drive route is unavailable")
 	}
 	if c.Google.ShareAccount == "" {
-		w = append(w, "MIGRATE_TAKEOUT_SHARE_ACCOUNT is not set, so the Photos wizard cannot offer the 'Add to Drive' route and falls back to upload")
+		w = append(w, "ZLATAN_TAKEOUT_SHARE_ACCOUNT is not set, so the Photos wizard cannot offer the 'Add to Drive' route and falls back to upload")
 	}
 	if !c.Nextcloud.Configured() {
 		w = append(w, "Nextcloud is not configured, so the Drive route cannot import anything")
@@ -271,6 +271,6 @@ func parseLevel(s string) (slog.Level, error) {
 	case "error":
 		return slog.LevelError, nil
 	default:
-		return slog.LevelInfo, fmt.Errorf("MIGRATE_LOG_LEVEL %q is not one of debug, info, warn, error", s)
+		return slog.LevelInfo, fmt.Errorf("ZLATAN_LOG_LEVEL %q is not one of debug, info, warn, error", s)
 	}
 }

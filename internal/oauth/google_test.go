@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/marcodellemarche/migrate/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/core"
 )
 
 func TestNewRefusesIncompleteClient(t *testing.T) {
@@ -31,7 +31,7 @@ func TestNewRefusesIncompleteClient(t *testing.T) {
 // The consent URL must request offline access and force the consent screen:
 // without both, Google omits the refresh token and an overnight copy dies.
 func TestAuthCodeURLRequestsOfflineAndConsent(t *testing.T) {
-	p, err := New("id", "secret", "https://migrate.example/oauth/google/callback")
+	p, err := New("id", "secret", "https://zlatan.example/oauth/google/callback")
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

@@ -12,7 +12,7 @@ import (
 	"io"
 )
 
-// Sealer encrypts and decrypts OAuth tokens at rest. Migrate holds the Google
+// Sealer encrypts and decrypts OAuth tokens at rest. Zlatan holds the Google
 // refresh tokens of every person who has used it, and each one grants read
 // access to that person's entire Drive: the stored form must be useless
 // without the key, which lives in the environment and never in the database.

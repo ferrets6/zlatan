@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Package web is Migrate's HTTP surface: the wizard a person sees, and the
+// Package web is Zlatan's HTTP surface: the wizard a person sees, and the
 // small JSON API the wizard's progress polling uses.
 package web
 
@@ -11,9 +11,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/marcodellemarche/migrate/internal/config"
-	"github.com/marcodellemarche/migrate/internal/core"
-	"github.com/marcodellemarche/migrate/internal/oauth"
+	"github.com/marcodellemarche/zlatan/internal/config"
+	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/oauth"
 )
 
 // Pinger is the part of the store /healthz needs, kept narrow so the handler

@@ -6,7 +6,7 @@ import (
 	"embed"
 	"html/template"
 
-	"github.com/marcodellemarche/migrate/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/core"
 )
 
 //go:embed templates/*.html

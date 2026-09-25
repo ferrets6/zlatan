@@ -28,9 +28,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/marcodellemarche/migrate/internal/config"
-	"github.com/marcodellemarche/migrate/internal/core"
-	"github.com/marcodellemarche/migrate/internal/oauth"
+	"github.com/marcodellemarche/zlatan/internal/config"
+	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/oauth"
 )
 
 // Store is the persistence the runner writes progress to.

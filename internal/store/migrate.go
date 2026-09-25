@@ -25,7 +25,7 @@ var migrationsFS embed.FS
 // BackupsKept is how many pre-migration copies survive.
 const BackupsKept = 5
 
-// ErrSchemaNewer means the database was written by a newer Migrate.
+// ErrSchemaNewer means the database was written by a newer Zlatan.
 var ErrSchemaNewer = errors.New("database schema is newer than this binary")
 
 // ErrSchemaOlder means migrations are pending.

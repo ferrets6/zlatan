@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Command migrate is the whole of Migrate: the wizard server and the small
+// Command zlatan is the whole of Zlatan: the wizard server and the small
 // operator CLI in one binary.
 package main
 
@@ -18,12 +18,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/marcodellemarche/migrate/internal/config"
-	"github.com/marcodellemarche/migrate/internal/core"
-	"github.com/marcodellemarche/migrate/internal/oauth"
-	"github.com/marcodellemarche/migrate/internal/runner"
-	"github.com/marcodellemarche/migrate/internal/store"
-	"github.com/marcodellemarche/migrate/internal/web"
+	"github.com/marcodellemarche/zlatan/internal/config"
+	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/oauth"
+	"github.com/marcodellemarche/zlatan/internal/runner"
+	"github.com/marcodellemarche/zlatan/internal/store"
+	"github.com/marcodellemarche/zlatan/internal/web"
 )
 
 // version is stamped at build time with -ldflags.
@@ -35,11 +35,11 @@ const (
 	exitConfig = 2
 )
 
-const usage = `migrate is a self-guided migration service: Google Drive to
+const usage = `zlatan is a self-guided migration service: Google Drive to
 Nextcloud, Google Photos to Immich.
 
 Usage:
-  migrate <command>
+  zlatan <command>
 
 Commands:
   serve               run the wizard server: migrate the schema, then listen
@@ -47,7 +47,7 @@ Commands:
   version             print the version
 
 Configuration is read from the environment, and from the env-style file named
-by MIGRATE_CONFIG when it is set. See .env.example.
+by ZLATAN_CONFIG when it is set. See .env.example.
 `
 
 func main() {
@@ -72,7 +72,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "migrate":
 		return withApp(stderr, true, migrateOnly)
 	default:
-		fmt.Fprintf(stderr, "migrate: unknown command %q\n\n%s", args[0], usage)
+		fmt.Fprintf(stderr, "zlatan: unknown command %q\n\n%s", args[0], usage)
 		return exitConfig
 	}
 }
@@ -91,7 +91,7 @@ func withApp(stderr io.Writer, migrates bool, fn func(context.Context, *app) int
 		return code
 	}
 
-	db, err := store.Open(filepath.Join(cfg.DataDir, "migrate.db"))
+	db, err := store.Open(filepath.Join(cfg.DataDir, "zlatan.db"))
 	if err != nil {
 		log.Error("open database", "error", err)
 		return exitConfig
@@ -120,19 +120,19 @@ func withApp(stderr io.Writer, migrates bool, fn func(context.Context, *app) int
 func loadConfig(stderr io.Writer) (*config.Config, *slog.Logger, int) {
 	env, err := config.Resolve()
 	if err != nil {
-		fmt.Fprintf(stderr, "migrate: %v\n", err)
+		fmt.Fprintf(stderr, "zlatan: %v\n", err)
 		return nil, nil, exitConfig
 	}
 	cfg, err := config.Load(env)
 	if err != nil {
 		for _, line := range strings.Split(err.Error(), "\n") {
-			fmt.Fprintf(stderr, "migrate: config: %s\n", line)
+			fmt.Fprintf(stderr, "zlatan: config: %s\n", line)
 		}
 		return nil, nil, exitConfig
 	}
 
 	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
-	log.Info("migrate starting",
+	log.Info("zlatan starting",
 		"version", version,
 		"addr", cfg.Addr,
 		"data_dir", cfg.DataDir,

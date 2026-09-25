@@ -6,7 +6,7 @@ VERSION ?= dev
 .PHONY: build test vet fmt check image clean
 
 build:
-	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o bin/migrate ./cmd/migrate
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o bin/zlatan ./cmd/zlatan
 
 # What CI gates on: unit and contract tests, with the race detector.
 test:
@@ -23,7 +23,7 @@ check: vet test
 	if [ -n "$$unformatted" ]; then echo "not gofmt clean:"; echo "$$unformatted"; exit 1; fi
 
 image:
-	docker build --build-arg VERSION=$(VERSION) -t migrate:$(VERSION) .
+	docker build --build-arg VERSION=$(VERSION) -t zlatan:$(VERSION) .
 
 clean:
 	rm -rf bin
