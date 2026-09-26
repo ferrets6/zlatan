@@ -469,3 +469,58 @@ func TestConnectImmichRefusesUnauthenticated(t *testing.T) {
 		t.Fatalf("code = %d, want 401", rec.Code)
 	}
 }
+
+// The wizard links a person to their own cloud, so it must use the public
+// address. The internal Docker address (http://immich_server:2283) is not
+// resolvable from a browser: a link to it is a dead end, and naming it as the
+// destination is worse, because it is the one thing on the card that is
+// supposed to tell the person where their data went.
+func TestWizardNeverShowsTheInternalAddress(t *testing.T) {
+	opts := testOptions(&fakeRunner{})
+	opts.Config.Nextcloud.URL = "http://nextcloud"
+	opts.Config.Nextcloud.PublicURL = "https://cloud.example.org"
+	opts.Config.Immich.URL = "http://immich_server:2283"
+	opts.Config.Immich.PublicURL = "https://immich.example.org"
+	// The Nextcloud link only appears once the Drive half is done.
+	if _, err := opts.State.SetDriveState(context.Background(), "marco", core.DriveDone, "done"); err != nil {
+		t.Fatal(err)
+	}
+	handler := Routes(opts)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, request("GET", "/", "marco"))
+	body := rec.Body.String()
+
+	for _, internal := range []string{"http://nextcloud", "http://immich_server:2283"} {
+		if strings.Contains(body, internal) {
+			t.Errorf("the page leaks the internal address %q", internal)
+		}
+	}
+	for _, public := range []string{"https://cloud.example.org", "https://immich.example.org"} {
+		if !strings.Contains(body, public) {
+			t.Errorf("the page should link to the public address %q", public)
+		}
+	}
+}
+
+// With no public address configured the wizard shows no link at all, rather
+// than linking to the internal one or to an empty href.
+func TestWizardShowsNoLinkWithoutAPublicAddress(t *testing.T) {
+	opts := testOptions(&fakeRunner{})
+	opts.Config.Nextcloud.URL = "http://nextcloud"
+	opts.Config.Nextcloud.PublicURL = ""
+	opts.Config.Immich.URL = "http://immich_server:2283"
+	opts.Config.Immich.PublicURL = ""
+	handler := Routes(opts)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, request("GET", "/", "marco"))
+	body := rec.Body.String()
+
+	if strings.Contains(body, "http://nextcloud") || strings.Contains(body, "http://immich_server:2283") {
+		t.Error("the page must not fall back to the internal address")
+	}
+	if strings.Contains(body, `href=""`) {
+		t.Error("the page must not render an empty link")
+	}
+}

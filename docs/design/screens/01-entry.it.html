@@ -103,15 +103,26 @@
 </ol>
 </div>
 		</details>
-		<p class="fine">Prima collega Google.</p>
+		
+		
+		
+		<p class="fine">È la tua chiave, così l&#39;importazione finisce nel tuo account.</p>
+		<p class="fine">In Immich: menu profilo → Impostazioni utente → API Keys → Create, spunta Select all, poi incolla la chiave qui sotto.</p>
+		<form method="post" action="/immich/connect">
+			<label class="field">
+				<span>Chiave API di Immich</span>
+				<input type="password" name="api_key" autocomplete="off" spellcheck="false" required>
+			</label>
+			<div class="actions">
+				<button class="btn btn--primary" type="submit">Salva la chiave</button>
+			</div>
+		</form>
+		
 		<div class="actions">
-			
-			
-			<form method="post" action="/photos/upload/start">
-				<button class="btn btn--quiet" type="submit">Mando io il file</button>
-			</form>
-			
+			<a class="btn btn--quiet" href="https://immich.example.org/user-settings?openSetting=api-keys" target="_blank" rel="noopener">Apri Immich</a>
 		</div>
+		
+		
 	
 </section>
 

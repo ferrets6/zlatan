@@ -40,15 +40,12 @@ var catalog = map[Lang]map[string]string{
 		"btn.openNextcloud": "Open Nextcloud",
 		"btn.openImmich":    "Open Immich",
 		"btn.details":       "Details",
-		"btn.connectImmich": "Connect Immich",
 		"btn.saveKey":       "Save the key",
 
-		"immich.title": "Connect Immich",
 		"immich.how":   "In Immich: profile menu → User settings → API Keys → Create, tick Select all, then paste the key below.",
 		"immich.open":  "Open Immich",
 		"immich.field": "Immich API key",
-		"immich.why":   "Your own key: everything imported lands in your own account, not somebody else's. It is stored encrypted.",
-		"immich.need":  "Connect Immich first.",
+		"immich.own":   "Your own key, so the import lands in your account.",
 
 		"immich.connected": "Immich connected.",
 		"immich.invalid":   "Immich did not accept that key.",
@@ -153,15 +150,12 @@ var catalog = map[Lang]map[string]string{
 		"btn.openNextcloud": "Apri Nextcloud",
 		"btn.openImmich":    "Apri Immich",
 		"btn.details":       "Dettagli",
-		"btn.connectImmich": "Collega Immich",
 		"btn.saveKey":       "Salva la chiave",
 
-		"immich.title": "Collega Immich",
 		"immich.how":   "In Immich: menu profilo → Impostazioni utente → API Keys → Create, spunta Select all, poi incolla la chiave qui sotto.",
 		"immich.open":  "Apri Immich",
 		"immich.field": "Chiave API di Immich",
-		"immich.why":   "È la tua chiave: tutto ciò che viene importato finisce nel tuo account, non in quello di qualcun altro. Viene salvata cifrata.",
-		"immich.need":  "Prima collega Immich.",
+		"immich.own":   "È la tua chiave, così l'importazione finisce nel tuo account.",
 
 		"immich.connected": "Immich collegato.",
 		"immich.invalid":   "Immich non ha accettato quella chiave.",

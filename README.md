@@ -4,7 +4,7 @@
 
 # zlatan
 
-> Status: **v0.6.0** (2026-09-26). The service runs, the schema is applied, the
+> Status: **v0.6.1** (2026-09-26). The service runs, the schema is applied, the
 > wizard renders and gates access; the Google OAuth flow, the Nextcloud Login
 > Flow (per-person app password), the runner that drives `rclone` straight into
 > Nextcloud over WebDAV, the runner that drives `immich-go`, the resumable
@@ -15,7 +15,8 @@
 > person's Nextcloud usage and **warns** if the copy would exceed their budget.
 > The image is published at `ghcr.io/marcodellemarche/zlatan`. Each person
 > connects their own Immich API key, so their photos land in their own
-> account. See "What is missing".
+> account, and the wizard links them to the public address of each cloud, never
+> the internal Docker one. See "What is missing".
 
 zlatan is a self-guided migration service for self-hosted stacks. A person who
 is not technical — a family member, a friend — opens it in a browser, signs in

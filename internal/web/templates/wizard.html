@@ -217,7 +217,7 @@ in internal/i18n, through .T, already in their language.
 		{{/* The import runs as the person, so their own key is the first thing
 		     to ask for. Immich files every asset under the key's owner, and
 		     only the person can mint one: there is no admin endpoint for it. */}}
-		<p class="fine">{{ .T "immich.need" }}</p>
+		<p class="fine">{{ .T "immich.own" }}</p>
 		<p class="fine">{{ .T "immich.how" }}</p>
 		<form method="post" action="/immich/connect">
 			<label class="field">

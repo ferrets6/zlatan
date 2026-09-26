@@ -103,15 +103,26 @@
 </ol>
 </div>
 		</details>
-		<p class="fine">Connect Google first.</p>
+		
+		
+		
+		<p class="fine">Your own key, so the import lands in your account.</p>
+		<p class="fine">In Immich: profile menu → User settings → API Keys → Create, tick Select all, then paste the key below.</p>
+		<form method="post" action="/immich/connect">
+			<label class="field">
+				<span>Immich API key</span>
+				<input type="password" name="api_key" autocomplete="off" spellcheck="false" required>
+			</label>
+			<div class="actions">
+				<button class="btn btn--primary" type="submit">Save the key</button>
+			</div>
+		</form>
+		
 		<div class="actions">
-			
-			
-			<form method="post" action="/photos/upload/start">
-				<button class="btn btn--quiet" type="submit">Send the file myself</button>
-			</form>
-			
+			<a class="btn btn--quiet" href="https://immich.example.org/user-settings?openSetting=api-keys" target="_blank" rel="noopener">Open Immich</a>
 		</div>
+		
+		
 	
 </section>
 

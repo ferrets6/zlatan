@@ -42,10 +42,6 @@ func screens(lang i18n.Lang) map[string]page {
 	entry.Drive = trackView{Track: core.TrackDrive, State: "not_started", Pill: i18n.T(lang, "pill.idle"), PillClass: "pill--idle"}
 	entry.Photos = trackView{Track: core.TrackPhotos, State: "not_started", Pill: i18n.T(lang, "pill.idle"), PillClass: "pill--idle"}
 
-	// Immich not connected yet: the entry card asks for the person's own API
-	// key before offering any import.
-	connect := entry
-
 	tracks := base
 	tracks.Screen = "tracks"
 	tracks.GoogleConnected, tracks.NextcloudConnected, tracks.CanTakeout, tracks.CanTakeoutRoute = true, true, true, true
@@ -83,9 +79,8 @@ func screens(lang i18n.Lang) map[string]page {
 	stopped.LastError = "rclone copy: exit status 3 — 429 Too Many Requests (userRateLimitExceeded)"
 
 	return map[string]page{
-		"01-entry": entry, "01b-immich": connect, "02-tracks": tracks,
-		"03-takeout": guide, "04-upload": send, "05-done": done,
-		"06-error": stopped,
+		"01-entry": entry, "02-tracks": tracks, "03-takeout": guide,
+		"04-upload": send, "05-done": done, "06-error": stopped,
 	}
 }
 

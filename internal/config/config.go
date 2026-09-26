@@ -144,16 +144,32 @@ func (g Google) Configured() bool {
 	return !g.ClientID.Empty() && !g.ClientSecret.Empty() && g.RedirectURL != ""
 }
 
-// Nextcloud is the import destination for the Drive half. Only the internal
-// URL is configured: the write credential is a per-user app password obtained
-// through Nextcloud's Login Flow v2, so no admin account is stored here.
+// Nextcloud is the import destination for the Drive half. The write credential
+// is a per-user app password obtained through Nextcloud's Login Flow v2, so no
+// admin account is stored here.
 type Nextcloud struct {
+	// URL is the address Zlatan reaches Nextcloud at from inside the Docker
+	// network. It is what rclone writes to, and it is not reachable from a
+	// browser.
 	URL string
+
+	// PublicURL is the address a person opens Nextcloud at. The wizard links to
+	// it and names its host, so it must be the public name, never the internal
+	// one. Empty means "not configured", and the wizard then shows no link
+	// rather than a link that cannot work.
+	PublicURL string
 }
 
 // Configured reports whether Nextcloud can be reached.
 func (n Nextcloud) Configured() bool {
 	return n.URL != ""
+}
+
+// WebURL is the address to show a person. It is the public one when it is set,
+// and empty otherwise: the internal address is deliberately never used for a
+// link, because a browser cannot reach it.
+func (n Nextcloud) WebURL() string {
+	return strings.TrimRight(strings.TrimSpace(n.PublicURL), "/")
 }
 
 // Immich is the import destination for the Photos half. There is deliberately
@@ -162,13 +178,25 @@ func (n Nextcloud) Configured() bool {
 // sealed per person. A single shared key would file everyone's photos under
 // its owner's account, which is the bug this replaced.
 type Immich struct {
+	// URL is the address Zlatan reaches Immich at from inside the Docker
+	// network. It is what immich-go uploads to, and it is not reachable from a
+	// browser.
 	URL string
+
+	// PublicURL is the address a person opens Immich at, for the link and the
+	// host the wizard names. See Nextcloud.PublicURL.
+	PublicURL string
 }
 
 // Configured reports whether Immich can be reached. It says nothing about a
 // credential: the key is per person and lives in the store, not the config.
 func (i Immich) Configured() bool {
 	return i.URL != ""
+}
+
+// WebURL is the address to show a person, or empty when none is configured.
+func (i Immich) WebURL() string {
+	return strings.TrimRight(strings.TrimSpace(i.PublicURL), "/")
 }
 
 // Ntfy is the push service notifications go to. Without it the service still
@@ -251,10 +279,12 @@ func Load(env map[string]string) (*Config, error) {
 			TakeoutFolder: or(get("ZLATAN_TAKEOUT_FOLDER"), DefaultTakeoutFolder),
 		},
 		Nextcloud: Nextcloud{
-			URL: get("ZLATAN_NEXTCLOUD_URL"),
+			URL:       get("ZLATAN_NEXTCLOUD_URL"),
+			PublicURL: get("ZLATAN_NEXTCLOUD_PUBLIC_URL"),
 		},
 		Immich: Immich{
-			URL: get("ZLATAN_IMMICH_URL"),
+			URL:       get("ZLATAN_IMMICH_URL"),
+			PublicURL: get("ZLATAN_IMMICH_PUBLIC_URL"),
 		},
 		Ntfy: Ntfy{
 			URL:   get("ZLATAN_NTFY_URL"),
@@ -355,6 +385,14 @@ func (c *Config) Warnings() []string {
 	}
 	if !c.Immich.Configured() {
 		w = append(w, "Immich is not configured, so the Photos route cannot import anything")
+	}
+	// A missing public URL is not fatal, but the wizard then cannot link a
+	// person to their cloud, which is most of what the closing screens do.
+	if c.Nextcloud.Configured() && c.Nextcloud.WebURL() == "" {
+		w = append(w, "ZLATAN_NEXTCLOUD_PUBLIC_URL is not set, so the wizard cannot link to Nextcloud")
+	}
+	if c.Immich.Configured() && c.Immich.WebURL() == "" {
+		w = append(w, "ZLATAN_IMMICH_PUBLIC_URL is not set, so the wizard cannot link to Immich")
 	}
 	if !c.Ntfy.Configured() {
 		w = append(w, "ZLATAN_NTFY_URL or ZLATAN_NTFY_TOPIC is not set, so nobody is told when a migration finishes or stops")

@@ -231,3 +231,59 @@ func TestQuotaBudgetAndOverrides(t *testing.T) {
 		}
 	})
 }
+
+func TestWebURLIsThePublicAddress(t *testing.T) {
+	base := map[string]string{
+		"ZLATAN_TRUSTED_PROXY": "172.18.0.0/16",
+		"ZLATAN_TOKEN_KEY":     "a-key",
+		"ZLATAN_NEXTCLOUD_URL": "http://nextcloud",
+		"ZLATAN_IMMICH_URL":    "http://immich_server:2283",
+	}
+
+	t.Run("empty public URL means no link", func(t *testing.T) {
+		cfg, err := Load(base)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if got := cfg.Nextcloud.WebURL(); got != "" {
+			t.Errorf("WebURL = %q, want empty when no public URL is set", got)
+		}
+		if got := cfg.Immich.WebURL(); got != "" {
+			t.Errorf("WebURL = %q, want empty when no public URL is set", got)
+		}
+	})
+
+	t.Run("public URL wins and the internal one is never returned", func(t *testing.T) {
+		env := map[string]string{}
+		for k, v := range base {
+			env[k] = v
+		}
+		env["ZLATAN_NEXTCLOUD_PUBLIC_URL"] = "https://cloud.example.org/"
+		env["ZLATAN_IMMICH_PUBLIC_URL"] = "https://immich.example.org"
+		cfg, err := Load(env)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		// The trailing slash is trimmed, so the link builder can append a path.
+		if got := cfg.Nextcloud.WebURL(); got != "https://cloud.example.org" {
+			t.Errorf("WebURL = %q, want the public URL without a trailing slash", got)
+		}
+		if got := cfg.Immich.WebURL(); got != "https://immich.example.org" {
+			t.Errorf("WebURL = %q", got)
+		}
+	})
+
+	t.Run("the public URL is warned about when missing", func(t *testing.T) {
+		cfg, err := Load(base)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		joined := strings.Join(cfg.Warnings(), "\n")
+		if !strings.Contains(joined, "ZLATAN_NEXTCLOUD_PUBLIC_URL") {
+			t.Error("a missing Nextcloud public URL should be warned about")
+		}
+		if !strings.Contains(joined, "ZLATAN_IMMICH_PUBLIC_URL") {
+			t.Error("a missing Immich public URL should be warned about")
+		}
+	})
+}
