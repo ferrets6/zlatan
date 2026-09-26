@@ -71,9 +71,23 @@ func TestPillClassCoversEveryState(t *testing.T) {
 		"pill--idle": true, "pill--running": true, "pill--waiting": true,
 		"pill--you": true, "pill--done": true, "pill--stopped": true,
 	}
+	// The colour must agree with the word: a green "running" dot beside the
+	// words "Not started" is a lie the screen tells at a glance, and it is the
+	// kind of mismatch that only shows up when a state is looked at closely.
+	// Each idle word must be idle, each running word running, and so on.
+	toneOfKey := map[string]string{
+		"pill.idle": "pill--idle", "pill.connecting": "pill--waiting",
+		"pill.copying": "pill--running", "pill.importing": "pill--running",
+		"pill.checking": "pill--running", "pill.waitYou": "pill--you",
+		"pill.waitGoogle": "pill--waiting", "pill.downloading": "pill--running",
+		"pill.done": "pill--done", "pill.stopped": "pill--stopped",
+	}
 	for _, s := range append(driveStates, photosStates...) {
 		if c := pillClass(s); !known[c] {
 			t.Errorf("pillClass(%q) = %q, which is not a pill modifier in the stylesheet", s, c)
+		}
+		if want := toneOfKey[pillKey(s)]; want != "" && pillClass(s) != want {
+			t.Errorf("state %q reads %q but is coloured %q, want %q", s, pillKey(s), pillClass(s), want)
 		}
 		// Every state must also have a word, in every language the wizard
 		// speaks. T falls back to the key, so an untranslated state shows up

@@ -40,7 +40,11 @@ var wizardTemplate = template.Must(
 // names are the states in internal/core, so there is no translation table.
 func pillClass(state string) string {
 	switch state {
-	case "not_started":
+	// selecting is grouped with not_started here for the same reason pillKey
+	// groups them: both read "Not started", so both must look idle. Left out,
+	// selecting fell through to the running colour and showed a green dot
+	// beside the words "Not started".
+	case "not_started", "selecting":
 		return "pill--idle"
 	case "done":
 		return "pill--done"
