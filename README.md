@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="brand/wordmark.svg" alt="zlatan" width="320">
+  <img src="internal/web/static/wordmark.svg" alt="zlatan" width="320">
 </p>
 
 # zlatan
