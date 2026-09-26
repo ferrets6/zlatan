@@ -111,5 +111,12 @@ the same number of placeholders in every phrase.
   different screen.
 - One animation: the waiting pill's dot, off under `prefers-reduced-motion`.
   Touch targets 44 px. Focus is a 2 px accent outline.
+- **Anything holding a `nowrap` or monospace line needs `min-width: 0`.** A grid
+  or flex item defaults to `min-width: auto`, so one long unbreakable line — the
+  runner's progress, an rclone error — makes the card as wide as the sentence
+  and pushes the whole page sideways on a phone. `.track`, `.panel` and `.state`
+  carry it; long tokens in `code` and `.mono` wrap with `overflow-wrap: anywhere`.
+  The screens are checked at 360 px by loading them in an iframe of that width
+  and comparing each element's `right` against `clientWidth`.
 - Pill classes map onto `core.DriveState` / `core.PhotosState`:
   `pill--idle · running · waiting · you · done · stopped`.

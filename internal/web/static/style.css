@@ -101,6 +101,7 @@ a { color: inherit; }
 ::selection { background: var(--accent-wash); }
 
 code, .mono {
+	overflow-wrap: anywhere;
 	font-family: var(--mono);
 	font-size: 0.9em;
 	background: var(--surface-2);
@@ -164,6 +165,9 @@ code, .mono {
 }
 
 .track {
+	/* A grid item defaults to min-width:auto, so the nowrap progress line below
+	   would make the card as wide as the sentence and push the page sideways. */
+	min-width: 0;
 	border: 1px solid var(--line);
 	border-radius: var(--radius);
 	background: var(--surface);
@@ -337,7 +341,7 @@ code, .mono {
 
 /* Progress */
 
-.state { display: flex; flex-direction: column; gap: 0.5rem; }
+.state { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
 
 /* The block is always in the markup so the polling script has somewhere to
    write; with nothing in it, it should not take up a row. */
@@ -347,6 +351,7 @@ code, .mono {
 .facts b { font-weight: 500; color: var(--fg); }
 
 .now-doing {
+	max-width: 100%;
 	font-size: 0.8125rem;
 	color: var(--muted);
 	font-family: var(--mono);
@@ -511,6 +516,7 @@ code, .mono {
 
 /* Single-track page. */
 .panel {
+	min-width: 0;
 	border: 1px solid var(--line);
 	border-radius: var(--radius);
 	background: var(--surface);

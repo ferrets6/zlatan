@@ -40,13 +40,14 @@ func screens(lang i18n.Lang) map[string]page {
 	entry := base
 	entry.Screen = "entry"
 	entry.Drive = trackView{Track: core.TrackDrive, State: "not_started", Pill: i18n.T(lang, "pill.idle"), PillClass: "pill--idle"}
-	entry.Photos = trackView{Track: core.TrackPhotos, State: "not_started", Pill: i18n.T(lang, "pill.idle"), PillClass: "pill--idle"}
+	entry.Photos = trackView{Track: core.TrackPhotos, State: "not_started", Pill: i18n.T(lang, "pill.idle"), PillClass: "pill--idle",
+		Progress: "interrupted by a restart: it will pick up where it left off"}
 
 	tracks := base
 	tracks.Screen = "tracks"
 	tracks.GoogleConnected, tracks.NextcloudConnected, tracks.CanTakeout, tracks.CanTakeoutRoute = true, true, true, true
 	tracks.Drive = trackView{Track: core.TrackDrive, State: "copying", Pill: i18n.T(lang, "pill.copying"), PillClass: "pill--running",
-		Progress: "Photos/2019/Sardinia/IMG_2231.jpg"}
+		Progress: "interrupted by a restart: it will pick up where it left off"}
 	tracks.Photos = trackView{Track: core.TrackPhotos, State: "awaiting_takeout", Pill: i18n.T(lang, "pill.waitGoogle"), PillClass: "pill--waiting"}
 	tracks.DriveFiles, tracks.DriveBytes = 12480, 44_181_000_000
 	tracks.DriveFacts = i18n.T(lang, "fact.files", i18n.Count(lang, 12480)) + " · " + i18n.Bytes(lang, 44_181_000_000)
