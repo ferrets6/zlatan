@@ -10,12 +10,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/immich"
 	"github.com/marcodellemarche/zlatan/internal/store"
 )
 
@@ -79,8 +81,9 @@ func (f *fakeState) SetPhotosState(_ context.Context, user string, state core.Ph
 
 // fakeRunner records what was started.
 type fakeRunner struct {
-	started []string
-	err     error
+	started   []string
+	err       error
+	immichKey string
 }
 
 func (f *fakeRunner) StartDrive(_ context.Context, user string) error {
@@ -122,6 +125,14 @@ func (f *fakeRunner) PollNextcloud(_ context.Context, _ string) (core.DriveState
 	return core.DriveConsentPending, nil
 }
 
+func (f *fakeRunner) ConnectImmich(_ context.Context, _ string, apiKey string) (immich.Me, error) {
+	if f.err != nil {
+		return immich.Me{}, f.err
+	}
+	f.immichKey = apiKey
+	return immich.Me{Email: "marco@example.com", Name: "Marco"}, nil
+}
+
 func testOptions(runner Runner) Options {
 	cfg := &config.Config{
 		ProxySecret:   "proxy-secret",
@@ -136,7 +147,7 @@ func testOptions(runner Runner) Options {
 			TakeoutFolder: "Takeout",
 		},
 		Nextcloud: config.Nextcloud{URL: "http://nextcloud"},
-		Immich:    config.Immich{URL: "http://immich", APIKey: "key"},
+		Immich:    config.Immich{URL: "http://immich"},
 	}
 	return Options{
 		Version: "test",
@@ -176,6 +187,11 @@ func TestWizardRendersForAuthenticatedUser(t *testing.T) {
 	}
 	if !strings.Contains(body, "Takeout") {
 		t.Error("the page should name the Takeout folder the watcher looks for")
+	}
+	// The Photos import runs as the person, so before their key is connected
+	// the screen asks for it instead of offering a start button.
+	if !strings.Contains(body, "/immich/connect") {
+		t.Error("the page should ask for the Immich key before importing")
 	}
 }
 
@@ -334,11 +350,20 @@ func TestHealthz(t *testing.T) {
 // before they have connected Google: the button would start a wait that could
 // never look anywhere.
 func TestTakeoutRouteNeedsGoogleConnected(t *testing.T) {
-	opts := oauthOptions(&fakeGoogle{}, newFakeTokenStore())
+	// Both credentials the Photos half needs are seeded: the person's own
+	// Immich key (the import runs as them) and the Google token (the watcher
+	// reads their Drive). The test then removes Google to prove the gate.
+	seeded := func() *fakeTokenStore {
+		store := newFakeTokenStore()
+		store.tokens["marco/immich"] = core.Token{User: "marco", Provider: "immich", Sealed: []byte("x")}
+		return store
+	}
+
+	opts := oauthOptions(&fakeGoogle{}, seeded())
 	opts.Runner = &fakeRunner{}
 	handler := Routes(opts)
 
-	// Not connected: the entry screen explains it and shows no start button.
+	// Immich connected but Google not: no start button, and the screen says so.
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, request("GET", "/", "marco"))
 	body := rec.Body.String()
@@ -349,8 +374,8 @@ func TestTakeoutRouteNeedsGoogleConnected(t *testing.T) {
 		t.Error("the screen should tell the person to connect Google first")
 	}
 
-	// Connected: the route is offered.
-	store := newFakeTokenStore()
+	// Both connected: the route is offered.
+	store := seeded()
 	store.tokens["marco/google"] = core.Token{User: "marco", Provider: "google", Sealed: []byte("x")}
 	opts = oauthOptions(&fakeGoogle{}, store)
 	opts.Runner = &fakeRunner{}
@@ -360,5 +385,87 @@ func TestTakeoutRouteNeedsGoogleConnected(t *testing.T) {
 	handler.ServeHTTP(rec, request("GET", "/", "marco"))
 	if !strings.Contains(rec.Body.String(), "/photos/takeout/start") {
 		t.Error("the Takeout start form should be offered once Google is connected")
+	}
+}
+
+func TestConnectImmichStoresTheKeyAndRedirects(t *testing.T) {
+	runner := &fakeRunner{}
+	opts := testOptions(runner)
+	handler := Routes(opts)
+
+	form := url.Values{"api_key": {"the-personal-key"}}
+	r := request("POST", "/immich/connect", "marco")
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Body = io.NopCloser(strings.NewReader(form.Encode()))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, r)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("code = %d, want 303", rec.Code)
+	}
+	if got := rec.Header().Get("Location"); got != "/?immich=connected" {
+		t.Errorf("Location = %q, want /?immich=connected", got)
+	}
+	if runner.immichKey != "the-personal-key" {
+		t.Errorf("the key did not reach the runner, got %q", runner.immichKey)
+	}
+}
+
+func TestConnectImmichRejectsAnEmptyKey(t *testing.T) {
+	runner := &fakeRunner{}
+	opts := testOptions(runner)
+	handler := Routes(opts)
+
+	form := url.Values{"api_key": {"   "}}
+	r := request("POST", "/immich/connect", "marco")
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Body = io.NopCloser(strings.NewReader(form.Encode()))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, r)
+
+	if got := rec.Header().Get("Location"); got != "/?immich=empty" {
+		t.Errorf("Location = %q, want /?immich=empty", got)
+	}
+	if runner.immichKey != "" {
+		t.Error("an empty key must not reach the runner")
+	}
+}
+
+func TestConnectImmichReportsARejectedKey(t *testing.T) {
+	runner := &fakeRunner{err: errors.New("Immich did not accept that API key")}
+	opts := testOptions(runner)
+	handler := Routes(opts)
+
+	form := url.Values{"api_key": {"wrong"}}
+	r := request("POST", "/immich/connect", "marco")
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Body = io.NopCloser(strings.NewReader(form.Encode()))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, r)
+
+	if got := rec.Header().Get("Location"); got != "/?immich=invalid" {
+		t.Errorf("Location = %q, want /?immich=invalid", got)
+	}
+}
+
+func TestConnectImmichRefusesUnauthenticated(t *testing.T) {
+	opts := testOptions(&fakeRunner{})
+	handler := Routes(opts)
+
+	form := url.Values{"api_key": {"k"}}
+	r := httptest.NewRequest("POST", "/immich/connect", strings.NewReader(form.Encode()))
+	r.RemoteAddr = "172.18.0.5:44444"
+	r.Header.Set("X-Zlatan-Proxy-Secret", "proxy-secret")
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// No Remote-User.
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, r)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("code = %d, want 401", rec.Code)
 	}
 }

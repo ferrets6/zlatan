@@ -18,6 +18,7 @@ import (
 
 	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/immich"
 	"github.com/marcodellemarche/zlatan/internal/nextcloud"
 	"github.com/marcodellemarche/zlatan/internal/notify"
 	"github.com/marcodellemarche/zlatan/internal/oauth"
@@ -259,7 +260,7 @@ func testConfig() *config.Config {
 			TakeoutFolder: "Takeout",
 		},
 		Nextcloud: config.Nextcloud{URL: "http://nextcloud"},
-		Immich:    config.Immich{URL: "http://immich:2283", APIKey: "immich-key"},
+		Immich:    config.Immich{URL: "http://immich:2283"},
 	}
 }
 
@@ -306,6 +307,35 @@ func seedNextcloud(t *testing.T, store *fakeStore, sealer oauth.Sealer) {
 		t.Fatalf("SealCredentials: %v", err)
 	}
 	store.tokens[nextcloud.Provider] = core.Token{User: "marco", Provider: nextcloud.Provider, Sealed: sealed}
+}
+
+// seedImmich stores the person's own Immich API key, so a test can reach the
+// import without a live Immich. The Photos half now requires it: without a
+// key, Immich would file the import under whoever owns the key, so there is no
+// safe fallback to a shared one.
+func seedImmich(t *testing.T, store *fakeStore, sealer oauth.Sealer) {
+	t.Helper()
+	sealed, err := immich.SealCredentials(sealer, immich.Credentials{APIKey: "immich-personal-key", Email: "marco@example.com"})
+	if err != nil {
+		t.Fatalf("SealCredentials: %v", err)
+	}
+	store.tokens[immich.Provider] = core.Token{User: "marco", Provider: immich.Provider, Sealed: sealed}
+}
+
+// fakeImmich proves a key and names the account it belongs to.
+type fakeImmich struct {
+	me  immich.Me
+	err error
+}
+
+func (f *fakeImmich) Validate(_ context.Context, apiKey string) (immich.Me, error) {
+	if f.err != nil {
+		return immich.Me{}, f.err
+	}
+	if apiKey == "" {
+		return immich.Me{}, errors.New("empty key")
+	}
+	return f.me, nil
 }
 
 // fakeNextcloud is a Login Flow that a test drives by hand.
@@ -651,6 +681,7 @@ func TestVerifySampleExcludesKnownBadFiles(t *testing.T) {
 func TestRunPhotosImportEndsOnDone(t *testing.T) {
 	store := newFakeStore()
 	r := newRunner(t, store, &fakeExecutor{})
+	seedImmich(t, store, sealerOf(t, r))
 
 	// A real Takeout archive in the person's staging directory, so the import
 	// has something to find and gets past the empty check.
@@ -688,6 +719,7 @@ func TestStartPhotosTakeoutRecordsTheRoute(t *testing.T) {
 	store := newFakeStore()
 	r := newRunner(t, store, &fakeExecutor{})
 	seedToken(t, store, sealerOf(t, r))
+	seedImmich(t, store, sealerOf(t, r))
 
 	if err := r.StartPhotosTakeout(context.Background(), "marco"); err != nil {
 		t.Fatalf("StartPhotosTakeout: %v", err)
@@ -991,5 +1023,116 @@ func waitFor(t *testing.T, ok func() bool) {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestConnectImmichStoresTheKeySealed(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+	r = r.WithImmich(&fakeImmich{me: immich.Me{Email: "marco@example.com", Name: "Marco"}})
+
+	me, err := r.ConnectImmich(context.Background(), "marco", "the-personal-key")
+	if err != nil {
+		t.Fatalf("ConnectImmich: %v", err)
+	}
+	if me.Email != "marco@example.com" {
+		t.Errorf("me.Email = %q", me.Email)
+	}
+
+	// The key must be sealed in the store, not stored in the clear.
+	tok, err := store.GetToken(context.Background(), "marco", immich.Provider)
+	if err != nil {
+		t.Fatalf("the key was not stored: %v", err)
+	}
+	if strings.Contains(string(tok.Sealed), "the-personal-key") {
+		t.Fatal("the key reached the store unsealed")
+	}
+	// And it must come back out intact.
+	creds, err := r.ImmichKey(context.Background(), "marco")
+	if err != nil {
+		t.Fatalf("ImmichKey: %v", err)
+	}
+	if creds.APIKey != "the-personal-key" {
+		t.Errorf("ImmichKey = %q, want the key that was stored", creds.APIKey)
+	}
+}
+
+func TestConnectImmichRefusesAKeyImmichRejects(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+	r = r.WithImmich(&fakeImmich{err: errors.New("Immich did not accept that API key")})
+
+	if _, err := r.ConnectImmich(context.Background(), "marco", "wrong"); err == nil {
+		t.Fatal("a key Immich rejects must not be stored")
+	}
+	if _, err := store.GetToken(context.Background(), "marco", immich.Provider); err == nil {
+		t.Error("a rejected key must not be stored")
+	}
+}
+
+func TestRunPhotosImportUsesThePersonsOwnKey(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{}
+	r := newRunner(t, store, exec)
+	seedImmich(t, store, sealerOf(t, r))
+
+	staging := filepath.Join(r.cfg.StagingDir, core.SafeName("marco"))
+	if err := os.MkdirAll(staging, 0o750); err != nil {
+		t.Fatalf("staging: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(staging, "takeout-1.zip"), []byte("zip"), 0o600); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
+
+	r.runPhotosImport(context.Background(), "marco")
+
+	cmd, ok := exec.first("upload")
+	if !ok {
+		t.Fatal("no immich-go upload was run")
+	}
+	// The key passed to immich-go must be the person's own, not a shared one:
+	// Immich files every asset under the key's owner.
+	joined := strings.Join(cmd.args, " ")
+	if !strings.Contains(joined, "immich-personal-key") {
+		t.Errorf("the import should use the person's own key, got: %v", cmd.args)
+	}
+}
+
+func TestRunPhotosImportFailsWithoutAPersonalKey(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{}
+	r := newRunner(t, store, exec)
+
+	staging := filepath.Join(r.cfg.StagingDir, core.SafeName("marco"))
+	if err := os.MkdirAll(staging, 0o750); err != nil {
+		t.Fatalf("staging: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(staging, "takeout-1.zip"), []byte("zip"), 0o600); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
+
+	r.runPhotosImport(context.Background(), "marco")
+
+	// No key means no import: a shared fallback would misfile the photos, so
+	// the run must fail loudly instead.
+	if got := store.state().PhotosState; got != core.PhotosFailed {
+		t.Fatalf("photos state = %q, want failed without a personal key", got)
+	}
+	if _, ok := exec.first("upload"); ok {
+		t.Error("immich-go must not run without the person's own key")
+	}
+}
+
+func TestStartPhotosUploadRequiresThePersonalKey(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+
+	if err := r.StartPhotosUpload(context.Background(), "marco"); err == nil {
+		t.Error("StartPhotosUpload should refuse without the person's Immich key")
+	}
+
+	seedImmich(t, store, sealerOf(t, r))
+	if err := r.StartPhotosUpload(context.Background(), "marco"); err != nil {
+		t.Errorf("StartPhotosUpload with a key: %v", err)
 	}
 }

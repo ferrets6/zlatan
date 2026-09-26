@@ -14,6 +14,7 @@ import (
 
 	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/immich"
 	"github.com/marcodellemarche/zlatan/internal/oauth"
 	"github.com/marcodellemarche/zlatan/internal/upload"
 )
@@ -103,6 +104,12 @@ type Runner interface {
 	// and click again.
 	StartNextcloud(ctx context.Context, user string) (string, error)
 	PollNextcloud(ctx context.Context, user string) (core.DriveState, error)
+
+	// ConnectImmich validates and stores the person's own Immich API key, and
+	// returns the account it belongs to. Immich has no admin endpoint that
+	// mints a key for another user, so the key can only come from the person;
+	// this is where they hand it over.
+	ConnectImmich(ctx context.Context, user, apiKey string) (immich.Me, error)
 }
 
 // Routes builds the wizard's surface. Every page is behind the proxy gate and
@@ -120,6 +127,7 @@ func Routes(opts Options) http.Handler {
 	mux.Handle("GET /oauth/google/start", gate(opts.oauthStart))
 	mux.Handle("GET /oauth/google/callback", gate(opts.oauthCallback))
 	mux.Handle("POST /nextcloud/start", gate(opts.startNextcloud))
+	mux.Handle("POST /immich/connect", gate(opts.connectImmich))
 	mux.Handle("POST /drive/start", gate(opts.startDrive))
 	mux.Handle("POST /photos/upload/start", gate(opts.startPhotosUpload))
 	mux.Handle("POST /photos/takeout/start", gate(opts.startPhotosTakeout))

@@ -31,6 +31,7 @@ import (
 
 	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/immich"
 	"github.com/marcodellemarche/zlatan/internal/nextcloud"
 	"github.com/marcodellemarche/zlatan/internal/notify"
 	"github.com/marcodellemarche/zlatan/internal/oauth"
@@ -72,6 +73,14 @@ type Sealer interface {
 	Seal(plaintext []byte) ([]byte, error)
 }
 
+// ImmichAPI is the part of Immich the runner needs: proving that a pasted API
+// key belongs to the person, so the wizard can say whose key it is before an
+// import runs under it. It is an interface so the runner can be tested without
+// a live Immich.
+type ImmichAPI interface {
+	Validate(ctx context.Context, apiKey string) (immich.Me, error)
+}
+
 // NextcloudFlow is the Login Flow v2 the runner drives to obtain a per-user
 // app password. It is an interface so the runner can be tested without a live
 // Nextcloud.
@@ -97,6 +106,7 @@ type Runner struct {
 	log     *slog.Logger
 	exec    Executor
 	nc      NextcloudFlow
+	immich  ImmichAPI
 	notify  notify.Notifier
 	limiter chan struct{}
 }
@@ -126,6 +136,20 @@ func New(cfg *config.Config, store Store, sealer Sealer, log *slog.Logger) *Runn
 			r.nc = client
 		}
 	}
+	if cfg.Immich.URL != "" {
+		client, err := immich.New(cfg.Immich.URL, 0)
+		if err != nil {
+			log.Error("build the Immich client", "error", err)
+		} else {
+			r.immich = client
+		}
+	}
+	return r
+}
+
+// WithImmich replaces the Immich client. Used by tests.
+func (r *Runner) WithImmich(api ImmichAPI) *Runner {
+	r.immich = api
 	return r
 }
 
@@ -243,6 +267,46 @@ func (r *Runner) PollNextcloud(ctx context.Context, user string) (core.DriveStat
 		return "", err
 	}
 	return core.DriveSelecting, nil
+}
+
+// ConnectImmich validates an API key the person created in their own Immich
+// account and stores it sealed. It returns the account the key belongs to, so
+// the wizard can show whose key it is: pasting somebody else's key would file
+// this person's photos into that account, and the check is what catches it.
+//
+// The key is the only credential the Photos half has. It is validated here
+// rather than at import time so a wrong paste is a message now, not a failure
+// hours into an import.
+func (r *Runner) ConnectImmich(ctx context.Context, user, apiKey string) (immich.Me, error) {
+	if r.immich == nil {
+		return immich.Me{}, errors.New("Immich is not configured")
+	}
+	me, err := r.immich.Validate(ctx, apiKey)
+	if err != nil {
+		return immich.Me{}, err
+	}
+	sealed, err := immich.SealCredentials(r.sealer, immich.Credentials{APIKey: strings.TrimSpace(apiKey), Email: me.Email})
+	if err != nil {
+		return immich.Me{}, err
+	}
+	if err := r.store.PutToken(ctx, core.Token{
+		User:     user,
+		Provider: immich.Provider,
+		Sealed:   sealed,
+	}); err != nil {
+		return immich.Me{}, err
+	}
+	return me, nil
+}
+
+// ImmichKey returns the person's own Immich API key, unsealed. It is used by
+// the import and by the wizard (to answer "am I connected?").
+func (r *Runner) ImmichKey(ctx context.Context, user string) (immich.Credentials, error) {
+	tok, err := r.store.GetToken(ctx, user, immich.Provider)
+	if err != nil {
+		return immich.Credentials{}, err
+	}
+	return immich.OpenCredentials(r.sealer, tok.Sealed)
 }
 
 // StartDrive queues the Drive migration and returns immediately: the copy runs
@@ -429,6 +493,12 @@ func (r *Runner) StartPhotosUpload(ctx context.Context, user string) error {
 	if !r.cfg.Immich.Configured() {
 		return errors.New("Immich is not configured")
 	}
+	// Without the person's own key there is nothing to import as: Immich files
+	// every asset under the key's owner. Say so now rather than importing into
+	// the wrong account.
+	if _, err := r.ImmichKey(ctx, user); err != nil {
+		return fmt.Errorf("%w: connect Immich before importing", err)
+	}
 	go r.runPhotosImport(context.WithoutCancel(ctx), user)
 	return nil
 }
@@ -444,6 +514,12 @@ func (r *Runner) StartPhotosTakeout(ctx context.Context, user string) error {
 	}
 	if !r.cfg.Google.Configured() {
 		return errors.New("the Google OAuth client is not configured")
+	}
+	// The export will be imported as this person, so their own Immich key must
+	// exist before the wait starts; otherwise the wait would end in an import
+	// that cannot run.
+	if _, err := r.ImmichKey(ctx, user); err != nil {
+		return fmt.Errorf("%w: connect Immich before asking for the export", err)
 	}
 	// Without the Drive token there is nothing to watch the Drive with: the
 	// person must connect Google first. Say so now rather than leaving them on
@@ -681,10 +757,21 @@ func (r *Runner) runPhotosImport(ctx context.Context, user string) {
 		return
 	}
 
+	// The person's own key, never a shared one: Immich files every asset under
+	// the key's owner, so a shared key would put everyone's library in one
+	// account. A missing key is a real failure, not something to paper over
+	// with a fallback that would silently misfile the import.
+	creds, err := r.ImmichKey(ctx, user)
+	if err != nil {
+		r.failPhotos(ctx, user, "Immich is not connected: add your API key before importing")
+		r.log.Error("runPhotosImport: no Immich key", "user", user, "error", err)
+		return
+	}
+
 	args := []string{
 		"upload", "from-google-photos",
 		"--server", r.cfg.Immich.URL,
-		"--api-key", r.cfg.Immich.APIKey.Reveal(),
+		"--api-key", creds.APIKey,
 		"--manage-burst", "Stack",
 		"--sync-albums",
 		"--people-tag=false",

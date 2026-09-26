@@ -212,6 +212,28 @@ in internal/i18n, through .T, already in their language.
 			<summary>{{ .T "btn.how" }}</summary>
 			<div>{{ template "guide" . }}</div>
 		</details>
+		{{ with .ImmichNote }}<p class="fine">{{ . }}</p>{{ end }}
+		{{ if not .ImmichConnected }}
+		{{/* The import runs as the person, so their own key is the first thing
+		     to ask for. Immich files every asset under the key's owner, and
+		     only the person can mint one: there is no admin endpoint for it. */}}
+		<p class="fine">{{ .T "immich.need" }}</p>
+		<p class="fine">{{ .T "immich.how" }}</p>
+		<form method="post" action="/immich/connect">
+			<label class="field">
+				<span>{{ .T "immich.field" }}</span>
+				<input type="password" name="api_key" autocomplete="off" spellcheck="false" required>
+			</label>
+			<div class="actions">
+				<button class="btn btn--primary" type="submit">{{ .T "btn.saveKey" }}</button>
+			</div>
+		</form>
+		{{ with .ImmichURL }}
+		<div class="actions">
+			<a class="btn btn--quiet" href="{{ . }}/user-settings?openSetting=api-keys" target="_blank" rel="noopener">{{ $.T "immich.open" }}</a>
+		</div>
+		{{ end }}
+		{{ else }}
 		{{ if not .CanTakeout }}<p class="fine">{{ .T "photos.needGoogle" }}</p>{{ end }}
 		<div class="actions">
 			{{ if .CanTakeout }}
@@ -225,6 +247,7 @@ in internal/i18n, through .T, already in their language.
 			</form>
 			{{ end }}
 		</div>
+		{{ end }}
 	{{ end }}
 </section>
 {{ end }}

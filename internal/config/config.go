@@ -156,15 +156,19 @@ func (n Nextcloud) Configured() bool {
 	return n.URL != ""
 }
 
-// Immich is the import destination for the Photos half.
+// Immich is the import destination for the Photos half. There is deliberately
+// no API key here: Immich has no admin endpoint that mints a key for another
+// account, so the only correct key is the person's own, created by them and
+// sealed per person. A single shared key would file everyone's photos under
+// its owner's account, which is the bug this replaced.
 type Immich struct {
-	URL    string
-	APIKey core.Secret
+	URL string
 }
 
-// Configured reports whether Immich can be reached and written to.
+// Configured reports whether Immich can be reached. It says nothing about a
+// credential: the key is per person and lives in the store, not the config.
 func (i Immich) Configured() bool {
-	return i.URL != "" && !i.APIKey.Empty()
+	return i.URL != ""
 }
 
 // Ntfy is the push service notifications go to. Without it the service still
@@ -250,8 +254,7 @@ func Load(env map[string]string) (*Config, error) {
 			URL: get("ZLATAN_NEXTCLOUD_URL"),
 		},
 		Immich: Immich{
-			URL:    get("ZLATAN_IMMICH_URL"),
-			APIKey: core.Secret(get("ZLATAN_IMMICH_API_KEY")),
+			URL: get("ZLATAN_IMMICH_URL"),
 		},
 		Ntfy: Ntfy{
 			URL:   get("ZLATAN_NTFY_URL"),

@@ -407,6 +407,20 @@ code, .mono {
 
 .actions { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
 
+/* A single labelled input, used where the person pastes a credential. The
+   label wraps the input so the two are associated without an id. */
+.field { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.6rem 0; }
+.field > span { font-size: 0.875rem; color: var(--muted); }
+.field input {
+	font: inherit;
+	min-height: 2.75rem;      /* thumb-sized, like .btn */
+	padding: 0.5rem 0.7rem;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+	background: var(--bg);
+	color: var(--fg);
+}
+
 .btn {
 	display: inline-flex;
 	align-items: center;

@@ -13,6 +13,7 @@ import (
 	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
 	"github.com/marcodellemarche/zlatan/internal/i18n"
+	"github.com/marcodellemarche/zlatan/internal/immich"
 	"github.com/marcodellemarche/zlatan/internal/nextcloud"
 	"github.com/marcodellemarche/zlatan/internal/store"
 )
@@ -82,6 +83,12 @@ type page struct {
 
 	GoogleConnected    bool
 	NextcloudConnected bool
+	ImmichConnected    bool
+
+	// ImmichNote is the outcome of the last connect attempt, already resolved
+	// in the reader's language: "connected", "that key was not accepted", or
+	// "paste a key first". Empty when there is nothing to say.
+	ImmichNote string
 }
 
 // langChoice is one entry in the switcher.
@@ -248,6 +255,20 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 		p.GoogleConnected = err == nil
 		_, err = opts.TokenStore.GetToken(r.Context(), user, nextcloud.Provider)
 		p.NextcloudConnected = err == nil
+		_, err = opts.TokenStore.GetToken(r.Context(), user, immich.Provider)
+		p.ImmichConnected = err == nil
+	}
+
+	// The outcome of a connect attempt, carried back as a short code so the
+	// address bar holds no key and the sentence is chosen here, in the
+	// person's language.
+	switch r.URL.Query().Get("immich") {
+	case "connected":
+		p.ImmichNote = i18n.T(lang, "immich.connected")
+	case "invalid":
+		p.ImmichNote = i18n.T(lang, "immich.invalid")
+	case "empty":
+		p.ImmichNote = i18n.T(lang, "immich.empty")
 	}
 
 	// The Takeout watcher reads the person's Drive, so the route can only be
@@ -389,6 +410,52 @@ func (opts Options) startNextcloud(w http.ResponseWriter, r *http.Request) {
 		opts.Log.Error("startNextcloud: set state", "user", user, "error", err)
 	}
 	http.Redirect(w, r, loginURL, http.StatusSeeOther)
+}
+
+// connectImmich validates the API key the person created in their own Immich
+// account and stores it. The key travels in the POST body, never the URL, so
+// it does not land in a log line or the browser history. Immich has no admin
+// endpoint that mints a key for another account, so the person is the only one
+// who can produce it; this is where they hand it over.
+func (opts Options) connectImmich(w http.ResponseWriter, r *http.Request) {
+	user, email, err := identityFrom(r, opts.Config.TrustedProxy)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if opts.Runner == nil {
+		http.Error(w, "the Photos route is not available on this instance", http.StatusServiceUnavailable)
+		return
+	}
+	if _, err := opts.State.EnsureMigration(r.Context(), user, email); err != nil {
+		opts.Log.Error("connectImmich: ensure migration", "user", user, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// A body cap: an API key is short, and a huge body is not a key. Without
+	// it a POST of any size would be read into memory before the value is even
+	// looked at.
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read the form", http.StatusBadRequest)
+		return
+	}
+	apiKey := strings.TrimSpace(r.PostFormValue("api_key"))
+	if apiKey == "" {
+		http.Redirect(w, r, "/?immich=empty", http.StatusSeeOther)
+		return
+	}
+
+	if _, err := opts.Runner.ConnectImmich(r.Context(), user, apiKey); err != nil {
+		opts.Log.Warn("connectImmich: rejected", "user", user, "error", err)
+		// The key is not echoed back, and the reason is generic on purpose:
+		// whether Immich refused it or was unreachable, the person's next move
+		// is the same, and a distinction could help somebody probe keys.
+		http.Redirect(w, r, "/?immich=invalid", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/?immich=connected", http.StatusSeeOther)
 }
 
 func (opts Options) startPhotosUpload(w http.ResponseWriter, r *http.Request) {
