@@ -62,12 +62,13 @@ migration is and every reassurance repeated twice.
 
 - **The destination is named**, from `ZLATAN_NEXTCLOUD_URL` and
   `ZLATAN_IMMICH_URL`, never hardcoded: `Google Drive → nextcloud.example.org`.
-- **One fact about Google**, once: it no longer lets apps read photo
-  libraries, so the person asks for the copy. That sentence is the reason the
-  whole Photos route looks the way it does, so it stays.
-- **The guide is five steps** with Google's own words quoted in a chip. It sits
-  behind a disclosure on the entry card, so nobody reads it who does not need
-  it.
+- **The Photos route is one numbered procedure**, in the order it happens:
+  connect Immich (the import runs as the person, so it needs their own key),
+  connect Google (so the export can be collected from their Drive), then ask
+  Google for the copy. Only the current step is open; the Takeout instructions
+  are the body of step three, with Google's own words quoted in a chip. There
+  is no separate guide screen and no paragraph explaining why the route exists:
+  the procedure is the explanation.
 - **A pill carries the state, numbers carry the detail.** There is no second
   sentence restating the pill.
 - **No bar without a denominator.** The runner does not know the totals, so
@@ -76,6 +77,12 @@ migration is and every reassurance repeated twice.
   interval from configuration; it promises no email, because nothing sends one.
 - **No "ERROR".** What it means for the data, then the detail folded away for
   whoever runs the server.
+- **"Open Immich" prefers the app.** The Android app registers the `immich://`
+  scheme, but verified app links exist only for `my.immich.app`, which needs
+  the person to have saved their own server there first, so a self-hosted
+  address cannot open the app on its own. The link carries the web address and
+  a script tries the scheme first on a touch device, falling back after a
+  second. With no script it is the web address, which is right on a desktop.
 
 ## Languages
 

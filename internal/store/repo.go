@@ -157,6 +157,52 @@ func (db *DB) SetQuotaEstimate(ctx context.Context, user string, driveSource, us
 	})
 }
 
+// InterruptedMigration is one person whose migration was in flight when the
+// process stopped, and which track was running. It is the unit the recovery
+// works in.
+type InterruptedMigration struct {
+	User string
+	// Drive and Photos say which track was mid-work, so the recovery moves only
+	// that one: a finished track is left exactly as it was.
+	Drive  bool
+	Photos bool
+}
+
+// ListInterrupted returns the rows whose drive or photos half is in a state
+// that only the running process can leave. Those states are written by the
+// runner and by nothing else, so after a restart they mean one thing: the work
+// that set them is gone, and the row will never move again on its own.
+//
+// The states are the ones a long job sets while it runs — copying, verifying,
+// downloading, importing. Consent and selection are excluded on purpose: the
+// person leaves those by acting in a browser, and a restart does not orphan
+// them.
+func (db *DB) ListInterrupted(ctx context.Context) ([]InterruptedMigration, error) {
+	const q = `
+		SELECT user, drive_state, photos_state FROM migrations
+		WHERE drive_state IN (?, ?) OR photos_state IN (?, ?)`
+	rows, err := db.R.QueryContext(ctx, q,
+		string(core.DriveCopying), string(core.DriveVerifying),
+		string(core.PhotosDownloading), string(core.PhotosImporting))
+	if err != nil {
+		return nil, fmt.Errorf("list interrupted migrations: %w", err)
+	}
+	defer rows.Close()
+
+	var out []InterruptedMigration
+	for rows.Next() {
+		var m InterruptedMigration
+		var drive, photos string
+		if err := rows.Scan(&m.User, &drive, &photos); err != nil {
+			return nil, fmt.Errorf("scan interrupted migration: %w", err)
+		}
+		m.Drive = drive == string(core.DriveCopying) || drive == string(core.DriveVerifying)
+		m.Photos = photos == string(core.PhotosDownloading) || photos == string(core.PhotosImporting)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 // ListAwaitingTakeout returns the users whose Photos half is waiting for a
 // Takeout to appear in their Drive. The watcher reads this every tick rather
 // than holding a goroutine per person, so a restart resumes the wait instead

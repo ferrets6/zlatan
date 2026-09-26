@@ -177,3 +177,29 @@ function wireUpload() {
 }
 
 wireUpload();
+
+// --- Open Immich in its app ------------------------------------------------
+// The Android app registers the immich:// scheme, but verified app links exist
+// only for my.immich.app, which needs the person to have saved their own
+// server there first. So a self-hosted address cannot open the app by itself:
+// try the scheme, and fall back to the web address the link already carries.
+// With no script the link is just the web address, which is the right answer
+// on a desktop anyway.
+for (const link of document.querySelectorAll('[data-app-scheme]')) {
+	link.addEventListener('click', (event) => {
+		if (!matchMedia('(hover: none)').matches) return;
+		event.preventDefault();
+
+		const web = link.href;
+		let left = false;
+		const noteDeparture = () => { left = true; };
+		document.addEventListener('visibilitychange', noteDeparture, { once: true });
+
+		setTimeout(() => {
+			document.removeEventListener('visibilitychange', noteDeparture);
+			if (!left) location.href = web;
+		}, 1000);
+
+		location.href = link.dataset.appScheme;
+	});
+}

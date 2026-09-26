@@ -328,3 +328,62 @@ func TestSetQuotaEstimate(t *testing.T) {
 			m.DriveSourceBytes, m.QuotaUsedBytes, m.QuotaTotalBytes)
 	}
 }
+
+func TestListInterruptedFindsInFlightWork(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	// A copy in flight, and a Photos import in flight: both are states only
+	// the running process writes, so after a restart they are orphaned.
+	if _, err := db.EnsureMigration(ctx, "marco", "marco@example.com"); err != nil {
+		t.Fatalf("EnsureMigration: %v", err)
+	}
+	if _, err := db.SetDriveState(ctx, "marco", core.DriveCopying, "copying"); err != nil {
+		t.Fatalf("SetDriveState: %v", err)
+	}
+	if _, err := db.SetPhotosState(ctx, "marco", core.PhotosImporting, "importing"); err != nil {
+		t.Fatalf("SetPhotosState: %v", err)
+	}
+
+	// A second person waiting on Google: that is resumed by the watcher, not
+	// by the recovery, so it must not appear.
+	if _, err := db.EnsureMigration(ctx, "federico", "federico@example.com"); err != nil {
+		t.Fatalf("EnsureMigration: %v", err)
+	}
+	if _, err := db.SetPhotosState(ctx, "federico", core.PhotosAwaitingTakeout, "waiting"); err != nil {
+		t.Fatalf("SetPhotosState: %v", err)
+	}
+
+	got, err := db.ListInterrupted(ctx)
+	if err != nil {
+		t.Fatalf("ListInterrupted: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ListInterrupted returned %d rows, want 1: %+v", len(got), got)
+	}
+	if got[0].User != "marco" || !got[0].Drive || !got[0].Photos {
+		t.Errorf("got %+v, want marco with both tracks in flight", got[0])
+	}
+}
+
+func TestListInterruptedIgnoresRestingStates(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	if _, err := db.EnsureMigration(ctx, "marco", "marco@example.com"); err != nil {
+		t.Fatalf("EnsureMigration: %v", err)
+	}
+	// not_started, selecting, consent_pending and awaiting_takeout are all
+	// reachable without a running job, so a restart must not touch them.
+	for _, s := range []core.DriveState{core.DriveNotStarted, core.DriveSelecting, core.DriveConsentPending} {
+		if _, err := db.SetDriveState(ctx, "marco", s, ""); err != nil {
+			t.Fatalf("SetDriveState(%s): %v", s, err)
+		}
+		got, err := db.ListInterrupted(ctx)
+		if err != nil {
+			t.Fatalf("ListInterrupted: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("drive state %q should not be seen as interrupted", s)
+		}
+	}
+}

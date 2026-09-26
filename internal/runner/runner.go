@@ -64,6 +64,7 @@ type Store interface {
 	ListFinished(ctx context.Context) ([]store.FinishedMigration, error)
 	StampFinished(ctx context.Context, user string) error
 	SetQuotaEstimate(ctx context.Context, user string, driveSource, used, total int64) error
+	ListInterrupted(ctx context.Context) ([]store.InterruptedMigration, error)
 }
 
 // Sealer opens the stored tokens. The runner never sees a token in the clear
@@ -189,6 +190,43 @@ func (r *Runner) notifyBestEffort(ctx context.Context, m notify.Message) {
 			r.log.Warn("notification was not delivered", "title", m.Title, "error", err)
 		}
 	}()
+}
+
+// RecoverInterrupted puts every migration that was mid-work when the process
+// stopped back into a state the person can restart. Without it a copy left in
+// "copying" by a restart is a dead end: the runner writes that state and
+// nothing else ever moves it, and the wizard offers no button for it, so the
+// person watches a pill spin forever.
+//
+// It runs once, at startup. It does not resume the work itself: a restart may
+// be an update at a moment when the machine should not immediately start
+// several heavy migrations, so the person starts it again. That is safe
+// because the work is idempotent — rclone copy skips what is already there and
+// immich-go discards duplicates by hash — so restarting re-reads the source
+// and copies nothing twice.
+func (r *Runner) RecoverInterrupted(ctx context.Context) {
+	rows, err := r.store.ListInterrupted(ctx)
+	if err != nil {
+		r.log.Error("recovery: list interrupted", "error", err)
+		return
+	}
+	for _, m := range rows {
+		if m.Drive {
+			// Back to "selecting": the credentials are still stored, so the
+			// person only has to press start again.
+			if _, err := r.store.SetDriveState(ctx, m.User, core.DriveSelecting,
+				"interrupted by a restart: it will pick up where it left off"); err != nil {
+				r.log.Error("recovery: reset drive", "user", m.User, "error", err)
+			}
+		}
+		if m.Photos {
+			if _, err := r.store.SetPhotosState(ctx, m.User, core.PhotosNotStarted,
+				"interrupted by a restart: it will pick up where it left off"); err != nil {
+				r.log.Error("recovery: reset photos", "user", m.User, "error", err)
+			}
+		}
+		r.log.Info("recovered an interrupted migration", "user", m.User, "drive", m.Drive, "photos", m.Photos)
+	}
 }
 
 // StartNextcloud begins the Nextcloud Login Flow and returns the URL the

@@ -319,6 +319,11 @@ code, .mono {
 }
 
 .step__body { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.45rem; }
+
+/* What to do at Google, nested inside the step that asks for it. Plain
+   numbers rather than a second rail: one rail per procedure. */
+.substeps { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.9375rem; }
+.substeps .split { margin-top: 0.4rem; }
 .step__body p { font-size: 0.9375rem; }
 
 /* A word quoted from Google's own page. */

@@ -53,7 +53,7 @@ func screens(lang i18n.Lang) map[string]page {
 
 	guide := base
 	guide.Screen = "takeout"
-	guide.GoogleConnected, guide.CanTakeout = true, true
+	guide.GoogleConnected, guide.ImmichConnected, guide.CanTakeout = true, true, true
 	guide.Drive = trackView{Track: core.TrackDrive, State: "not_started", Pill: i18n.T(lang, "pill.idle"), PillClass: "pill--idle"}
 	guide.Photos = trackView{Track: core.TrackPhotos, State: "takeout_guide", Pill: i18n.T(lang, "pill.waitYou"), PillClass: "pill--you"}
 

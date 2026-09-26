@@ -146,8 +146,8 @@ func testOptions(runner Runner) Options {
 			RedirectURL:   "https://zlatan.example/cb",
 			TakeoutFolder: "Takeout",
 		},
-		Nextcloud: config.Nextcloud{URL: "http://nextcloud"},
-		Immich:    config.Immich{URL: "http://immich"},
+		Nextcloud: config.Nextcloud{URL: "http://nextcloud", PublicURL: "https://nextcloud.example.org"},
+		Immich:    config.Immich{URL: "http://immich", PublicURL: "https://immich.example.org"},
 	}
 	return Options{
 		Version: "test",
@@ -185,8 +185,10 @@ func TestWizardRendersForAuthenticatedUser(t *testing.T) {
 	if !strings.Contains(body, "marco") {
 		t.Error("the page should show who is connected")
 	}
-	if !strings.Contains(body, "Takeout") {
-		t.Error("the page should name the Takeout folder the watcher looks for")
+	// Where the data is going is read from configuration and shown, so nobody
+	// has to guess which server their library is about to land on.
+	if !strings.Contains(body, "Google Drive → nextcloud") || !strings.Contains(body, "Google Photos → immich") {
+		t.Error("the page should name both destinations, from configuration")
 	}
 	// The Photos import runs as the person, so before their key is connected
 	// the screen asks for it instead of offering a start button.
@@ -370,8 +372,10 @@ func TestTakeoutRouteNeedsGoogleConnected(t *testing.T) {
 	if strings.Contains(body, "/photos/takeout/start") {
 		t.Error("the Takeout start form must not be offered before Google is connected")
 	}
-	if !strings.Contains(body, "Connect Google first") {
-		t.Error("the screen should tell the person to connect Google first")
+	// The Photos route is one numbered procedure, and connecting Google is the
+	// step that is still open.
+	if !strings.Contains(body, "Connect Google") {
+		t.Error("the screen should still show connecting Google as a step")
 	}
 
 	// Both connected: the route is offered.
@@ -522,5 +526,39 @@ func TestWizardShowsNoLinkWithoutAPublicAddress(t *testing.T) {
 	}
 	if strings.Contains(body, `href=""`) {
 		t.Error("the page must not render an empty link")
+	}
+}
+
+// A migration that a restart left mid-flight must be recoverable from the
+// page: the recovery moves the state, and the page then offers the button.
+// This is the regression guard for the dead end where a copy sat in "copying"
+// with no way to start it again.
+func TestInterruptedStateIsRestartableFromThePage(t *testing.T) {
+	// Both credentials the Drive half needs, so the button is the thing under
+	// test rather than a missing Google or Nextcloud connection.
+	store := newFakeTokenStore()
+	store.tokens["marco/google"] = core.Token{User: "marco", Provider: "google", Sealed: []byte("x")}
+	store.tokens["marco/nextcloud"] = core.Token{User: "marco", Provider: "nextcloud", Sealed: []byte("x")}
+	store.tokens["marco/immich"] = core.Token{User: "marco", Provider: "immich", Sealed: []byte("x")}
+	opts := oauthOptions(&fakeGoogle{}, store)
+	opts.Runner = &fakeRunner{}
+	// Seed a row stuck in the states only the running process writes.
+	if _, err := opts.State.SetDriveState(context.Background(), "marco", core.DriveSelecting, "interrupted by a restart: it will pick up where it left off"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := opts.State.SetPhotosState(context.Background(), "marco", core.PhotosNotStarted, "interrupted by a restart: it will pick up where it left off"); err != nil {
+		t.Fatal(err)
+	}
+	handler := Routes(opts)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, request("GET", "/", "marco"))
+	body := rec.Body.String()
+
+	if !strings.Contains(body, `action="/drive/start"`) {
+		t.Error("a recovered Drive track must offer the start button")
+	}
+	if !strings.Contains(body, `action="/photos/upload/start"`) {
+		t.Error("a recovered Photos track must offer a way to import")
 	}
 }

@@ -184,6 +184,12 @@ func serve(ctx context.Context, a *app) int {
 		engine = engine.WithNotifier(client)
 	}
 
+	// Recover migrations that were mid-work when the process stopped. It runs
+	// before the watchers so a row the recovery frees is not then seen by a
+	// watcher in its old state. Without this a copy left in "copying" by a
+	// restart never moves again and the wizard offers no button for it.
+	engine.RecoverInterrupted(ctx)
+
 	// The Takeout watcher runs for the life of the process. It is one loop for
 	// everyone: the state lives in the database, so a restart resumes the wait.
 	// It only starts when the Google client exists, because without it there is

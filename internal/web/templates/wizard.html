@@ -47,21 +47,6 @@ in internal/i18n, through .T, already in their language.
 
 {{ if eq .Screen "upload" }}
 	{{ template "upload" . }}
-{{ else if eq .Screen "takeout" }}
-	<div class="prose"><h1>{{ .T "takeout.title" }}</h1></div>
-	<main class="panel">
-		{{ template "guide" . }}
-		<div class="actions">
-			<form method="post" action="/photos/takeout/start">
-				<button class="btn btn--primary" type="submit">{{ .T "btn.asked" }}</button>
-			</form>
-			{{ if .CanUpload }}
-			<form method="post" action="/photos/upload/start">
-				<button class="btn btn--quiet" type="submit">{{ .T "btn.upload" }}</button>
-			</form>
-			{{ end }}
-		</div>
-	</main>
 {{ else }}
 	<div class="prose">
 		<h1>{{ if eq .Screen "done" }}{{ .T "done.title" }}{{ else }}{{ .T "page.title" }}{{ end }}</h1>
@@ -191,8 +176,9 @@ in internal/i18n, through .T, already in their language.
 		<p class="fine">{{ with .Check .PhotosVerification }}{{ . }}{{ else }}{{ $.T "done.plain" }}{{ end }}</p>
 		{{ with .ImmichURL }}
 		<div class="actions">
-			<a class="btn btn--primary" href="{{ . }}">{{ $.T "btn.openImmich" }}</a>
+			<a class="btn btn--primary" href="{{ . }}" data-app-scheme="immich://">{{ $.T "btn.openImmich" }}</a>
 		</div>
+		<p class="fine">{{ $.T "immich.inApp" }}</p>
 		{{ end }}
 	{{ else if eq .Photos.State "awaiting_takeout" }}
 		<p class="fine">{{ .T "wait.watching" .TakeoutFolder }} {{ .Every }}</p>
@@ -206,72 +192,80 @@ in internal/i18n, through .T, already in their language.
 		{{ end }}
 	{{ else if not .CanStartPhotos }}
 		<p class="fine">{{ .T "unavailable" }}</p>
-	{{ else if eq .Photos.State "not_started" }}
-		<p>{{ .T "photos.why" }}</p>
-		<details class="why">
-			<summary>{{ .T "btn.how" }}</summary>
-			<div>{{ template "guide" . }}</div>
-		</details>
+	{{ else if or (eq .Photos.State "not_started") (eq .Photos.State "takeout_guide") }}
 		{{ with .ImmichNote }}<p class="fine">{{ . }}</p>{{ end }}
-		{{ if not .ImmichConnected }}
-		{{/* The import runs as the person, so their own key is the first thing
-		     to ask for. Immich files every asset under the key's owner, and
-		     only the person can mint one: there is no admin endpoint for it. */}}
-		<p class="fine">{{ .T "immich.own" }}</p>
-		<p class="fine">{{ .T "immich.how" }}</p>
-		<form method="post" action="/immich/connect">
-			<label class="field">
-				<span>{{ .T "immich.field" }}</span>
-				<input type="password" name="api_key" autocomplete="off" spellcheck="false" required>
-			</label>
-			<div class="actions">
-				<button class="btn btn--primary" type="submit">{{ .T "btn.saveKey" }}</button>
-			</div>
+		<ol class="steps">
+			{{/* Immich first: the import runs as the person, and their own key is
+			     the one thing neither route can do without. */}}
+			<li class="step" data-state="{{ if .ImmichConnected }}done{{ else }}now{{ end }}">
+				<div class="step__label"><span class="step__n">1</span>{{ .T "photos.s1" }}</div>
+				{{ if not .ImmichConnected }}
+				<div class="step__body">
+					<p class="fine">{{ .T "immich.own" }}</p>
+					<p class="fine">{{ .T "immich.how" }}</p>
+					{{ with .ImmichURL }}
+					<a class="btn btn--quiet" href="{{ . }}/user-settings?openSetting=api-keys" target="_blank" rel="noopener">{{ $.T "immich.open" }}</a>
+					{{ end }}
+					<form method="post" action="/immich/connect">
+						<label class="field">
+							<span>{{ .T "immich.field" }}</span>
+							<input type="password" name="api_key" autocomplete="off" spellcheck="false" required>
+						</label>
+						<div class="actions">
+							<button class="btn btn--primary" type="submit">{{ .T "btn.saveKey" }}</button>
+						</div>
+					</form>
+				</div>
+				{{ end }}
+			</li>
+
+			<li class="step" data-state="{{ if .GoogleConnected }}done{{ else if .ImmichConnected }}now{{ else }}todo{{ end }}">
+				<div class="step__label"><span class="step__n">2</span>{{ .T "photos.s2" }}</div>
+				{{ if and .ImmichConnected (not .GoogleConnected) }}
+				<div class="step__body">
+					<p class="fine">{{ .T "photos.googleWhy" }} {{ .T "hint.readOnly" }}</p>
+					<a class="btn btn--primary" href="/oauth/google/start">{{ .T "btn.google" }}</a>
+				</div>
+				{{ end }}
+			</li>
+
+			<li class="step" data-state="{{ if and .ImmichConnected .CanTakeout }}now{{ else }}todo{{ end }}">
+				<div class="step__label"><span class="step__n">3</span>{{ .T "photos.s3" }}</div>
+				{{ if and .ImmichConnected .CanTakeout }}
+				<div class="step__body">{{ template "guide" . }}</div>
+				{{ end }}
+			</li>
+		</ol>
+		{{ if .CanUpload }}
+		<form method="post" action="/photos/upload/start">
+			<button class="btn btn--quiet" type="submit">{{ .T "btn.upload" }}</button>
 		</form>
-		{{ with .ImmichURL }}
-		<div class="actions">
-			<a class="btn btn--quiet" href="{{ . }}/user-settings?openSetting=api-keys" target="_blank" rel="noopener">{{ $.T "immich.open" }}</a>
-		</div>
-		{{ end }}
-		{{ else }}
-		{{ if not .CanTakeout }}<p class="fine">{{ .T "photos.needGoogle" }}</p>{{ end }}
-		<div class="actions">
-			{{ if .CanTakeout }}
-			<form method="post" action="/photos/takeout/start">
-				<button class="btn btn--primary" type="submit">{{ .T "btn.asked" }}</button>
-			</form>
-			{{ end }}
-			{{ if .CanUpload }}
-			<form method="post" action="/photos/upload/start">
-				<button class="btn btn--quiet" type="submit">{{ .T "btn.upload" }}</button>
-			</form>
-			{{ end }}
-		</div>
 		{{ end }}
 	{{ end }}
 </section>
 {{ end }}
 
-{{/* ------------------------------------------------------ the Takeout steps */}}
+{{/* ------------------------------- what to do at Google, inside step 3 */}}
 {{ define "guide" }}
-<ol class="steps">
-	<li class="step"><div class="step__label"><span class="step__n">1</span>
-		<a href="https://takeout.google.com/" target="_blank" rel="noopener">{{ .T "takeout.s1" }}</a></div></li>
-	<li class="step"><div class="step__label"><span class="step__n">2</span>{{ .T "takeout.s2" }}</div></li>
-	<li class="step">
-		<div class="step__label"><span class="step__n">3</span>{{ .T "takeout.s3" }}</div>
-		<div class="step__body">
-			<div class="split">
-				<div><h4>{{ .T "takeout.where" }}</h4><p><span class="said">{{ .T "takeout.drive" }}</span></p></div>
-				<div><h4>{{ .T "takeout.often" }}</h4><p><span class="said">{{ .T "takeout.once" }}</span></p></div>
-				<div><h4>{{ .T "takeout.type" }}</h4><p><span class="said">{{ .T "takeout.zip" }}</span></p></div>
-				<div><h4>{{ .T "takeout.size" }}</h4><p><span class="said">{{ .T "takeout.gb" }}</span></p></div>
-			</div>
+<ol class="substeps">
+	<li><a href="https://takeout.google.com/" target="_blank" rel="noopener">{{ .T "takeout.s1" }}</a></li>
+	<li>{{ .T "takeout.s2" }}</li>
+	<li>
+		{{ .T "takeout.s3" }}
+		<div class="split">
+			<div><h4>{{ .T "takeout.where" }}</h4><p><span class="said">{{ .T "takeout.drive" }}</span></p></div>
+			<div><h4>{{ .T "takeout.often" }}</h4><p><span class="said">{{ .T "takeout.once" }}</span></p></div>
+			<div><h4>{{ .T "takeout.type" }}</h4><p><span class="said">{{ .T "takeout.zip" }}</span></p></div>
+			<div><h4>{{ .T "takeout.size" }}</h4><p><span class="said">{{ .T "takeout.gb" }}</span></p></div>
 		</div>
 	</li>
-	<li class="step"><div class="step__label"><span class="step__n">4</span>{{ .T "takeout.s4" }}</div></li>
-	<li class="step"><div class="step__label"><span class="step__n">5</span>{{ .T "takeout.s5" .TakeoutFolder }}</div></li>
+	<li>{{ .T "takeout.s4" }}</li>
 </ol>
+<div class="actions">
+	<form method="post" action="/photos/takeout/start">
+		<button class="btn btn--primary" type="submit">{{ .T "btn.asked" }}</button>
+	</form>
+</div>
 {{ end }}
 
 {{/* ------------------------------------------------------------ file sender */}}

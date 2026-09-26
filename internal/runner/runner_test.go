@@ -219,6 +219,25 @@ func (f *fakeStore) SetQuotaEstimate(_ context.Context, _ string, driveSource, u
 	return nil
 }
 
+func (f *fakeStore) ListInterrupted(_ context.Context) ([]store.InterruptedMigration, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var m store.InterruptedMigration
+	m.User = f.migration.User
+	switch f.migration.DriveState {
+	case core.DriveCopying, core.DriveVerifying:
+		m.Drive = true
+	}
+	switch f.migration.PhotosState {
+	case core.PhotosDownloading, core.PhotosImporting:
+		m.Photos = true
+	}
+	if !m.Drive && !m.Photos {
+		return nil, nil
+	}
+	return []store.InterruptedMigration{m}, nil
+}
+
 func (f *fakeStore) ListFinished(_ context.Context) ([]store.FinishedMigration, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -1134,5 +1153,52 @@ func TestStartPhotosUploadRequiresThePersonalKey(t *testing.T) {
 	seedImmich(t, store, sealerOf(t, r))
 	if err := r.StartPhotosUpload(context.Background(), "marco"); err != nil {
 		t.Errorf("StartPhotosUpload with a key: %v", err)
+	}
+}
+
+func TestRecoverInterruptedFreesAStuckCopy(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+
+	// A copy left mid-flight by a restart.
+	if _, err := store.SetDriveState(context.Background(), "marco", core.DriveCopying, "copying"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetPhotosState(context.Background(), "marco", core.PhotosImporting, "importing"); err != nil {
+		t.Fatal(err)
+	}
+
+	r.RecoverInterrupted(context.Background())
+
+	m := store.state()
+	if m.DriveState != core.DriveSelecting {
+		t.Errorf("drive state = %q, want selecting so the person can start again", m.DriveState)
+	}
+	if m.PhotosState != core.PhotosNotStarted {
+		t.Errorf("photos state = %q, want not_started so the person can start again", m.PhotosState)
+	}
+	// The message must say what happened, and must not read as a failure.
+	if !strings.Contains(m.DriveProgress, "interrupted") {
+		t.Errorf("drive progress = %q, want it to say it was interrupted", m.DriveProgress)
+	}
+	if m.DriveState.Terminal() || m.PhotosState.Terminal() {
+		t.Error("a recovered track must not be terminal: a terminal state starts the staging retention clock")
+	}
+}
+
+func TestRecoverInterruptedLeavesRestingRowsAlone(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+	if _, err := store.SetDriveState(context.Background(), "marco", core.DriveSelecting, "ready"); err != nil {
+		t.Fatal(err)
+	}
+
+	r.RecoverInterrupted(context.Background())
+
+	if got := store.state().DriveState; got != core.DriveSelecting {
+		t.Errorf("drive state = %q, want it untouched", got)
+	}
+	if got := store.state().DriveProgress; got != "ready" {
+		t.Errorf("progress = %q, want it untouched", got)
 	}
 }
