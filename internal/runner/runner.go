@@ -32,7 +32,9 @@ import (
 	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
 	"github.com/marcodellemarche/zlatan/internal/nextcloud"
+	"github.com/marcodellemarche/zlatan/internal/notify"
 	"github.com/marcodellemarche/zlatan/internal/oauth"
+	"github.com/marcodellemarche/zlatan/internal/store"
 )
 
 // DriveDestination is the folder inside Nextcloud that the Drive half writes
@@ -57,6 +59,10 @@ type Store interface {
 	PutToken(ctx context.Context, t core.Token) error
 	DeleteToken(ctx context.Context, user, provider string) error
 	ListAwaitingTakeout(ctx context.Context) ([]core.TakeoutWait, error)
+	PutVerification(ctx context.Context, v core.Verify) error
+	ListFinished(ctx context.Context) ([]store.FinishedMigration, error)
+	StampFinished(ctx context.Context, user string) error
+	SetQuotaEstimate(ctx context.Context, user string, driveSource, used, total int64) error
 }
 
 // Sealer opens the stored tokens. The runner never sees a token in the clear
@@ -73,6 +79,8 @@ type NextcloudFlow interface {
 	BeginFlow(ctx context.Context) (nextcloud.Flow, error)
 	Poll(ctx context.Context, token string) (nextcloud.Credentials, bool, error)
 	DAVURL(loginName string) string
+	// Quota reads the person's current usage, used for the pre-copy warning.
+	Quota(ctx context.Context, loginName string) (nextcloud.Usage, error)
 }
 
 // Executor runs a command and streams its output. It is an interface so the
@@ -89,6 +97,7 @@ type Runner struct {
 	log     *slog.Logger
 	exec    Executor
 	nc      NextcloudFlow
+	notify  notify.Notifier
 	limiter chan struct{}
 }
 
@@ -106,6 +115,7 @@ func New(cfg *config.Config, store Store, sealer Sealer, log *slog.Logger) *Runn
 		sealer:  sealer,
 		log:     log,
 		exec:    &OSExecutor{Log: log},
+		notify:  notify.Noop{},
 		limiter: make(chan struct{}, limit),
 	}
 	if cfg.Nextcloud.URL != "" {
@@ -129,6 +139,32 @@ func (r *Runner) WithExecutor(e Executor) *Runner {
 func (r *Runner) WithNextcloud(nc NextcloudFlow) *Runner {
 	r.nc = nc
 	return r
+}
+
+// WithNotifier replaces the notifier. Used by tests and by the composition
+// root to install the real ntfy client when one is configured.
+func (r *Runner) WithNotifier(n notify.Notifier) *Runner {
+	r.notify = n
+	return r
+}
+
+// notifyBestEffort sends a message and never fails the caller: a notification
+// that does not go out must not undo work that succeeded. The error is logged
+// and dropped.
+func (r *Runner) notifyBestEffort(ctx context.Context, m notify.Message) {
+	if r.notify == nil {
+		return
+	}
+	// Detached from the caller's context: the migration may be finishing or
+	// failing, and the message should still go out if that context is being
+	// cancelled.
+	go func() {
+		nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		if err := r.notify.Notify(nctx, m); err != nil {
+			r.log.Warn("notification was not delivered", "title", m.Title, "error", err)
+		}
+	}()
 }
 
 // StartNextcloud begins the Nextcloud Login Flow and returns the URL the
@@ -296,6 +332,12 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		return
 	}
 
+	// Learn how big the source is and how full Nextcloud already is, and record
+	// both. This is a warning, never a gate: the copy runs either way. It runs
+	// before the copy so the number reflects the source, not the copy in
+	// progress.
+	r.recordQuota(ctx, user, tokens, creds, env)
+
 	// rclone's stats are cumulative totals, not deltas, so the counters are
 	// advanced by the difference from the previous line. Summing the totals
 	// would multiply the real figure by the number of stat lines.
@@ -335,15 +377,35 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		return
 	}
 
-	// The copy writes into Nextcloud directly, so there is no separate import
-	// step and rclone's clean exit is the whole of the evidence there is. Move
-	// to done: an independent sample check is a later phase, and parking the
-	// track on "verifying" would tell the person a check is running when
-	// nothing is. When that phase lands it will run before this line.
-	if _, err := r.store.SetDriveState(ctx, user, core.DriveDone, "the copy finished without errors"); err != nil {
+	// Verify before declaring victory: the whole tree by size, then a random
+	// sample byte for byte. A copy that exited cleanly can still be missing a
+	// file, and this is the step that says so.
+	if _, err := r.store.SetDriveState(ctx, user, core.DriveVerifying, "checking the copy against your Drive"); err != nil {
+		r.log.Error("runDrive: set verifying", "user", user, "error", err)
+	}
+	v, err := r.VerifyDrive(ctx, user, tokens, creds)
+	if err != nil {
+		r.log.Error("runDrive: verify", "user", user, "error", err)
+		r.failDrive(ctx, user, "the copy finished but could not be checked")
+		return
+	}
+	if err := r.store.PutVerification(ctx, v); err != nil {
+		r.log.Error("runDrive: store verification", "user", user, "error", err)
+	}
+	if !v.OK() {
+		r.failDrive(ctx, user, fmt.Sprintf("the check found %d files that did not match: %s", v.Mismatch, v.Detail))
+		return
+	}
+
+	if _, err := r.store.SetDriveState(ctx, user, core.DriveDone, v.Detail); err != nil {
 		r.log.Error("runDrive: set done", "user", user, "error", err)
 	}
-	r.log.Info("runDrive: copy finished", "user", user, "progress", lastProgress)
+	r.notifyBestEffort(ctx, notify.Message{
+		Title: "zlatan: your files are in Nextcloud",
+		Body:  "The copy finished and was checked. " + v.Detail + ".",
+		Tags:  []string{"white_check_mark"},
+	})
+	r.log.Info("runDrive: copy finished and verified", "user", user, "checked", v.Checked, "progress", lastProgress)
 }
 
 func (r *Runner) failDrive(ctx context.Context, user, message string) {
@@ -353,6 +415,12 @@ func (r *Runner) failDrive(ctx context.Context, user, message string) {
 	if _, err := r.store.SetDriveState(ctx, user, core.DriveFailed, message); err != nil {
 		r.log.Error("failDrive: set state", "user", user, "error", err)
 	}
+	r.notifyBestEffort(ctx, notify.Message{
+		Title:    "zlatan: the file copy stopped",
+		Body:     message + "\n\nNothing was lost. Starting again picks up where it stopped.",
+		Priority: 4,
+		Tags:     []string{"warning"},
+	})
 }
 
 // StartPhotosUpload queues the import of an already-uploaded Takeout. The
@@ -625,17 +693,52 @@ func (r *Runner) runPhotosImport(ctx context.Context, user string) {
 	}
 	args = append(args, archives...)
 
-	if err := r.exec.Run(ctx, "immich-go", args, nil, nil); err != nil {
+	// The end-of-run report is captured, not just streamed: it is where
+	// immich-go says how many assets it processed, discarded and failed on, and
+	// that is the only honest record of what the import did. immich-go verifies
+	// each asset's content hash against the server as it goes, so "processed"
+	// is a real check.
+	var report strings.Builder
+	if err := r.exec.Run(ctx, "immich-go", args, nil, func(line string) {
+		report.WriteString(line)
+		report.WriteByte('\n')
+	}); err != nil {
 		r.failPhotos(ctx, user, "the import into Immich did not finish")
 		r.log.Error("runPhotosImport: immich-go", "user", user, "error", err)
 		return
 	}
 
-	// Same as the Drive half: a clean exit is what we know, so say done. The
-	// independent check is a later phase.
-	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosDone, "the import finished without errors"); err != nil {
+	processed, discarded, errs, pending := parseImmichReport(report.String())
+	if processed > 0 {
+		if err := r.store.SetPhotosAssets(ctx, user, int64(processed)); err != nil {
+			r.log.Error("runPhotosImport: set assets", "user", user, "error", err)
+		}
+	}
+	v := core.Verify{
+		User:     user,
+		Track:    core.TrackPhotos,
+		Checked:  processed + errs + pending,
+		Matched:  processed,
+		Mismatch: errs + pending,
+		Detail: fmt.Sprintf("immich-go processed %d assets, discarded %d as duplicates, %d errors, %d pending",
+			processed, discarded, errs, pending),
+	}
+	if err := r.store.PutVerification(ctx, v); err != nil {
+		r.log.Error("runPhotosImport: store verification", "user", user, "error", err)
+	}
+	if errs > 0 || pending > 0 {
+		r.failPhotos(ctx, user, fmt.Sprintf("the import finished with %d errors and %d assets pending", errs, pending))
+		return
+	}
+
+	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosDone, v.Detail); err != nil {
 		r.log.Error("runPhotosImport: set done", "user", user, "error", err)
 	}
+	r.notifyBestEffort(ctx, notify.Message{
+		Title: "zlatan: your photos are in Immich",
+		Body:  "The import finished. " + v.Detail + ".",
+		Tags:  []string{"white_check_mark"},
+	})
 }
 
 func (r *Runner) failPhotos(ctx context.Context, user, message string) {
@@ -645,11 +748,82 @@ func (r *Runner) failPhotos(ctx context.Context, user, message string) {
 	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosFailed, message); err != nil {
 		r.log.Error("failPhotos: set state", "user", user, "error", err)
 	}
+	r.notifyBestEffort(ctx, notify.Message{
+		Title:    "zlatan: the photo import stopped",
+		Body:     message + "\n\nNothing was lost. Starting again picks up where it stopped.",
+		Priority: 4,
+		Tags:     []string{"warning"},
+	})
 }
 
 func (r *Runner) openTokens(tok core.Token) (oauth.Tokens, error) {
 	return oauth.OpenJSON(r.sealer, tok.Sealed)
 }
+
+// recordQuota reads the source Drive size and the person's current Nextcloud
+// usage and stores both. Every failure is logged and dropped: a warning Zlatan
+// could not compute must never stop a copy the person asked for.
+func (r *Runner) recordQuota(ctx context.Context, user string, tokens oauth.Tokens, creds nextcloud.Credentials, env []string) {
+	// The Nextcloud side is one cheap PROPFIND with the person's own password.
+	var used, total int64 = 0, 0
+	if usage, err := r.nc.Quota(ctx, creds.LoginName); err != nil {
+		r.log.Warn("quota: read Nextcloud usage", "user", user, "error", err)
+	} else {
+		used, total = usage.Used, usage.Total()
+	}
+
+	// The Drive side is a metadata walk; --fast-list keeps it to as few calls
+	// as rclone can manage. A failure here leaves the size at 0, which the
+	// warning treats as "unknown" rather than as "empty".
+	size := r.driveSize(ctx, env)
+
+	if err := r.store.SetQuotaEstimate(ctx, user, size, used, total); err != nil {
+		r.log.Warn("quota: store estimate", "user", user, "error", err)
+	}
+	if msg := (core.Migration{
+		DriveSourceBytes: size,
+		QuotaUsedBytes:   used,
+		QuotaTotalBytes:  total,
+	}).QuotaWarning(r.cfg.Quota.BudgetGiBFor(user)); msg != "" {
+		r.log.Info("quota: the copy will exceed the budget", "user", user, "warning", msg)
+	}
+}
+
+// driveSize runs `rclone size` on the source Drive and parses the total bytes.
+// It returns 0 when the size cannot be determined, which the warning treats as
+// "unknown" rather than as "empty".
+func (r *Runner) driveSize(ctx context.Context, env []string) int64 {
+	var out strings.Builder
+	// A short timeout of its own: a metadata walk should take seconds, and a
+	// hung scan must not hold up the copy behind it.
+	sctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	if err := r.exec.Run(sctx, "rclone", []string{"size", "gdrive:", "--json", "--fast-list"}, env, func(line string) {
+		out.WriteString(line)
+		out.WriteByte('\n')
+	}); err != nil {
+		r.log.Warn("quota: rclone size", "error", err)
+		return 0
+	}
+	return parseRcloneSize(out.String())
+}
+
+// rcloneSize is the shape `rclone size --json` prints, e.g.
+// {"count":42,"bytes":123456}. Parsed by hand rather than with encoding/json
+// so a field rclone adds later cannot break it.
+func parseRcloneSize(s string) int64 {
+	m := rcloneSizeBytes.FindStringSubmatch(s)
+	if m == nil {
+		return 0
+	}
+	n, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
+var rcloneSizeBytes = regexp.MustCompile(`"bytes"\s*:\s*(\d+)`)
 
 // rcloneEnv builds the environment rclone needs, passing every secret through
 // the environment rather than a config file so nothing is written to disk.

@@ -32,6 +32,17 @@ type page struct {
 
 	LastError string
 
+	// QuotaWarning is a sentence shown when the Drive copy would push the
+	// person past their budget. Empty when there is nothing to warn about or
+	// the numbers are not known yet. It never blocks the copy.
+	QuotaWarning string
+
+	// DriveVerification and PhotosVerification are the last recorded checks, so
+	// the closing page states what was compared rather than a bare "done".
+	// Nil means no check was recorded.
+	DriveVerification  *core.Verify
+	PhotosVerification *core.Verify
+
 	// CanTakeoutRoute is whether the "Add to Drive" route is available on this
 	// instance at all (the Google client and Immich are configured).
 	// CanTakeout is the narrower question of whether it can be offered to this
@@ -87,6 +98,20 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 		CanUpload:      opts.Config.Immich.Configured(),
 		CanStartDrive:  opts.Google != nil && opts.Sealer != nil && opts.TokenStore != nil && opts.Config.Nextcloud.Configured(),
 		CanStartPhotos: opts.Config.Immich.Configured() && opts.Runner != nil,
+	}
+
+	// The budget is advisory. It is computed here rather than stored so it
+	// always reflects the current policy, and shown only once the pre-copy scan
+	// has produced numbers.
+	p.QuotaWarning = m.QuotaWarning(opts.Config.Quota.BudgetGiBFor(user))
+
+	// The closing page states what was actually compared. A missing row is not
+	// an error: the page falls back to the plain sentence.
+	if v, err := opts.State.LatestVerification(r.Context(), user, core.TrackDrive); err == nil {
+		p.DriveVerification = &v
+	}
+	if v, err := opts.State.LatestVerification(r.Context(), user, core.TrackPhotos); err == nil {
+		p.PhotosVerification = &v
 	}
 
 	// The "Add to Drive" route needs the Google client to watch the Drive and

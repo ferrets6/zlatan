@@ -153,3 +153,59 @@ func TestSealOpenRoundTrip(t *testing.T) {
 		t.Errorf("round trip = %+v, want %+v", got, want)
 	}
 }
+
+func TestParseQuotaReadsTheDAVProperties(t *testing.T) {
+	body := `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
+  <d:response>
+    <d:href>/remote.php/dav/files/user/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:quota-used-bytes>3</d:quota-used-bytes>
+        <d:quota-available-bytes>38513916670</d:quota-available-bytes>
+      </d:prop>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`
+
+	u, err := parseQuota(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("parseQuota: %v", err)
+	}
+	if u.Used != 3 {
+		t.Errorf("Used = %d, want 3", u.Used)
+	}
+	if u.Available != 38513916670 {
+		t.Errorf("Available = %d, want 38513916670", u.Available)
+	}
+	if got := u.Total(); got != 38513916673 {
+		t.Errorf("Total = %d, want 38513916673", got)
+	}
+}
+
+func TestParseQuotaUnlimitedIsNegative(t *testing.T) {
+	// Nextcloud reports an unlimited quota as -3 (the internal "unlimited"
+	// sentinel). It is a real value, not an error.
+	body := `<d:multistatus xmlns:d="DAV:"><d:response><d:propstat><d:prop>
+		<d:quota-used-bytes>10</d:quota-used-bytes>
+		<d:quota-available-bytes>-3</d:quota-available-bytes>
+	</d:prop></d:propstat></d:response></d:multistatus>`
+
+	u, err := parseQuota(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("parseQuota: %v", err)
+	}
+	if u.Total() != -1 {
+		t.Errorf("Total = %d, want -1 for unlimited", u.Total())
+	}
+}
+
+func TestParseQuotaWithoutTheProperty(t *testing.T) {
+	body := `<d:multistatus xmlns:d="DAV:"><d:response><d:propstat><d:prop>
+		<d:getetag>"abc"</d:getetag>
+	</d:prop></d:propstat></d:response></d:multistatus>`
+
+	if _, err := parseQuota(strings.NewReader(body)); err != ErrNoQuota {
+		t.Errorf("parseQuota error = %v, want ErrNoQuota", err)
+	}
+}

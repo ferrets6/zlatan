@@ -260,3 +260,71 @@ func TestSchemaCheckRefusesNewerDatabase(t *testing.T) {
 		t.Fatalf("want ErrSchemaNewer, got %v", err)
 	}
 }
+
+func TestFinishedAtIsStampedWhenBothTracksEnd(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	if _, err := db.EnsureMigration(ctx, "marco", "marco@example.com"); err != nil {
+		t.Fatalf("EnsureMigration: %v", err)
+	}
+
+	// One track terminal is not enough: the staging must survive while the
+	// other is still running.
+	if _, err := db.SetDriveState(ctx, "marco", core.DriveDone, "done"); err != nil {
+		t.Fatalf("SetDriveState: %v", err)
+	}
+	finished, err := db.ListFinished(ctx)
+	if err != nil {
+		t.Fatalf("ListFinished: %v", err)
+	}
+	if len(finished) != 0 {
+		t.Fatalf("one terminal track should not count as finished, got %v", finished)
+	}
+
+	// The second terminal track stamps it.
+	if _, err := db.SetPhotosState(ctx, "marco", core.PhotosDone, "done"); err != nil {
+		t.Fatalf("SetPhotosState: %v", err)
+	}
+	finished, err = db.ListFinished(ctx)
+	if err != nil {
+		t.Fatalf("ListFinished: %v", err)
+	}
+	if len(finished) != 1 {
+		t.Fatalf("both terminal tracks should count as finished, got %v", finished)
+	}
+	if finished[0].FinishedAt.IsZero() {
+		t.Error("finished_at was not stamped")
+	}
+
+	// A later write must not move the stamp: the retention window is measured
+	// from when the work ended, not from the last touch.
+	stamp := finished[0].FinishedAt
+	if _, err := db.SetDriveState(ctx, "marco", core.DriveDone, "still done"); err != nil {
+		t.Fatalf("SetDriveState: %v", err)
+	}
+	again, _ := db.ListFinished(ctx)
+	if !again[0].FinishedAt.Equal(stamp) {
+		t.Error("a later state write reset finished_at")
+	}
+}
+
+func TestSetQuotaEstimate(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	if _, err := db.EnsureMigration(ctx, "marco", "marco@example.com"); err != nil {
+		t.Fatalf("EnsureMigration: %v", err)
+	}
+
+	if err := db.SetQuotaEstimate(ctx, "marco", 60, 50, 100); err != nil {
+		t.Fatalf("SetQuotaEstimate: %v", err)
+	}
+	m, err := db.GetMigration(ctx, "marco")
+	if err != nil {
+		t.Fatalf("GetMigration: %v", err)
+	}
+	if m.DriveSourceBytes != 60 || m.QuotaUsedBytes != 50 || m.QuotaTotalBytes != 100 {
+		t.Errorf("quota estimate = %d/%d/%d, want 60/50/100",
+			m.DriveSourceBytes, m.QuotaUsedBytes, m.QuotaTotalBytes)
+	}
+}

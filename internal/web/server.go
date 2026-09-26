@@ -30,6 +30,11 @@ type State interface {
 	GetMigration(ctx context.Context, user string) (core.Migration, error)
 	SetDriveState(ctx context.Context, user string, state core.DriveState, progress string) (core.Migration, error)
 	SetPhotosState(ctx context.Context, user string, state core.PhotosState, progress string) (core.Migration, error)
+
+	// LatestVerification is read for the closing page, so it can state what was
+	// actually compared rather than "done". A missing row is not an error; the
+	// caller treats it as "no check recorded".
+	LatestVerification(ctx context.Context, user string, track core.Track) (core.Verify, error)
 }
 
 // TokenStore persists the sealed OAuth tokens.

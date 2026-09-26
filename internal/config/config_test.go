@@ -163,3 +163,71 @@ func TestResolveRealEnvironmentWinsOverFile(t *testing.T) {
 func writeFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o600)
 }
+
+func TestQuotaBudgetAndOverrides(t *testing.T) {
+	base := map[string]string{
+		"ZLATAN_TRUSTED_PROXY": "172.18.0.0/16",
+		"ZLATAN_TOKEN_KEY":     "a-key",
+	}
+
+	t.Run("default budget", func(t *testing.T) {
+		cfg, err := Load(base)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if got := cfg.Quota.BudgetGiBFor("anyone"); got != DefaultBudgetGiB {
+			t.Errorf("budget = %d, want %d", got, DefaultBudgetGiB)
+		}
+	})
+
+	t.Run("override wins for one person only", func(t *testing.T) {
+		env := map[string]string{}
+		for k, v := range base {
+			env[k] = v
+		}
+		env["ZLATAN_QUOTA_BUDGET_GIB"] = "100"
+		env["ZLATAN_QUOTA_OVERRIDES"] = "marco=200, federico=200"
+		cfg, err := Load(env)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if got := cfg.Quota.BudgetGiBFor("marco"); got != 200 {
+			t.Errorf("marco budget = %d, want 200", got)
+		}
+		if got := cfg.Quota.BudgetGiBFor("federico"); got != 200 {
+			t.Errorf("federico budget = %d, want 200", got)
+		}
+		if got := cfg.Quota.BudgetGiBFor("someone-else"); got != 100 {
+			t.Errorf("default budget = %d, want 100", got)
+		}
+	})
+
+	t.Run("a malformed override is skipped, not fatal", func(t *testing.T) {
+		env := map[string]string{}
+		for k, v := range base {
+			env[k] = v
+		}
+		env["ZLATAN_QUOTA_OVERRIDES"] = "marco=200,nonsense,,x=zero"
+		cfg, err := Load(env)
+		if err != nil {
+			t.Fatalf("Load should not fail on a malformed override: %v", err)
+		}
+		if got := cfg.Quota.BudgetGiBFor("marco"); got != 200 {
+			t.Errorf("marco budget = %d, want 200", got)
+		}
+		if got := cfg.Quota.BudgetGiBFor("x"); got != DefaultBudgetGiB {
+			t.Errorf("x budget = %d, want the default", got)
+		}
+	})
+
+	t.Run("a non-positive budget is a problem", func(t *testing.T) {
+		env := map[string]string{}
+		for k, v := range base {
+			env[k] = v
+		}
+		env["ZLATAN_QUOTA_BUDGET_GIB"] = "0"
+		if _, err := Load(env); err == nil {
+			t.Error("Load should reject a zero budget")
+		}
+	})
+}

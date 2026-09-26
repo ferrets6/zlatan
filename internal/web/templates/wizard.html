@@ -183,6 +183,13 @@
 		</section>
 	</main>
 
+	{{ if .QuotaWarning }}
+	<aside class="notice" role="status">
+		<h3>This copy is larger than your budget</h3>
+		<p>{{ .QuotaWarning }}</p>
+	</aside>
+	{{ end }}
+
 {{ else if eq .Screen "tracks" }}
 	<div class="prose">
 		<h1>Your moves are under way</h1>
@@ -508,7 +515,11 @@
 			</dl>
 
 			<div class="note">
+				{{ if .DriveVerification }}
+				<p>{{ .DriveVerification.Detail }}. The folders keep the structure they had on Google.</p>
+				{{ else }}
 				<p>The copy finished without errors. The folders keep the structure they had on Google.</p>
+				{{ end }}
 			</div>
 		</section>
 
@@ -526,7 +537,11 @@
 			</dl>
 
 			<div class="note">
+				{{ if .PhotosVerification }}
+				<p>{{ .PhotosVerification.Detail }}. The dates from your Takeout are kept.</p>
+				{{ else }}
 				<p>The import finished without errors, keeping the dates taken from your Takeout.</p>
+				{{ end }}
 			</div>
 		</section>
 	</main>

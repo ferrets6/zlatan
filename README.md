@@ -4,14 +4,17 @@
 
 # zlatan
 
-> Status: **v0.2.0** (2026-09-25). The service runs, the schema is applied, the
+> Status: **v0.5.0** (2026-09-26). The service runs, the schema is applied, the
 > wizard renders and gates access; the Google OAuth flow, the Nextcloud Login
 > Flow (per-person app password), the runner that drives `rclone` straight into
 > Nextcloud over WebDAV, the runner that drives `immich-go`, the resumable
 > Takeout upload and the watcher that collects a Takeout from the person's own
-> Drive all work. The image is published at
-> `ghcr.io/marcodellemarche/zlatan`. Not yet: verification, quotas and staging
-> purge. See "What is missing".
+> Drive all work. A finished copy is now **verified** (whole tree by size, a
+> sample byte for byte), **notified** over ntfy, and its staging is **purged**
+> on a retention clock; before the copy Zlatan reads the source size and the
+> person's Nextcloud usage and **warns** if the copy would exceed their budget.
+> The image is published at `ghcr.io/marcodellemarche/zlatan`.
+> See "What is missing".
 
 zlatan is a self-guided migration service for self-hosted stacks. A person who
 is not technical — a family member, a friend — opens it in a browser, signs in
@@ -131,7 +134,18 @@ make image    # build the image
       person's own Drive (with the token it already holds), waits until every
       part is complete, downloads it and imports it. No folder to share and no
       central account.
-- [ ] Verification (count and sample) and staging purge.
-- [ ] Quotas: read current usage and warn when the migration would exceed it.
+- [x] Verification: the whole tree by size, plus a random sample compared byte
+      for byte (Drive exposes MD5, Nextcloud SHA1, so no shared hash exists and
+      the sample is downloaded). Photos are checked through `immich-go`'s own
+      report, which hashes each asset against the server.
+- [x] Staging purge: a finished migration's staging is removed after the
+      configured retention, swept from the database so a directory nobody owns
+      is never touched.
+- [x] Notifications over ntfy on completion and on failure.
+- [ ] Quotas: the warning is implemented (source size + current Nextcloud usage
+      against the budget).
+- [ ] A per-person Immich API key. The import currently uses one configured
+      key, so every person's photos would land in that key's account; this is
+      the next thing to fix. See the homelab design, `docs/zlatan-service.md`.
 
 The full design lives in the homelab repository, `docs/zlatan-service.md`.

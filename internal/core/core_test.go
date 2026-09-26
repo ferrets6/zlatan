@@ -167,3 +167,49 @@ func TestSummaries(t *testing.T) {
 		t.Errorf("photos summary wrong: %+v", s[1])
 	}
 }
+
+func TestQuotaWarning(t *testing.T) {
+	gib := int64(1024 * 1024 * 1024)
+	cases := []struct {
+		name    string
+		m       Migration
+		budget  int
+		wantAny bool
+	}{
+		{
+			name:   "well under budget",
+			m:      Migration{DriveSourceBytes: 10 * gib, QuotaUsedBytes: 5 * gib},
+			budget: 100,
+		},
+		{
+			name:    "over budget",
+			m:       Migration{DriveSourceBytes: 60 * gib, QuotaUsedBytes: 50 * gib},
+			budget:  100,
+			wantAny: true,
+		},
+		{
+			name:   "exactly at budget is not a warning",
+			m:      Migration{DriveSourceBytes: 50 * gib, QuotaUsedBytes: 50 * gib},
+			budget: 100,
+		},
+		{
+			name:   "unknown source size never warns",
+			m:      Migration{DriveSourceBytes: 0, QuotaUsedBytes: 200 * gib},
+			budget: 100,
+		},
+		{
+			name:    "admin budget of 200 leaves more room",
+			m:       Migration{DriveSourceBytes: 190 * gib, QuotaUsedBytes: 20 * gib},
+			budget:  200,
+			wantAny: true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := c.m.QuotaWarning(c.budget)
+			if (got != "") != c.wantAny {
+				t.Errorf("QuotaWarning(%d) = %q, want a warning: %v", c.budget, got, c.wantAny)
+			}
+		})
+	}
+}

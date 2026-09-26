@@ -36,7 +36,8 @@ func (db *DB) GetMigration(ctx context.Context, user string) (core.Migration, er
 		SELECT user, email, drive_state, photos_state,
 		       drive_progress, photos_progress,
 		       drive_bytes_copied, drive_files_copied, photos_assets_added,
-		       last_error, created_at, updated_at
+		       last_error, created_at, updated_at,
+		       drive_source_bytes, quota_used_bytes, quota_total_bytes
 		FROM migrations WHERE user = ?`
 
 	var m core.Migration
@@ -46,6 +47,7 @@ func (db *DB) GetMigration(ctx context.Context, user string) (core.Migration, er
 		&m.DriveProgress, &m.PhotosProgress,
 		&m.DriveBytesCopied, &m.DriveFilesCopied, &m.PhotosAssetsAdded,
 		&m.LastError, &createdAt, &updatedAt,
+		&m.DriveSourceBytes, &m.QuotaUsedBytes, &m.QuotaTotalBytes,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.Migration{}, ErrNoMigration
@@ -87,11 +89,21 @@ func (db *DB) EnsureMigration(ctx context.Context, user, email string) (core.Mig
 // returns the updated row so the caller never has to re-read to render.
 func (db *DB) SetDriveState(ctx context.Context, user string, state core.DriveState, progress string) (core.Migration, error) {
 	if err := db.Tx(ctx, func(tx *sql.Tx) error {
+		// finished_at is stamped here, in the same statement, when the *other*
+		// track is already terminal and this move makes it so. CASE keeps the
+		// first stamp: a later write must not reset the retention window.
 		_, err := tx.ExecContext(ctx, `
 			UPDATE migrations
-			SET drive_state = ?, drive_progress = ?, updated_at = ?
+			SET drive_state = ?, drive_progress = ?, updated_at = ?,
+			    finished_at = CASE
+			        WHEN finished_at = '' AND photos_state IN (?, ?, ?)
+			             AND ? IN (?, ?, ?)
+			        THEN ? ELSE finished_at END
 			WHERE user = ?`,
-			string(state), progress, now(), user)
+			string(state), progress, now(),
+			string(core.PhotosDone), string(core.PhotosFailed), string(core.PhotosCancelled),
+			string(state), string(core.DriveDone), string(core.DriveFailed), string(core.DriveCancelled),
+			now(), user)
 		return err
 	}); err != nil {
 		return core.Migration{}, fmt.Errorf("set drive state for %s: %w", user, err)
@@ -110,16 +122,39 @@ func (db *DB) SetPhotosState(ctx context.Context, user string, state core.Photos
 		waitSince = now()
 	}
 	if err := db.Tx(ctx, func(tx *sql.Tx) error {
+		// finished_at is stamped when this move makes both tracks terminal and
+		// it was not already stamped. See SetDriveState.
 		_, err := tx.ExecContext(ctx, `
 			UPDATE migrations
-			SET photos_state = ?, photos_progress = ?, updated_at = ?, photos_wait_since = ?
+			SET photos_state = ?, photos_progress = ?, updated_at = ?, photos_wait_since = ?,
+			    finished_at = CASE
+			        WHEN finished_at = '' AND drive_state IN (?, ?, ?)
+			             AND ? IN (?, ?, ?)
+			        THEN ? ELSE finished_at END
 			WHERE user = ?`,
-			string(state), progress, now(), waitSince, user)
+			string(state), progress, now(), waitSince,
+			string(core.DriveDone), string(core.DriveFailed), string(core.DriveCancelled),
+			string(state), string(core.PhotosDone), string(core.PhotosFailed), string(core.PhotosCancelled),
+			now(), user)
 		return err
 	}); err != nil {
 		return core.Migration{}, fmt.Errorf("set photos state for %s: %w", user, err)
 	}
 	return db.GetMigration(ctx, user)
+}
+
+// SetQuotaEstimate records what the pre-copy scan learned: the source Drive
+// size and the person's current Nextcloud usage. It is written before the copy
+// starts and read back by the wizard to warn without blocking.
+func (db *DB) SetQuotaEstimate(ctx context.Context, user string, driveSource, used, total int64) error {
+	return db.Tx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			UPDATE migrations
+			SET drive_source_bytes = ?, quota_used_bytes = ?, quota_total_bytes = ?, updated_at = ?
+			WHERE user = ?`,
+			driveSource, used, total, now(), user)
+		return err
+	})
 }
 
 // ListAwaitingTakeout returns the users whose Photos half is waiting for a
@@ -146,6 +181,57 @@ func (db *DB) ListAwaitingTakeout(ctx context.Context) ([]core.TakeoutWait, erro
 		waits = append(waits, w)
 	}
 	return waits, rows.Err()
+}
+
+// FinishedMigration is one person whose both tracks have ended, and when.
+// FinishedAt is zero for a row that ended before the column existed; the
+// sweeper treats that as "stamp it now", so an upgrade does not purge
+// immediately nor hold the files forever.
+type FinishedMigration struct {
+	User       string
+	FinishedAt time.Time
+}
+
+// ListFinished returns the users whose both tracks have reached a terminal
+// state (done, failed or cancelled). The staging sweeper works from this: a
+// person still mid-migration must keep their files, whatever a timer says.
+func (db *DB) ListFinished(ctx context.Context) ([]FinishedMigration, error) {
+	const q = `
+		SELECT user, finished_at FROM migrations
+		WHERE drive_state IN (?, ?, ?)
+		  AND photos_state IN (?, ?, ?)`
+	rows, err := db.R.QueryContext(ctx, q,
+		string(core.DriveDone), string(core.DriveFailed), string(core.DriveCancelled),
+		string(core.PhotosDone), string(core.PhotosFailed), string(core.PhotosCancelled))
+	if err != nil {
+		return nil, fmt.Errorf("list finished migrations: %w", err)
+	}
+	defer rows.Close()
+
+	var out []FinishedMigration
+	for rows.Next() {
+		var m FinishedMigration
+		var stamp string
+		if err := rows.Scan(&m.User, &stamp); err != nil {
+			return nil, fmt.Errorf("scan finished migration: %w", err)
+		}
+		m.FinishedAt = parseTime(stamp)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// StampFinished records that a migration has ended, if it has not been stamped
+// already. COALESCE keeps the first stamp: the retention window is measured
+// from when the work ended, and a later state write must not reset it.
+func (db *DB) StampFinished(ctx context.Context, user string) error {
+	return db.Tx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			UPDATE migrations
+			SET finished_at = CASE WHEN finished_at = '' THEN ? ELSE finished_at END
+			WHERE user = ?`, now(), user)
+		return err
+	})
 }
 
 // SetError records why a track stopped, without moving its state: the caller

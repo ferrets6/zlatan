@@ -39,7 +39,43 @@ const (
 	// gives up and tells the person to use the upload route instead. Google's
 	// own email says the archive link is valid for about 7 days.
 	DefaultTakeoutMaxWait = 7 * 24 * time.Hour
+
+	// DefaultBudgetGiB is a person's personal budget across Nextcloud and
+	// Immich, matching docs/quotas.md. The homelab's real figures are per-user
+	// (100 GiB for a user, 200 for an admin), and Zlatan has no way to know
+	// which is which, so the wizard starts from the default and the admin can
+	// raise it per person through ZLATAN_QUOTA_OVERRIDES. It is only ever a
+	// warning: the migration is not blocked.
+	DefaultBudgetGiB = 100
 )
+
+// Quota is the warning shown before a migration. It is advisory: Zlatan reads
+// the person's current usage and, once the Drive size is known, says whether
+// the copy would push them past their budget. It never refuses.
+type Quota struct {
+	// BudgetGiB is the default personal budget, applied to everyone not named
+	// in Overrides.
+	BudgetGiB int
+
+	// Overrides is a per-person budget in GiB, keyed by the forward-auth
+	// identity (e.g. the homelab's two admins at 200).
+	Overrides map[string]int
+}
+
+// BudgetGiBFor returns the budget for one person, falling back to the default.
+func (q Quota) BudgetGiBFor(user string) int {
+	if n, ok := q.Overrides[user]; ok && n > 0 {
+		return n
+	}
+	if q.BudgetGiB > 0 {
+		return q.BudgetGiB
+	}
+	return DefaultBudgetGiB
+}
+
+// Configured reports whether a budget is set at all. It always is, because of
+// the default, but the method keeps the call sites honest if that changes.
+func (q Quota) Configured() bool { return q.BudgetGiBFor("") > 0 }
 
 // Config is the whole of Zlatan's configuration. Every secret is a
 // core.Secret, so printing the struct cannot leak one.
@@ -71,6 +107,7 @@ type Config struct {
 	Nextcloud Nextcloud
 	Immich    Immich
 	Ntfy      Ntfy
+	Quota     Quota
 
 	// StagingRetention is how long a completed migration's staging is kept.
 	StagingRetention time.Duration
@@ -221,6 +258,10 @@ func Load(env map[string]string) (*Config, error) {
 			Topic: get("ZLATAN_NTFY_TOPIC"),
 			Token: core.Secret(get("ZLATAN_NTFY_TOKEN")),
 		},
+		Quota: Quota{
+			BudgetGiB: DefaultBudgetGiB,
+			Overrides: parseBudgetOverrides(get("ZLATAN_QUOTA_OVERRIDES")),
+		},
 		StagingRetention: DefaultRetentionDays * 24 * time.Hour,
 		MaxConcurrent:    1,
 		TakeoutPoll:      DefaultTakeoutPoll,
@@ -256,6 +297,15 @@ func Load(env map[string]string) (*Config, error) {
 			problems = append(problems, "ZLATAN_TAKEOUT_MAX_WAIT must be a duration of at least 1h")
 		} else {
 			cfg.TakeoutMaxWait = d
+		}
+	}
+
+	if v := get("ZLATAN_QUOTA_BUDGET_GIB"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			problems = append(problems, "ZLATAN_QUOTA_BUDGET_GIB must be a positive integer")
+		} else {
+			cfg.Quota.BudgetGiB = n
 		}
 	}
 
@@ -307,6 +357,29 @@ func (c *Config) Warnings() []string {
 		w = append(w, "ZLATAN_NTFY_URL or ZLATAN_NTFY_TOPIC is not set, so nobody is told when a migration finishes or stops")
 	}
 	return w
+}
+
+// parseBudgetOverrides reads "user=200,other=300" into a map. A malformed
+// entry is skipped rather than refused: the quota is only a warning, and a
+// typo in it must not stop the service from starting.
+func parseBudgetOverrides(s string) map[string]int {
+	out := map[string]int{}
+	for _, pair := range strings.Split(s, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		user, value, ok := strings.Cut(pair, "=")
+		if !ok {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || n < 1 {
+			continue
+		}
+		out[strings.TrimSpace(user)] = n
+	}
+	return out
 }
 
 func or(value, fallback string) string {

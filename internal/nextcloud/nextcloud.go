@@ -15,11 +15,13 @@ package nextcloud
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -77,6 +79,113 @@ func New(base string, timeout time.Duration) (*Client, error) {
 func (c *Client) DAVURL(loginName string) string {
 	return c.base + "/remote.php/dav/files/" + url.PathEscape(loginName)
 }
+
+// Usage is how much space a person is using and how much they have left, as
+// Nextcloud itself reports it. Available is -1 when the quota is unlimited,
+// which is a real value, not an error.
+type Usage struct {
+	Used      int64
+	Available int64
+}
+
+// Total is the person's ceiling in bytes, or -1 when unlimited.
+func (u Usage) Total() int64 {
+	if u.Available < 0 {
+		return -1
+	}
+	return u.Used + u.Available
+}
+
+// Quota reads the person's current usage over WebDAV, with the app password
+// they granted through the Login Flow. The values come from the DAV quota
+// properties on their home directory: quota-used-bytes is what they occupy and
+// quota-available-bytes is what is left. Nextcloud computes both, so Zlatan
+// does not have to walk the tree, and it is the person's own credential, so
+// the read needs no admin account.
+//
+// A missing property means the server did not report a quota; that is not an
+// error, it is "unknown", and the caller decides what to show.
+func (c *Client) Quota(ctx context.Context, loginName string) (Usage, error) {
+	body := `<?xml version="1.0"?>
+<d:propfind xmlns:d="DAV:">
+  <d:prop>
+    <d:quota-used-bytes/>
+    <d:quota-available-bytes/>
+  </d:prop>
+</d:propfind>`
+
+	req, err := http.NewRequestWithContext(ctx, "PROPFIND", c.DAVURL(loginName), strings.NewReader(body))
+	if err != nil {
+		return Usage{}, err
+	}
+	req.Header.Set("Depth", "0")
+	req.Header.Set("Content-Type", "application/xml; charset=utf-8")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return Usage{}, fmt.Errorf("reading the Nextcloud quota: %w", err)
+	}
+	defer drain(resp.Body)
+
+	// 207 is the WebDAV success for a PROPFIND. Anything else is a real
+	// failure, including 401 for an app password that has been revoked.
+	if resp.StatusCode != 207 {
+		return Usage{}, fmt.Errorf("reading the Nextcloud quota: unexpected status %d", resp.StatusCode)
+	}
+
+	return parseQuota(resp.Body)
+}
+
+// parseQuota pulls the two quota properties out of a WebDAV multistatus. It is
+// namespace-tolerant: the properties may be in the DAV: or the Nextcloud
+// namespace depending on the server, so it matches on the local name.
+func parseQuota(r io.Reader) (Usage, error) {
+	dec := xml.NewDecoder(r)
+	var u Usage
+	var seen bool
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return Usage{}, fmt.Errorf("parsing the quota response: %w", err)
+		}
+		start, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		var target *int64
+		switch start.Name.Local {
+		case "quota-used-bytes":
+			target = &u.Used
+		case "quota-available-bytes":
+			target = &u.Available
+		default:
+			continue
+		}
+		var raw string
+		if err := dec.DecodeElement(&raw, &start); err != nil {
+			return Usage{}, fmt.Errorf("parsing the quota response: %w", err)
+		}
+		n, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+		if err != nil {
+			// A property the server sent but did not fill in: ignore it rather
+			// than fail the whole read.
+			continue
+		}
+		*target = n
+		seen = true
+	}
+	if !seen {
+		return Usage{}, ErrNoQuota
+	}
+	return u, nil
+}
+
+// ErrNoQuota means the server answered without a quota property. The person's
+// plan may be unlimited, or the property may simply be absent.
+var ErrNoQuota = errors.New("the server did not report a quota")
 
 // BeginFlow starts a Login Flow. It returns the URL to send the person to and
 // the token to poll with.

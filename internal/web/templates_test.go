@@ -66,16 +66,15 @@ func TestPillClassCoversEveryState(t *testing.T) {
 	}
 }
 
-// The wizard must not promise work that does not happen. Independent
-// verification and email notifications are later phases; until they exist the
-// pages may state what the code does and nothing more. This is the
-// repository's "no unimplemented promises" rule.
+// The wizard must not promise work that does not happen. This is the
+// repository's "no unimplemented promises" rule: a screen may state what the
+// code does and nothing more.
 func TestScreensDoNotPromiseUnimplementedWork(t *testing.T) {
 	screens := []struct {
 		screen string
 		p      page
 	}{
-		{"done", page{
+		{"done-without-checks", page{
 			User: "marco", Screen: "done",
 			Tracks: []core.TrackSummary{
 				{Track: core.TrackDrive, State: "done", Done: true},
@@ -92,12 +91,14 @@ func TestScreensDoNotPromiseUnimplementedWork(t *testing.T) {
 			CanUpload: true,
 		}},
 	}
-	// Each claim names work that does not exist in the code today.
+	// Each claim names work that no code performs. Verification now exists, so
+	// its sentence is no longer banned; email is still not sent, and the runner
+	// still computes no ETA, so those stay.
 	banned := []string{
-		"compared a sample", "byte for byte", "all 500 matched",
 		"we will email you",
 		"we will send you an email",
 		"every ten minutes",
+		"of 32,900 files",
 	}
 	for _, s := range screens {
 		t.Run(s.screen, func(t *testing.T) {
@@ -113,4 +114,40 @@ func TestScreensDoNotPromiseUnimplementedWork(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The done screen states what was actually compared when a verification row
+// exists, and falls back to the plain sentence when it does not. It must never
+// claim a check that did not run.
+func TestDoneScreenStatesTheCheckThatRan(t *testing.T) {
+	base := page{
+		User: "marco", Screen: "done",
+		Tracks: []core.TrackSummary{
+			{Track: core.TrackDrive, State: "done", Done: true},
+			{Track: core.TrackPhotos, State: "done", Done: true},
+		},
+		DriveFiles: 1200, DriveBytes: 4400000000, PhotosAssets: 5000,
+	}
+
+	t.Run("no check recorded", func(t *testing.T) {
+		var b strings.Builder
+		if err := wizardTemplate.ExecuteTemplate(&b, "wizard.html", base); err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		if !strings.Contains(b.String(), "finished without errors") {
+			t.Error("with no recorded check the page should fall back to the plain sentence")
+		}
+	})
+
+	t.Run("a recorded check is shown", func(t *testing.T) {
+		p := base
+		p.DriveVerification = &core.Verify{Detail: "checked 1200 files by size, 10 byte for byte"}
+		var b strings.Builder
+		if err := wizardTemplate.ExecuteTemplate(&b, "wizard.html", p); err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		if !strings.Contains(b.String(), "checked 1200 files by size") {
+			t.Error("a recorded check should be shown on the done screen")
+		}
+	})
 }

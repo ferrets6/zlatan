@@ -21,11 +21,23 @@ import (
 
 // fakeState is an in-memory State, so the HTTP layer is tested without SQLite.
 type fakeState struct {
-	migrations map[string]core.Migration
+	migrations    map[string]core.Migration
+	verifications map[string]core.Verify
 }
 
 func newFakeState() *fakeState {
-	return &fakeState{migrations: map[string]core.Migration{}}
+	return &fakeState{
+		migrations:    map[string]core.Migration{},
+		verifications: map[string]core.Verify{},
+	}
+}
+
+func (f *fakeState) LatestVerification(_ context.Context, user string, track core.Track) (core.Verify, error) {
+	v, ok := f.verifications[user+"/"+string(track)]
+	if !ok {
+		return core.Verify{}, store.ErrNoVerification
+	}
+	return v, nil
 }
 
 func (f *fakeState) EnsureMigration(_ context.Context, user, email string) (core.Migration, error) {

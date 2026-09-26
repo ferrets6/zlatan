@@ -20,6 +20,7 @@ import (
 
 	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/notify"
 	"github.com/marcodellemarche/zlatan/internal/oauth"
 	"github.com/marcodellemarche/zlatan/internal/runner"
 	"github.com/marcodellemarche/zlatan/internal/store"
@@ -172,6 +173,17 @@ func serve(ctx context.Context, a *app) int {
 	engine := runner.New(a.cfg, a.db, a.sealer, a.log)
 	uploads := upload.New(a.cfg.StagingDir, 0, 0)
 
+	// Notifications are optional: without an ntfy the service runs and simply
+	// does not tell anybody, which config.Warnings() says out loud at startup.
+	if a.cfg.Ntfy.Configured() {
+		client, err := notify.New(a.cfg.Ntfy.URL, a.cfg.Ntfy.Topic, a.cfg.Ntfy.Token, 0)
+		if err != nil {
+			a.log.Error("build the ntfy client", "error", err)
+			return exitConfig
+		}
+		engine = engine.WithNotifier(client)
+	}
+
 	// The Takeout watcher runs for the life of the process. It is one loop for
 	// everyone: the state lives in the database, so a restart resumes the wait.
 	// It only starts when the Google client exists, because without it there is
@@ -179,6 +191,11 @@ func serve(ctx context.Context, a *app) int {
 	if a.cfg.Google.Configured() {
 		go engine.WatchTakeout(ctx)
 	}
+
+	// The staging sweeper runs for the life of the process too. Staging is a
+	// disposable copy, but it is still the person's data on our disk, so it is
+	// removed on a clock rather than left behind forever.
+	go engine.WatchStaging(ctx)
 
 	// The OAuth provider is optional: with no client configured the wizard
 	// simply does not offer the Drive route.

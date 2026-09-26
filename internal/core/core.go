@@ -118,6 +118,37 @@ type Migration struct {
 	LastError string
 	UpdatedAt time.Time
 	CreatedAt time.Time
+
+	// QuotaEstimate is what Zlatan learned before the copy started: how big the
+	// person's Drive is and how full their Nextcloud already was. It is shown
+	// as a warning, never used to block. DriveSourceBytes is 0 until the size
+	// scan has run, and QuotaTotalBytes is -1 for an unlimited Nextcloud
+	// quota.
+	DriveSourceBytes int64
+	QuotaUsedBytes   int64
+	QuotaTotalBytes  int64
+}
+
+// QuotaWarning returns a sentence to show the person when the Drive copy would
+// push their combined Nextcloud usage past the budget, or "" when it would
+// not. budgetGiB is the personal budget from docs/quotas.md.
+//
+// It compares the projected Nextcloud usage (what is there now plus what is
+// about to be copied) against the budget. It cannot see Immich's usage from
+// here, so it says "Nextcloud" rather than claiming to cover the whole budget.
+func (m Migration) QuotaWarning(budgetGiB int) string {
+	if m.DriveSourceBytes <= 0 || budgetGiB <= 0 {
+		return ""
+	}
+	budget := int64(budgetGiB) * 1024 * 1024 * 1024
+	projected := m.QuotaUsedBytes + m.DriveSourceBytes
+	if projected <= budget {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Your Drive holds %s and Nextcloud already uses %s. Copying it would reach %s, past the %s budget. Nothing is blocked: the copy still runs.",
+		FormatBytes(m.DriveSourceBytes), FormatBytes(m.QuotaUsedBytes),
+		FormatBytes(projected), FormatBytes(budget))
 }
 
 // State returns the state for a track.

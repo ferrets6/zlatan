@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -18,7 +19,9 @@ import (
 	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
 	"github.com/marcodellemarche/zlatan/internal/nextcloud"
+	"github.com/marcodellemarche/zlatan/internal/notify"
 	"github.com/marcodellemarche/zlatan/internal/oauth"
+	"github.com/marcodellemarche/zlatan/internal/store"
 )
 
 // fakeExecutor records the commands it was asked to run.
@@ -27,6 +30,21 @@ type fakeExecutor struct {
 	commands []command
 	lines    []string
 	err      error
+
+	// byCommand scripts a specific subcommand (the first argument) with its own
+	// lines and error, so a test can make "copy" succeed while "check" reports
+	// differences, which is the whole point of the verification tests.
+	byCommand map[string]scripted
+	// byDownload scripts the sample check specifically. It is told apart from
+	// the whole-tree check by the --download flag, so a test can make the size
+	// pass find a problem the byte pass does not see.
+	byDownload  scripted
+	hasDownload bool
+}
+
+type scripted struct {
+	lines []string
+	err   error
 }
 
 type command struct {
@@ -40,6 +58,16 @@ func (f *fakeExecutor) Run(_ context.Context, name string, args []string, env []
 	f.commands = append(f.commands, command{name: name, args: args, env: env})
 	lines := append([]string(nil), f.lines...)
 	err := f.err
+	if len(args) > 0 && f.byCommand != nil {
+		if s, ok := f.byCommand[args[0]]; ok {
+			lines = append([]string(nil), s.lines...)
+			err = s.err
+		}
+	}
+	if f.hasDownload && containsArg(args, "--download") {
+		lines = append([]string(nil), f.byDownload.lines...)
+		err = f.byDownload.err
+	}
 	f.mu.Unlock()
 
 	for _, line := range lines {
@@ -59,15 +87,49 @@ func (f *fakeExecutor) last() (command, bool) {
 	return f.commands[len(f.commands)-1], true
 }
 
+// first returns the first recorded command whose args start with prefix. A run
+// makes several calls (copy, then check), so a test that cares about one of
+// them must say which rather than take whichever was last.
+func containsArg(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *fakeExecutor) first(prefix ...string) (command, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.commands {
+		if len(c.args) >= len(prefix) {
+			match := true
+			for i, p := range prefix {
+				if c.args[i] != p {
+					match = false
+					break
+				}
+			}
+			if match {
+				return c, true
+			}
+		}
+	}
+	return command{}, false
+}
+
 // fakeStore is an in-memory Store.
 type fakeStore struct {
-	mu         sync.Mutex
-	migration  core.Migration
-	tokens     map[string]core.Token
-	driveBytes int64
-	driveFiles int64
-	photos     int64
-	waitSince  time.Time
+	mu           sync.Mutex
+	migration    core.Migration
+	tokens       map[string]core.Token
+	driveBytes   int64
+	driveFiles   int64
+	photos       int64
+	waitSince    time.Time
+	verification core.Verify
+	finishedAt   time.Time
 }
 
 func newFakeStore() *fakeStore {
@@ -139,6 +201,35 @@ func (f *fakeStore) DeleteToken(_ context.Context, _, provider string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delete(f.tokens, provider)
+	return nil
+}
+
+func (f *fakeStore) PutVerification(_ context.Context, v core.Verify) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.verification = v
+	return nil
+}
+
+func (f *fakeStore) SetQuotaEstimate(_ context.Context, _ string, driveSource, used, total int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.migration.DriveSourceBytes, f.migration.QuotaUsedBytes, f.migration.QuotaTotalBytes = driveSource, used, total
+	return nil
+}
+
+func (f *fakeStore) ListFinished(_ context.Context) ([]store.FinishedMigration, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return []store.FinishedMigration{{User: f.migration.User, FinishedAt: f.finishedAt}}, nil
+}
+
+func (f *fakeStore) StampFinished(_ context.Context, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.finishedAt.IsZero() {
+		f.finishedAt = time.Now()
+	}
 	return nil
 }
 
@@ -225,6 +316,8 @@ type fakeNextcloud struct {
 	pollErr     error
 	loginName   string
 	beginCalled bool
+	usage       nextcloud.Usage
+	quotaErr    error
 }
 
 func (f *fakeNextcloud) BeginFlow(context.Context) (nextcloud.Flow, error) {
@@ -242,6 +335,13 @@ func (f *fakeNextcloud) Poll(context.Context, string) (nextcloud.Credentials, bo
 func (f *fakeNextcloud) DAVURL(loginName string) string {
 	f.loginName = loginName
 	return "http://nextcloud/remote.php/dav/files/" + loginName
+}
+
+func (f *fakeNextcloud) Quota(context.Context, string) (nextcloud.Usage, error) {
+	if f.quotaErr != nil {
+		return nextcloud.Usage{}, f.quotaErr
+	}
+	return f.usage, nil
 }
 
 // sealerOf reaches into the runner for the sealer it was built with, so a
@@ -365,9 +465,9 @@ func TestRunDriveUsesRcloneAndPassesTokenViaEnv(t *testing.T) {
 
 	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
 
-	cmd, ok := exec.last()
+	cmd, ok := exec.first("copy")
 	if !ok {
-		t.Fatal("no command was run")
+		t.Fatal("no copy command was run")
 	}
 	if cmd.name != "rclone" {
 		t.Fatalf("command = %q, want rclone", cmd.name)
@@ -456,7 +556,12 @@ func TestRunDriveFailureMarksTheTrackFailed(t *testing.T) {
 // phase and will run before this transition when it exists.
 func TestRunDriveEndsOnDone(t *testing.T) {
 	store := newFakeStore()
-	r := newRunner(t, store, &fakeExecutor{})
+	// A clean check: one file matched. The copy is the default (no lines).
+	exec := &fakeExecutor{byCommand: map[string]scripted{
+		"check": {lines: []string{"= file.txt"}},
+		"lsf":   {lines: []string{"file.txt"}},
+	}}
+	r := newRunner(t, store, exec)
 	seedToken(t, store, sealerOf(t, r))
 	seedNextcloud(t, store, sealerOf(t, r))
 
@@ -464,6 +569,82 @@ func TestRunDriveEndsOnDone(t *testing.T) {
 
 	if got := store.state().DriveState; got != core.DriveDone {
 		t.Fatalf("drive state = %q, want done", got)
+	}
+	if store.verification.Mismatch != 0 {
+		t.Errorf("verification should have found no mismatch, got %+v", store.verification)
+	}
+}
+
+// A check that finds a file missing on the destination must fail the track,
+// not mark it done: the whole point of verifying is to catch this.
+func TestRunDriveFailsWhenVerificationFindsMismatches(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{byCommand: map[string]scripted{
+		"check": {lines: []string{"= ok.txt", "+ missing.txt"}},
+		"lsf":   {lines: []string{"ok.txt", "missing.txt"}},
+	}}
+	r := newRunner(t, store, exec)
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+
+	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
+
+	if got := store.state().DriveState; got != core.DriveFailed {
+		t.Fatalf("drive state = %q, want failed", got)
+	}
+	if store.verification.Mismatch < 1 {
+		t.Errorf("verification should have found a mismatch, got %+v", store.verification)
+	}
+	if !strings.Contains(store.state().LastError, "did not match") {
+		t.Errorf("the error should say the check failed, got %q", store.state().LastError)
+	}
+}
+
+// The sample check must not re-check a file the size pass already found bad:
+// it would only report the same mismatch twice. It samples from the files
+// whose size matched, which is where a byte comparison adds information.
+func TestVerifySampleExcludesKnownBadFiles(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{
+		byCommand: map[string]scripted{
+			// The size pass: one matched, one missing.
+			"check": {lines: []string{"= ok.txt", "+ missing.txt"}},
+		},
+		// The byte pass finds nothing wrong with the file it sampled.
+		hasDownload: true,
+		byDownload:  scripted{lines: []string{"= ok.txt"}},
+	}
+	r := newRunner(t, store, exec)
+
+	v, err := r.VerifyDrive(context.Background(), "marco",
+		oauth.Tokens{AccessToken: "a"}, nextcloud.Credentials{LoginName: "uid", AppPassword: "pw"})
+	if err != nil {
+		t.Fatalf("VerifyDrive: %v", err)
+	}
+	if v.Mismatch != 1 {
+		t.Fatalf("expected exactly one mismatch, got %+v", v)
+	}
+
+	// Find the sample's --files-from list and assert it does not contain the
+	// file the size pass already flagged.
+	exec.mu.Lock()
+	defer exec.mu.Unlock()
+	for _, c := range exec.commands {
+		for i, a := range c.args {
+			if a != "--files-from" || i+1 >= len(c.args) {
+				continue
+			}
+			raw, readErr := os.ReadFile(c.args[i+1])
+			if readErr != nil {
+				continue
+			}
+			if strings.Contains(string(raw), "missing.txt") {
+				t.Errorf("the sample re-checked a known-bad file:\n%s", raw)
+			}
+			if !strings.Contains(string(raw), "ok.txt") {
+				t.Errorf("the sample should draw from the files that matched, got:\n%s", raw)
+			}
+		}
 	}
 }
 
@@ -605,9 +786,9 @@ func TestRunDriveExcludesTheTakeoutFolder(t *testing.T) {
 
 	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
 
-	cmd, ok := exec.last()
+	cmd, ok := exec.first("copy")
 	if !ok {
-		t.Fatal("no command was run")
+		t.Fatal("no copy command was run")
 	}
 	joined := strings.Join(cmd.args, " ")
 	if !strings.Contains(joined, "--exclude") || !strings.Contains(joined, "/Takeout/**") {
@@ -640,5 +821,175 @@ func TestParseRcloneStats(t *testing.T) {
 			t.Errorf("parseRcloneStats(%q) = %d/%d, want %d/%d",
 				c.line, bytes, files, c.wantBytes, c.wantFiles)
 		}
+	}
+}
+
+func TestParseRcloneSize(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int64
+	}{
+		{`{"count":42,"bytes":123456}`, 123456},
+		{"{\n  \"count\": 3,\n  \"bytes\": 999999999999\n}", 999999999999},
+		{`{"count":0,"bytes":0}`, 0},
+		{"rclone: command not found", 0},
+		{"", 0},
+		{`{"bytes":-5}`, 0},
+	}
+	for _, c := range cases {
+		if got := parseRcloneSize(c.in); got != c.want {
+			t.Errorf("parseRcloneSize(%q) = %d, want %d", c.in, got, c.want)
+		}
+	}
+}
+
+// recordingNotifier captures what the runner tried to send.
+type recordingNotifier struct {
+	mu       sync.Mutex
+	messages []notify.Message
+}
+
+func (n *recordingNotifier) Notify(_ context.Context, m notify.Message) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.messages = append(n.messages, m)
+	return nil
+}
+
+func (n *recordingNotifier) all() []notify.Message {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return append([]notify.Message(nil), n.messages...)
+}
+
+func TestRunDriveRecordsTheQuotaEstimate(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{
+		// `rclone size --json` is what the quota scan parses.
+		byCommand: map[string]scripted{
+			"size": {lines: []string{`{"count":42,"bytes":` + itoa(60*1024*1024*1024) + `}`}},
+		},
+	}
+	r := newRunner(t, store, exec)
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+	r = r.WithNextcloud(&fakeNextcloud{
+		usage: nextcloud.Usage{Used: 50 * 1024 * 1024 * 1024, Available: 50 * 1024 * 1024 * 1024},
+	})
+
+	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
+
+	m := store.state()
+	if m.DriveSourceBytes != 60*1024*1024*1024 {
+		t.Errorf("DriveSourceBytes = %d, want 60 GiB", m.DriveSourceBytes)
+	}
+	if m.QuotaUsedBytes != 50*1024*1024*1024 {
+		t.Errorf("QuotaUsedBytes = %d, want 50 GiB", m.QuotaUsedBytes)
+	}
+	if m.QuotaTotalBytes != 100*1024*1024*1024 {
+		t.Errorf("QuotaTotalBytes = %d, want 100 GiB", m.QuotaTotalBytes)
+	}
+}
+
+func TestRunDriveNotifiesOnSuccessAndFailure(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		store := newFakeStore()
+		exec := &fakeExecutor{byCommand: map[string]scripted{
+			"size":  {lines: []string{`{"count":1,"bytes":10}`}},
+			"check": {lines: []string{"= a.txt"}},
+		}}
+		r := newRunner(t, store, exec)
+		seedToken(t, store, sealerOf(t, r))
+		seedNextcloud(t, store, sealerOf(t, r))
+		r = r.WithNextcloud(&fakeNextcloud{})
+		n := &recordingNotifier{}
+		r = r.WithNotifier(n)
+
+		r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
+		// The notification is sent from a goroutine; wait briefly for it.
+		waitFor(t, func() bool { return len(n.all()) > 0 })
+		msgs := n.all()
+		if len(msgs) == 0 {
+			t.Fatal("no notification was sent on success")
+		}
+		if !strings.Contains(msgs[0].Title, "Nextcloud") {
+			t.Errorf("success title = %q, want it to mention Nextcloud", msgs[0].Title)
+		}
+	})
+
+	t.Run("failure", func(t *testing.T) {
+		store := newFakeStore()
+		exec := &fakeExecutor{byCommand: map[string]scripted{
+			"copy": {err: errors.New("rclone blew up")},
+		}}
+		r := newRunner(t, store, exec)
+		seedToken(t, store, sealerOf(t, r))
+		seedNextcloud(t, store, sealerOf(t, r))
+		n := &recordingNotifier{}
+		r = r.WithNotifier(n)
+
+		r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
+		waitFor(t, func() bool { return len(n.all()) > 0 })
+		msgs := n.all()
+		if len(msgs) == 0 {
+			t.Fatal("no notification was sent on failure")
+		}
+		if msgs[0].Priority != 4 {
+			t.Errorf("failure priority = %d, want 4", msgs[0].Priority)
+		}
+	})
+}
+
+func TestPurgeStagingRemovesOnlyExpiredFinishedMigrations(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{}
+	r := newRunner(t, store, exec)
+	r.cfg.StagingRetention = time.Hour
+
+	dir := filepath.Join(r.cfg.StagingDir, core.SafeName("marco"))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// Finished two hours ago: past the one-hour retention.
+	store.finishedAt = time.Now().Add(-2 * time.Hour)
+	r.purgeStaging(context.Background())
+
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("staging should have been purged, stat err = %v", err)
+	}
+}
+
+func TestPurgeStagingKeepsAFreshMigration(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{}
+	r := newRunner(t, store, exec)
+	r.cfg.StagingRetention = 24 * time.Hour
+
+	dir := filepath.Join(r.cfg.StagingDir, core.SafeName("marco"))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	store.finishedAt = time.Now() // just finished
+
+	r.purgeStaging(context.Background())
+
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("staging should have been kept, stat err = %v", err)
+	}
+}
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// waitFor polls a condition for a short while. The notification is sent from a
+// goroutine, so a test cannot assume it has landed by the time runDrive returns.
+func waitFor(t *testing.T, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if ok() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
