@@ -24,7 +24,7 @@ import (
 )
 
 // Default limits. The chunk is what the browser sends in one request; the file
-// cap is a sanity bound, not a policy — a Takeout is split by Google into
+// cap is a sanity bound, not a policy: a Takeout is split by Google into
 // 50 GB parts, so a terabyte is far above anything real.
 const (
 	DefaultMaxChunk = 64 << 20 // 64 MiB

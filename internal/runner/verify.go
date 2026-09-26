@@ -49,7 +49,7 @@ func (r *Runner) VerifyDrive(ctx context.Context, user string, tokens oauth.Toke
 	src := "gdrive:"
 	dst := "nc:" + DriveDestination
 
-	// One-way: files in Nextcloud that are not in Drive are not a failure —
+	// One-way: files in Nextcloud that are not in Drive are not a failure:
 	// the person may have put things there themselves.
 	sizeChecked, sizeBad, matched := r.checkTree(ctx, src, dst, env)
 
@@ -144,7 +144,7 @@ func (r *Runner) checkSample(ctx context.Context, src, dst string, env []string,
 
 // parseImmichReport reads immich-go's end-of-run "Asset Tracking Report".
 // immich-go verifies each asset's content hash against the server as it
-// uploads — that is how it recognises a duplicate it already has — so
+// uploads (that is how it recognises a duplicate it already has), so
 // "Processed" is a real check, not a claim. "Errors" and "Pending" are what
 // would make the import incomplete.
 //

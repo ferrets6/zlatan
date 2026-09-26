@@ -96,7 +96,7 @@ type Config struct {
 	// come from. A Remote-User header is believed only when the request
 	// arrives from it, so a container on the same network cannot claim to be
 	// somebody else. Empty means no header is trusted, and every request is
-	// refused — the safe default.
+	// refused: the safe default.
 	TrustedProxy string
 
 	// TokenKey seals OAuth refresh tokens at rest. Losing it makes every

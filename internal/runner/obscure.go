@@ -27,7 +27,7 @@ var rcloneObscureKey = []byte{
 // obscurePassword renders a plaintext password the way `rclone obscure` does:
 // AES-CTR with a random IV prepended, base64url without padding.
 //
-// The alternative — shelling out to `rclone obscure` — would put the password
+// The alternative, shelling out to `rclone obscure`, would put the password
 // on a command line where any process on the machine could read it from the
 // process list. This keeps it in memory.
 func obscurePassword(plaintext string) (string, error) {

@@ -50,7 +50,7 @@ func New(clientID, clientSecret core.Secret, redirectURL string) (*Provider, err
 // AccessTypeOffline asks for a refresh token, so a copy that runs overnight
 // survives the access token expiring. PromptConsent forces the consent screen
 // even on a second attempt, because without it Google omits the refresh token
-// when the person has authorised before — and a migration without a refresh
+// when the person has authorised before, and a migration without a refresh
 // token dies mid-copy.
 func (p *Provider) AuthCodeURL(state string) string {
 	return p.oauth.AuthCodeURL(state,

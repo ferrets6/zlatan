@@ -6,8 +6,8 @@
 //
 // Why not the admin account: an admin over WebDAV can read another person's
 // files but cannot write into their space (MKCOL answers 403), and the direct
-// filesystem route would need the Docker socket — root-equivalent access on
-// the host — plus a coupling to Nextcloud's internal layout. The Login Flow
+// filesystem route would need the Docker socket (root-equivalent access on
+// the host) plus a coupling to Nextcloud's internal layout. The Login Flow
 // gives the user's own credential instead, so the import runs with exactly the
 // rights the person has, and Zlatan holds nothing more.
 package nextcloud

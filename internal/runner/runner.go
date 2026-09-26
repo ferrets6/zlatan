@@ -201,8 +201,8 @@ func (r *Runner) notifyBestEffort(ctx context.Context, m notify.Message) {
 // It runs once, at startup. It does not resume the work itself: a restart may
 // be an update at a moment when the machine should not immediately start
 // several heavy migrations, so the person starts it again. That is safe
-// because the work is idempotent — rclone copy skips what is already there and
-// immich-go discards duplicates by hash — so restarting re-reads the source
+// because the work is idempotent: rclone copy skips what is already there and
+// immich-go discards duplicates by hash, so restarting re-reads the source
 // and copies nothing twice.
 func (r *Runner) RecoverInterrupted(ctx context.Context) {
 	rows, err := r.store.ListInterrupted(ctx)
@@ -419,7 +419,7 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	}
 	// The Takeout folder is not the person's documents. When it lives in their
 	// Drive (the "Add to Drive" route), copying everything would drop tens of
-	// gigabytes of photo archive into Nextcloud as files — the photos belong in
+	// gigabytes of photo archive into Nextcloud as files. The photos belong in
 	// Immich, and the archive is disposable. Exclude it from the Drive copy.
 	takeoutFolder := r.cfg.Google.TakeoutFolder
 	if takeoutFolder == "" {

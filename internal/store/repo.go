@@ -173,7 +173,7 @@ type InterruptedMigration struct {
 // runner and by nothing else, so after a restart they mean one thing: the work
 // that set them is gone, and the row will never move again on its own.
 //
-// The states are the ones a long job sets while it runs — copying, verifying,
+// The states are the ones a long job sets while it runs: copying, verifying,
 // downloading, importing. Consent and selection are excluded on purpose: the
 // person leaves those by acting in a browser, and a restart does not orphan
 // them.
