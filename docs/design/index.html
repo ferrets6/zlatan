@@ -1,45 +1,39 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later
-     Every frame is the real screen file in an iframe at a real device width.
-     Light and dark come from `color-scheme` set on the iframe element. -->
+     Generated screens, real template: `make screens`. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>zlatan — the flow</title>
-<link rel="icon" href="brand/favicon.svg">
-<link rel="stylesheet" href="zlatan.css">
+<link rel="icon" href="../../internal/web/static/favicon.svg">
+<link rel="stylesheet" href="../../internal/web/static/style.css">
 <style>
-	.gal { max-width: 76rem; margin: 0 auto; padding-inline: var(--gutter); padding-block: 2rem 5rem; display: flex; flex-direction: column; gap: 3.5rem; }
+	.gal { max-width: 78rem; margin: 0 auto; padding-inline: var(--gutter); padding-block: 2rem 5rem; display: flex; flex-direction: column; gap: 3rem; }
 	.gal h2 { font-size: 1.5rem; letter-spacing: -.02em; }
 	.gal section { display: flex; flex-direction: column; gap: 1.25rem; }
 	.eyebrow { font-size: .6875rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
-
 	.frames { display: flex; flex-wrap: wrap; gap: 1.25rem; }
 	.frame { margin: 0; display: flex; flex-direction: column; gap: .4rem; }
 	.frame figcaption { font-size: .6875rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-
 	.viewport { border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; background: var(--bg); }
 	.viewport iframe { border: 0; display: block; transform-origin: 0 0; }
-	.viewport--phone { width: 215px; height: 473px; }
+	.viewport--phone { width: 237px; height: 495px; }
 	.viewport--phone iframe { transform: scale(.55); }
-	.viewport--desk { width: 425px; height: 353px; }
+	.viewport--desk { width: 425px; height: 324px; }
 	.viewport--desk iframe { transform: scale(.36); }
 	.t-light iframe { color-scheme: light; }
 	.t-dark iframe { color-scheme: dark; }
-
 	.shot { border-top: 1px solid var(--line); padding-top: 1.5rem; }
 	.shot__head { display: flex; flex-direction: column; gap: .35rem; max-width: 42rem; }
-
 	.specimen { display: flex; flex-wrap: wrap; gap: 2rem; align-items: flex-end; }
 	.size { display: flex; flex-direction: column; align-items: center; gap: .4rem; }
 	.size small { font-size: .625rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 	.chip { border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.25rem; display: grid; place-items: center; }
 	.chip--light { background: #fbfbfa; color: #1c1c1a; }
 	.chip--dark { background: #15161a; color: #e6e6e3; }
-
 	table { border-collapse: collapse; width: 100%; font-size: .9375rem; }
-	th, td { text-align: left; padding: .6rem .75rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
+	th, td { text-align: left; padding: .6rem .75rem; border-bottom: 1px solid var(--line); }
 	thead th { font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
 	.sw { display: inline-block; width: 1rem; height: 1rem; border-radius: 4px; border: 1px solid var(--line-strong); vertical-align: -3px; margin-right: .5rem; }
 	.scroller { overflow-x: auto; }
@@ -49,9 +43,8 @@
 <div class="gal">
 
 	<header class="masthead">
-		<a class="brand" href="index.html" aria-label="zlatan">
-			<svg class="mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-					<defs>
+		<span class="brand">
+			<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><defs>
 						<linearGradient id="zg" x1="6.5" y1="0" x2="17.5" y2="0" gradientUnits="userSpaceOnUse">
 							<stop offset=".25" class="g-b"/><stop offset=".25" class="g-r"/>
 							<stop offset=".50" class="g-r"/><stop offset=".50" class="g-y"/>
@@ -59,408 +52,289 @@
 						</linearGradient>
 					</defs>
 					<path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2" fill="none" stroke="url(#zg)" stroke-width="2" stroke-linecap="round"/>
-					<path d="M17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-			</svg>
+					<path d="M17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
 			<span class="word">zlatan</span>
-		</a>
-		<p class="whoami">Design delivery · 25 September 2026</p>
+		</span>
+		<p class="whoami">Brand and interface</p>
 	</header>
 
 	<section>
-		<p class="eyebrow">The mark</p>
+		<p class="eyebrow">Mark</p>
 		<h2>An arc you leave, a crossing, a bar you land on</h2>
-		<div class="prose">
-			<p class="fine">
-				The top arm is an arc, the orbit you are leaving. The bottom is a flat bar, the ground you land on. Between them, the crossing. Same compass as Nuno: 24 grid, two units of stroke, round caps, no fill.
-			</p>
-			<p class="fine">
-				The arc carries Google’s four colours and the colour stops at the crossing. Under 32&nbsp;px the bands turn to mud, so small sizes use the monochrome file.
-			</p>
-		</div>
-
+		<p class="fine" style="max-width:42rem">Same compass as Nuno: 24 grid, two units of stroke, round caps, no fill. The arc carries Google's four colours and the colour stops at the crossing. Under 32&nbsp;px the bands turn to mud, so small sizes are monochrome.</p>
 		<div class="specimen">
-			<span class="chip chip--light">
-				<svg class="mark" width="96" height="96" viewBox="0 0 24 24" aria-label="zlatan mark, colour">
-					<defs>
-						<linearGradient id="zg" x1="6.5" y1="0" x2="17.5" y2="0" gradientUnits="userSpaceOnUse">
+			<span class="chip chip--light"><svg class="mark" width="96" height="96" viewBox="0 0 24 24" aria-label="zlatan mark"><defs>
+						<linearGradient id="zg2" x1="6.5" y1="0" x2="17.5" y2="0" gradientUnits="userSpaceOnUse">
 							<stop offset=".25" class="g-b"/><stop offset=".25" class="g-r"/>
 							<stop offset=".50" class="g-r"/><stop offset=".50" class="g-y"/>
 							<stop offset=".75" class="g-y"/><stop offset=".75" class="g-g"/>
 						</linearGradient>
 					</defs>
-					<path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2" fill="none" stroke="url(#zg)" stroke-width="2" stroke-linecap="round"/>
-					<path d="M17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-				</svg>
-			</span>
-			<span class="chip chip--dark">
-				<svg class="mark" width="96" height="96" viewBox="0 0 24 24" aria-hidden="true">
-					<path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2" fill="none" stroke="#fbbc05" stroke-width="2" stroke-linecap="round"/>
-					<path d="M17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-				</svg>
-			</span>
+					<path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2" fill="none" stroke="url(#zg2)" stroke-width="2" stroke-linecap="round"/>
+					<path d="M17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+			<span class="chip chip--dark"><svg class="mark" width="96" height="96" viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2" fill="none" stroke="#fbbc05" stroke-width="2" stroke-linecap="round"/>
+				<path d="M17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+			</svg></span>
 				<span class="size"><svg class="mark" width="64" height="64" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><small>64</small></span>
 				<span class="size"><svg class="mark" width="40" height="40" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><small>40</small></span>
 				<span class="size"><svg class="mark" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><small>24</small></span>
 				<span class="size"><svg class="mark" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><small>16</small></span>
-			<span class="size">
-				<img src="brand/app-icon.svg" width="72" height="72" alt="zlatan app icon">
-				<small>tile</small>
-			</span>
+			<span class="size"><img src="../../internal/web/static/app-icon.svg" width="72" height="72" alt="zlatan app icon"><small>tile</small></span>
 		</div>
-		<p class="fine">Files: <code>brand/mark.svg</code>, <code>brand/mark-google.svg</code>, <code>brand/wordmark.svg</code>, <code>brand/app-icon.svg</code>, <code>brand/favicon.svg</code>.</p>
+		<p class="fine">Files in <code>internal/web/static/</code>: <code>mark.svg</code>, <code>mark-google.svg</code>, <code>wordmark.svg</code>, <code>app-icon.svg</code>, <code>favicon.svg</code>.</p>
 	</section>
 
 	<section>
-		<p class="eyebrow">The palette</p>
-		<h2>Nuno’s six values, plus one</h2>
-		<div class="scroller">
-		<table>
-			<thead>
-				<tr><th>Role</th><th>Light</th><th>Dark</th><th>From</th><th>Contrast</th></tr>
-			</thead>
+		<p class="eyebrow">Palette</p>
+		<h2>Nuno's six values, plus one</h2>
+		<div class="scroller"><table>
+			<thead><tr><th>Role</th><th>Light</th><th>Dark</th><th>From</th><th>On the background</th></tr></thead>
 			<tbody>
-				<tr>
-					<th scope="row">Foreground</th>
+				<tr><th scope="row">Foreground</th>
 					<td><span class="sw" style="background:#1c1c1a"></span><code>#1c1c1a</code></td>
 					<td><span class="sw" style="background:#e6e6e3"></span><code>#e6e6e3</code></td>
-					<td>Nuno</td>
-					<td class="fine">16.5 : 1 / 14.5 : 1 on the background</td>
-				</tr>
-				<tr>
-					<th scope="row">Accent</th>
+					<td>Nuno</td><td class="fine">16.5 : 1 / 14.5 : 1</td></tr>
+				<tr><th scope="row">Accent</th>
 					<td><span class="sw" style="background:#3f7d4f"></span><code>#3f7d4f</code></td>
 					<td><span class="sw" style="background:#6fae7d"></span><code>#6fae7d</code></td>
-					<td>Nuno</td>
-					<td class="fine">4.8 : 1 / 6.9 : 1 — also the button ground</td>
-				</tr>
-				<tr>
-					<th scope="row">Background</th>
+					<td>Nuno</td><td class="fine">4.8 : 1 / 6.9 : 1</td></tr>
+				<tr><th scope="row">Background</th>
 					<td><span class="sw" style="background:#fbfbfa"></span><code>#fbfbfa</code></td>
 					<td><span class="sw" style="background:#15161a"></span><code>#15161a</code></td>
-					<td>Nuno</td>
-					<td class="fine">—</td>
-				</tr>
-				<tr>
-					<th scope="row">Attention</th>
+					<td>Nuno</td><td class="fine">—</td></tr>
+				<tr><th scope="row">Attention</th>
 					<td><span class="sw" style="background:#9c5841"></span><code>#9c5841</code></td>
 					<td><span class="sw" style="background:#d1886e"></span><code>#d1886e</code></td>
-					<td>Added</td>
-					<td class="fine">5.2 : 1 / 6.4 : 1</td>
-				</tr>
+					<td>added</td><td class="fine">5.2 : 1 / 6.4 : 1</td></tr>
 			</tbody>
-		</table>
-		</div>
-		<p class="fine" style="max-width:42rem">
-			<b>Attention</b> is the only addition: the accent’s own OKLCH lightness and chroma at hue&nbsp;40, so it carries the same weight as the green. One meaning only: <em>this needs you</em>, or <em>this stopped</em>. Waiting gets no colour. Everything else is the foreground mixed into the background at a stated percentage.
-		</p>
+		</table></div>
+		<p class="fine" style="max-width:42rem"><b>Attention</b> is the accent's own OKLCH lightness and chroma at hue&nbsp;40. It means one thing: this needs you, or this stopped. Waiting gets no colour.</p>
 	</section>
 
 	<section>
-		<p class="eyebrow">The flow</p>
-		<h2>Eight screens</h2>
-		<p class="fine" style="max-width:42rem">Open any of them on their own and resize the window: this is the layout that ships.</p>
-		<section class="shot" id="s1">
+		<p class="eyebrow">Flow</p>
+		<h2>Six screens, two languages</h2>
+		<p class="fine" style="max-width:42rem">Every frame is rendered by the template the service runs, through <code>make screens</code>. Nothing here is drawn by hand, so nothing here can be out of date.</p>
+		<section class="shot">
 			<div class="shot__head">
 				<h3>Entry</h3>
-				<p class="fine">Both tracks at rest. The manual step is named here, before anyone commits.</p>
-				<p><a class="btn btn--quiet" href="screens/01-entry.html" target="_blank" rel="noopener">Open this screen on its own →</a></p>
+				<p class="fine">Both tracks at rest. The destinations come from configuration.</p>
 			</div>
 			<div class="frames">
 				<figure class="frame">
 					<div class="viewport viewport--phone t-light">
-						<iframe src="screens/01-entry.html" width="390" height="860" loading="lazy"
-						        title="Entry — phone, light"></iframe>
+						<iframe src="screens/01-entry.en.html" width="430" height="900" loading="lazy"
+						        title="Entry, phone, en, light"></iframe>
 					</div>
-					<figcaption>Phone · light</figcaption>
+					<figcaption>phone · en · light</figcaption>
 				</figure>
 				<figure class="frame">
 					<div class="viewport viewport--phone t-dark">
-						<iframe src="screens/01-entry.html" width="390" height="860" loading="lazy"
-						        title="Entry — phone, dark"></iframe>
+						<iframe src="screens/01-entry.en.html" width="430" height="900" loading="lazy"
+						        title="Entry, phone, en, dark"></iframe>
 					</div>
-					<figcaption>Phone · dark</figcaption>
+					<figcaption>phone · en · dark</figcaption>
 				</figure>
 				<figure class="frame">
 					<div class="viewport viewport--desk t-light">
-						<iframe src="screens/01-entry.html" width="1180" height="980" loading="lazy"
-						        title="Entry — desktop, light"></iframe>
+						<iframe src="screens/01-entry.en.html" width="1180" height="900" loading="lazy"
+						        title="Entry, desk, en, light"></iframe>
 					</div>
-					<figcaption>Desktop · light</figcaption>
+					<figcaption>desk · en · light</figcaption>
 				</figure>
 				<figure class="frame">
-					<div class="viewport viewport--desk t-dark">
-						<iframe src="screens/01-entry.html" width="1180" height="980" loading="lazy"
-						        title="Entry — desktop, dark"></iframe>
+					<div class="viewport viewport--phone t-light">
+						<iframe src="screens/01-entry.it.html" width="430" height="900" loading="lazy"
+						        title="Entry, phone, it, light"></iframe>
 					</div>
-					<figcaption>Desktop · dark</figcaption>
+					<figcaption>phone · it · light</figcaption>
 				</figure>
 			</div>
 		</section>
-		<section class="shot" id="s2">
+		<section class="shot">
 			<div class="shot__head">
-				<h3>Two tracks, mid-flight</h3>
-				<p class="fine">Out of step with each other: one copying, one waiting.</p>
-				<p><a class="btn btn--quiet" href="screens/02-tracks.html" target="_blank" rel="noopener">Open this screen on its own →</a></p>
+				<h3>Running</h3>
+				<p class="fine">Drive copying, Photos waiting on Google. The two never depend on each other.</p>
 			</div>
 			<div class="frames">
 				<figure class="frame">
 					<div class="viewport viewport--phone t-light">
-						<iframe src="screens/02-tracks.html" width="390" height="860" loading="lazy"
-						        title="Two tracks, mid-flight — phone, light"></iframe>
+						<iframe src="screens/02-tracks.en.html" width="430" height="900" loading="lazy"
+						        title="Running, phone, en, light"></iframe>
 					</div>
-					<figcaption>Phone · light</figcaption>
+					<figcaption>phone · en · light</figcaption>
 				</figure>
 				<figure class="frame">
 					<div class="viewport viewport--phone t-dark">
-						<iframe src="screens/02-tracks.html" width="390" height="860" loading="lazy"
-						        title="Two tracks, mid-flight — phone, dark"></iframe>
+						<iframe src="screens/02-tracks.en.html" width="430" height="900" loading="lazy"
+						        title="Running, phone, en, dark"></iframe>
 					</div>
-					<figcaption>Phone · dark</figcaption>
+					<figcaption>phone · en · dark</figcaption>
 				</figure>
 				<figure class="frame">
 					<div class="viewport viewport--desk t-light">
-						<iframe src="screens/02-tracks.html" width="1180" height="980" loading="lazy"
-						        title="Two tracks, mid-flight — desktop, light"></iframe>
+						<iframe src="screens/02-tracks.en.html" width="1180" height="900" loading="lazy"
+						        title="Running, desk, en, light"></iframe>
 					</div>
-					<figcaption>Desktop · light</figcaption>
+					<figcaption>desk · en · light</figcaption>
 				</figure>
 				<figure class="frame">
-					<div class="viewport viewport--desk t-dark">
-						<iframe src="screens/02-tracks.html" width="1180" height="980" loading="lazy"
-						        title="Two tracks, mid-flight — desktop, dark"></iframe>
+					<div class="viewport viewport--phone t-light">
+						<iframe src="screens/02-tracks.it.html" width="430" height="900" loading="lazy"
+						        title="Running, phone, it, light"></iframe>
 					</div>
-					<figcaption>Desktop · dark</figcaption>
+					<figcaption>phone · it · light</figcaption>
 				</figure>
 			</div>
 		</section>
-		<section class="shot" id="s3">
+		<section class="shot">
 			<div class="shot__head">
-				<h3>The Takeout guide — route A</h3>
-				<p class="fine">One instruction at a time, Google’s own words quoted, the step kept on the server.</p>
-				<p><a class="btn btn--quiet" href="screens/03-takeout.html" target="_blank" rel="noopener">Open this screen on its own →</a></p>
+				<h3>The Takeout guide</h3>
+				<p class="fine">Five steps, Google's own words quoted. The same list sits behind “Show me how” on the entry card.</p>
 			</div>
 			<div class="frames">
 				<figure class="frame">
 					<div class="viewport viewport--phone t-light">
-						<iframe src="screens/03-takeout.html" width="390" height="860" loading="lazy"
-						        title="The Takeout guide — route A — phone, light"></iframe>
+						<iframe src="screens/03-takeout.en.html" width="430" height="900" loading="lazy"
+						        title="The Takeout guide, phone, en, light"></iframe>
 					</div>
-					<figcaption>Phone · light</figcaption>
+					<figcaption>phone · en · light</figcaption>
 				</figure>
 				<figure class="frame">
 					<div class="viewport viewport--phone t-dark">
-						<iframe src="screens/03-takeout.html" width="390" height="860" loading="lazy"
-						        title="The Takeout guide — route A — phone, dark"></iframe>
+						<iframe src="screens/03-takeout.en.html" width="430" height="900" loading="lazy"
+						        title="The Takeout guide, phone, en, dark"></iframe>
 					</div>
-					<figcaption>Phone · dark</figcaption>
+					<figcaption>phone · en · dark</figcaption>
 				</figure>
 				<figure class="frame">
 					<div class="viewport viewport--desk t-light">
-						<iframe src="screens/03-takeout.html" width="1180" height="980" loading="lazy"
-						        title="The Takeout guide — route A — desktop, light"></iframe>
+						<iframe src="screens/03-takeout.en.html" width="1180" height="900" loading="lazy"
+						        title="The Takeout guide, desk, en, light"></iframe>
 					</div>
-					<figcaption>Desktop · light</figcaption>
+					<figcaption>desk · en · light</figcaption>
 				</figure>
 				<figure class="frame">
-					<div class="viewport viewport--desk t-dark">
-						<iframe src="screens/03-takeout.html" width="1180" height="980" loading="lazy"
-						        title="The Takeout guide — route A — desktop, dark"></iframe>
+					<div class="viewport viewport--phone t-light">
+						<iframe src="screens/03-takeout.it.html" width="430" height="900" loading="lazy"
+						        title="The Takeout guide, phone, it, light"></iframe>
 					</div>
-					<figcaption>Desktop · dark</figcaption>
+					<figcaption>phone · it · light</figcaption>
 				</figure>
 			</div>
 		</section>
-		<section class="shot" id="s4">
+		<section class="shot">
 			<div class="shot__head">
-				<h3>The Takeout guide — the handover</h3>
-				<p class="fine">The address gets a control of its own: it is the only text that must be exact.</p>
-				<p><a class="btn btn--quiet" href="screens/03b-share.html" target="_blank" rel="noopener">Open this screen on its own →</a></p>
+				<h3>Sending the file</h3>
+				<p class="fine">For when the export will not fit in Google storage. The one screen that needs the tab open.</p>
 			</div>
 			<div class="frames">
 				<figure class="frame">
 					<div class="viewport viewport--phone t-light">
-						<iframe src="screens/03b-share.html" width="390" height="860" loading="lazy"
-						        title="The Takeout guide — the handover — phone, light"></iframe>
+						<iframe src="screens/04-upload.en.html" width="430" height="900" loading="lazy"
+						        title="Sending the file, phone, en, light"></iframe>
 					</div>
-					<figcaption>Phone · light</figcaption>
+					<figcaption>phone · en · light</figcaption>
 				</figure>
 				<figure class="frame">
 					<div class="viewport viewport--phone t-dark">
-						<iframe src="screens/03b-share.html" width="390" height="860" loading="lazy"
-						        title="The Takeout guide — the handover — phone, dark"></iframe>
+						<iframe src="screens/04-upload.en.html" width="430" height="900" loading="lazy"
+						        title="Sending the file, phone, en, dark"></iframe>
 					</div>
-					<figcaption>Phone · dark</figcaption>
+					<figcaption>phone · en · dark</figcaption>
 				</figure>
 				<figure class="frame">
 					<div class="viewport viewport--desk t-light">
-						<iframe src="screens/03b-share.html" width="1180" height="980" loading="lazy"
-						        title="The Takeout guide — the handover — desktop, light"></iframe>
+						<iframe src="screens/04-upload.en.html" width="1180" height="900" loading="lazy"
+						        title="Sending the file, desk, en, light"></iframe>
 					</div>
-					<figcaption>Desktop · light</figcaption>
+					<figcaption>desk · en · light</figcaption>
 				</figure>
-				<figure class="frame">
-					<div class="viewport viewport--desk t-dark">
-						<iframe src="screens/03b-share.html" width="1180" height="980" loading="lazy"
-						        title="The Takeout guide — the handover — desktop, dark"></iframe>
-					</div>
-					<figcaption>Desktop · dark</figcaption>
-				</figure>
-			</div>
-		</section>
-		<section class="shot" id="s5">
-			<div class="shot__head">
-				<h3>Route B — send the file yourself</h3>
-				<p class="fine">For when the export will not fit in Google storage. The one screen that needs the tab open, and says so.</p>
-				<p><a class="btn btn--quiet" href="screens/04-upload.html" target="_blank" rel="noopener">Open this screen on its own →</a></p>
-			</div>
-			<div class="frames">
 				<figure class="frame">
 					<div class="viewport viewport--phone t-light">
-						<iframe src="screens/04-upload.html" width="390" height="860" loading="lazy"
-						        title="Route B — send the file yourself — phone, light"></iframe>
+						<iframe src="screens/04-upload.it.html" width="430" height="900" loading="lazy"
+						        title="Sending the file, phone, it, light"></iframe>
 					</div>
-					<figcaption>Phone · light</figcaption>
-				</figure>
-				<figure class="frame">
-					<div class="viewport viewport--phone t-dark">
-						<iframe src="screens/04-upload.html" width="390" height="860" loading="lazy"
-						        title="Route B — send the file yourself — phone, dark"></iframe>
-					</div>
-					<figcaption>Phone · dark</figcaption>
-				</figure>
-				<figure class="frame">
-					<div class="viewport viewport--desk t-light">
-						<iframe src="screens/04-upload.html" width="1180" height="980" loading="lazy"
-						        title="Route B — send the file yourself — desktop, light"></iframe>
-					</div>
-					<figcaption>Desktop · light</figcaption>
-				</figure>
-				<figure class="frame">
-					<div class="viewport viewport--desk t-dark">
-						<iframe src="screens/04-upload.html" width="1180" height="980" loading="lazy"
-						        title="Route B — send the file yourself — desktop, dark"></iframe>
-					</div>
-					<figcaption>Desktop · dark</figcaption>
+					<figcaption>phone · it · light</figcaption>
 				</figure>
 			</div>
 		</section>
-		<section class="shot" id="s6">
-			<div class="shot__head">
-				<h3>Waiting</h3>
-				<p class="fine">Hours, sometimes a day, with nothing to measure. Last check, horizon, email.</p>
-				<p><a class="btn btn--quiet" href="screens/05-waiting.html" target="_blank" rel="noopener">Open this screen on its own →</a></p>
-			</div>
-			<div class="frames">
-				<figure class="frame">
-					<div class="viewport viewport--phone t-light">
-						<iframe src="screens/05-waiting.html" width="390" height="860" loading="lazy"
-						        title="Waiting — phone, light"></iframe>
-					</div>
-					<figcaption>Phone · light</figcaption>
-				</figure>
-				<figure class="frame">
-					<div class="viewport viewport--phone t-dark">
-						<iframe src="screens/05-waiting.html" width="390" height="860" loading="lazy"
-						        title="Waiting — phone, dark"></iframe>
-					</div>
-					<figcaption>Phone · dark</figcaption>
-				</figure>
-				<figure class="frame">
-					<div class="viewport viewport--desk t-light">
-						<iframe src="screens/05-waiting.html" width="1180" height="980" loading="lazy"
-						        title="Waiting — desktop, light"></iframe>
-					</div>
-					<figcaption>Desktop · light</figcaption>
-				</figure>
-				<figure class="frame">
-					<div class="viewport viewport--desk t-dark">
-						<iframe src="screens/05-waiting.html" width="1180" height="980" loading="lazy"
-						        title="Waiting — desktop, dark"></iframe>
-					</div>
-					<figcaption>Desktop · dark</figcaption>
-				</figure>
-			</div>
-		</section>
-		<section class="shot" id="s7">
+		<section class="shot">
 			<div class="shot__head">
 				<h3>Done</h3>
-				<p class="fine">What arrived, and one sentence about Google so nobody deletes anything in a hurry.</p>
-				<p><a class="btn btn--quiet" href="screens/06-done.html" target="_blank" rel="noopener">Open this screen on its own →</a></p>
+				<p class="fine">What arrived, and the check that actually ran.</p>
 			</div>
 			<div class="frames">
 				<figure class="frame">
 					<div class="viewport viewport--phone t-light">
-						<iframe src="screens/06-done.html" width="390" height="860" loading="lazy"
-						        title="Done — phone, light"></iframe>
+						<iframe src="screens/05-done.en.html" width="430" height="900" loading="lazy"
+						        title="Done, phone, en, light"></iframe>
 					</div>
-					<figcaption>Phone · light</figcaption>
+					<figcaption>phone · en · light</figcaption>
 				</figure>
 				<figure class="frame">
 					<div class="viewport viewport--phone t-dark">
-						<iframe src="screens/06-done.html" width="390" height="860" loading="lazy"
-						        title="Done — phone, dark"></iframe>
+						<iframe src="screens/05-done.en.html" width="430" height="900" loading="lazy"
+						        title="Done, phone, en, dark"></iframe>
 					</div>
-					<figcaption>Phone · dark</figcaption>
+					<figcaption>phone · en · dark</figcaption>
 				</figure>
 				<figure class="frame">
 					<div class="viewport viewport--desk t-light">
-						<iframe src="screens/06-done.html" width="1180" height="980" loading="lazy"
-						        title="Done — desktop, light"></iframe>
+						<iframe src="screens/05-done.en.html" width="1180" height="900" loading="lazy"
+						        title="Done, desk, en, light"></iframe>
 					</div>
-					<figcaption>Desktop · light</figcaption>
+					<figcaption>desk · en · light</figcaption>
 				</figure>
 				<figure class="frame">
-					<div class="viewport viewport--desk t-dark">
-						<iframe src="screens/06-done.html" width="1180" height="980" loading="lazy"
-						        title="Done — desktop, dark"></iframe>
+					<div class="viewport viewport--phone t-light">
+						<iframe src="screens/05-done.it.html" width="430" height="900" loading="lazy"
+						        title="Done, phone, it, light"></iframe>
 					</div>
-					<figcaption>Desktop · dark</figcaption>
+					<figcaption>phone · it · light</figcaption>
 				</figure>
 			</div>
 		</section>
-		<section class="shot" id="s8">
+		<section class="shot">
 			<div class="shot__head">
 				<h3>Stopped</h3>
-				<p class="fine">What happened, what it means, what to do. Detail folded away for someone else.</p>
-				<p><a class="btn btn--quiet" href="screens/07-error.html" target="_blank" rel="noopener">Open this screen on its own →</a></p>
+				<p class="fine">What it means for the data, then the detail folded away.</p>
 			</div>
 			<div class="frames">
 				<figure class="frame">
 					<div class="viewport viewport--phone t-light">
-						<iframe src="screens/07-error.html" width="390" height="860" loading="lazy"
-						        title="Stopped — phone, light"></iframe>
+						<iframe src="screens/06-error.en.html" width="430" height="900" loading="lazy"
+						        title="Stopped, phone, en, light"></iframe>
 					</div>
-					<figcaption>Phone · light</figcaption>
+					<figcaption>phone · en · light</figcaption>
 				</figure>
 				<figure class="frame">
 					<div class="viewport viewport--phone t-dark">
-						<iframe src="screens/07-error.html" width="390" height="860" loading="lazy"
-						        title="Stopped — phone, dark"></iframe>
+						<iframe src="screens/06-error.en.html" width="430" height="900" loading="lazy"
+						        title="Stopped, phone, en, dark"></iframe>
 					</div>
-					<figcaption>Phone · dark</figcaption>
+					<figcaption>phone · en · dark</figcaption>
 				</figure>
 				<figure class="frame">
 					<div class="viewport viewport--desk t-light">
-						<iframe src="screens/07-error.html" width="1180" height="980" loading="lazy"
-						        title="Stopped — desktop, light"></iframe>
+						<iframe src="screens/06-error.en.html" width="1180" height="900" loading="lazy"
+						        title="Stopped, desk, en, light"></iframe>
 					</div>
-					<figcaption>Desktop · light</figcaption>
+					<figcaption>desk · en · light</figcaption>
 				</figure>
 				<figure class="frame">
-					<div class="viewport viewport--desk t-dark">
-						<iframe src="screens/07-error.html" width="1180" height="980" loading="lazy"
-						        title="Stopped — desktop, dark"></iframe>
+					<div class="viewport viewport--phone t-light">
+						<iframe src="screens/06-error.it.html" width="430" height="900" loading="lazy"
+						        title="Stopped, phone, it, light"></iframe>
 					</div>
-					<figcaption>Desktop · dark</figcaption>
+					<figcaption>phone · it · light</figcaption>
 				</figure>
 			</div>
 		</section>
 	</section>
 
-	<footer class="foot">
-		<p>zlatan — brand and interface</p>
-		<p>Space Grotesk, SIL Open Font License 1.1</p>
-	</footer>
+	<footer class="foot"><p>zlatan</p><p>Space Grotesk, SIL Open Font License 1.1</p></footer>
 </div>
 </body>
 </html>

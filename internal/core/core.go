@@ -129,26 +129,19 @@ type Migration struct {
 	QuotaTotalBytes  int64
 }
 
-// QuotaWarning returns a sentence to show the person when the Drive copy would
-// push their combined Nextcloud usage past the budget, or "" when it would
-// not. budgetGiB is the personal budget from docs/quotas.md.
+// QuotaOverrun reports the projected Nextcloud usage and the budget when the
+// Drive copy would push the person past it. over is false when there is
+// nothing to say, including when the source size is not known yet.
 //
-// It compares the projected Nextcloud usage (what is there now plus what is
-// about to be copied) against the budget. It cannot see Immich's usage from
-// here, so it says "Nextcloud" rather than claiming to cover the whole budget.
-func (m Migration) QuotaWarning(budgetGiB int) string {
+// It returns numbers rather than a sentence because the sentence belongs to
+// whichever language the person is reading.
+func (m Migration) QuotaOverrun(budgetGiB int) (projected, budget int64, over bool) {
 	if m.DriveSourceBytes <= 0 || budgetGiB <= 0 {
-		return ""
+		return 0, 0, false
 	}
-	budget := int64(budgetGiB) * 1024 * 1024 * 1024
-	projected := m.QuotaUsedBytes + m.DriveSourceBytes
-	if projected <= budget {
-		return ""
-	}
-	return fmt.Sprintf(
-		"Your Drive holds %s and Nextcloud already uses %s. Copying it would reach %s, past the %s budget. Nothing is blocked: the copy still runs.",
-		FormatBytes(m.DriveSourceBytes), FormatBytes(m.QuotaUsedBytes),
-		FormatBytes(projected), FormatBytes(budget))
+	budget = int64(budgetGiB) * 1024 * 1024 * 1024
+	projected = m.QuotaUsedBytes + m.DriveSourceBytes
+	return projected, budget, projected > budget
 }
 
 // State returns the state for a track.

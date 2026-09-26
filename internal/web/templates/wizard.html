@@ -1,12 +1,18 @@
-{{- /* SPDX-License-Identifier: AGPL-3.0-or-later */ -}}
-{{- $drive := index .Tracks 0 -}}
-{{- $photos := index .Tracks 1 -}}
+{{- /* SPDX-License-Identifier: AGPL-3.0-or-later
+
+One page, three shapes: the two track cards, the Takeout guide and the file
+sender. Each card covers every state of its track, so a state is handled in one
+place and no two screens can disagree.
+
+No text is written here. Everything the person reads comes from the catalogue
+in internal/i18n, through .T, already in their language.
+*/ -}}
 <!doctype html>
-<html lang="en">
+<html lang="{{ .Lang }}">
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Move your things off Google · zlatan</title>
+	<title>{{ .T "page.title" }} · zlatan</title>
 	<link rel="icon" href="/static/favicon.svg">
 	<link rel="stylesheet" href="/static/style.css">
 </head>
@@ -28,617 +34,53 @@
 			</svg>
 			<span class="word">zlatan</span>
 		</a>
-		<p class="whoami">Signed in as <b>{{ .User }}</b></p>
+		<p class="whoami">
+			<b>{{ .User }}</b>
+			<span class="langs">
+				{{- range .Langs }}
+				{{- if .Current }}<b aria-current="true">{{ .Lang }}</b>
+				{{- else }}<a href="?lang={{ .Lang }}" hreflang="{{ .Lang }}" title="{{ .Name }}">{{ .Lang }}</a>{{ end }}
+				{{- end }}
+			</span>
+		</p>
 	</header>
 
-{{ if eq .Screen "entry" }}
-	<div class="prose">
-		<h1>Move your things off Google</h1>
-		<p class="lede">
-			Two moves, independent of each other. Your files go to Nextcloud, your photos to Immich. Start either one, or both.
-		</p>
-		<p class="fine">Nothing is deleted from Google. Everything here is a copy.</p>
-	</div>
-
-	<main class="tracks">
-		<section class="track" aria-labelledby="drive-h">
-			<div class="track__head">
-				<div class="track__titles">
-					<h2 id="drive-h">Files and folders</h2>
-					<span class="pill {{ pillClass $drive.State }}">{{ pillLabel $drive.State }}</span>
-				</div>
-				<p class="track__route">Google Drive → Nextcloud</p>
-			</div>
-
-			<p>
-				Everything in your Drive, copied into Nextcloud with the folders as they are.
-			</p>
-
-			<div class="split">
-				<div class="yours">
-					<h4>Your part</h4>
-					<p>One approval screen.</p>
-					<p class="cost">About a minute.</p>
-				</div>
-				<div class="ours">
-					<h4>Our part</h4>
-					<ul>
-						<li>Reading your Drive</li>
-						<li>Copying every file</li>
-						<li>Checking the copy matches</li>
-					</ul>
-				</div>
-			</div>
-
-			{{ if .CanStartDrive }}
-				{{ if not .GoogleConnected }}
-				<div class="actions">
-					<a class="btn btn--primary" href="/oauth/google/start">Connect Google</a>
-				</div>
-				<p class="fine">
-					Read-only access. Nothing on Google can change.
-				</p>
-				{{ else if not .NextcloudConnected }}
-				<div class="actions">
-					<form method="post" action="/nextcloud/start">
-						<button class="btn btn--primary" type="submit">Connect Nextcloud</button>
-					</form>
-				</div>
-				<p class="fine">
-					One confirmation in Nextcloud. You are not sharing a password.
-				</p>
-				{{ else }}
-				<div class="actions">
-					<form method="post" action="/drive/start">
-						<button class="btn btn--primary" type="submit">Start copying the files</button>
-					</form>
-				</div>
-				{{ end }}
-			{{ else }}
-				<p class="fine">This route is not available right now. Ask whoever runs the homelab.</p>
-			{{ end }}
-		</section>
-
-		<section class="track" aria-labelledby="photos-h">
-			<div class="track__head">
-				<div class="track__titles">
-					<h2 id="photos-h">Photos and videos</h2>
-					<span class="pill {{ pillClass $photos.State }}">{{ pillLabel $photos.State }}</span>
-				</div>
-				<p class="track__route">Google Photos → Immich</p>
-			</div>
-
-			<p>
-				Every photo and video, with the dates they were taken and the albums you made.
-			</p>
-
-			<div class="split">
-				<div class="yours">
-					<h4>Your part</h4>
-					<p>Asking Google for a copy. We walk you through it.</p>
-					<p class="cost">Five minutes, once.</p>
-				</div>
-				<div class="ours">
-					<h4>Our part</h4>
-					<ul>
-						<li>Watching for it to arrive</li>
-						<li>Downloading and unpacking it</li>
-						<li>Restoring dates and albums</li>
-						<li>Filling Immich</li>
-					</ul>
-				</div>
-			</div>
-
-			<div class="calm">
-				<p><b>One step only you can do.</b></p>
-				<p class="fine">
-					In March 2025 Google stopped letting apps read photo libraries. Any app. So you ask Google for the copy yourself, once.
-				</p>
-				{{ if .CanTakeout }}
-				<p class="fine">
-					The export lands in your own Google Drive, in a folder called
-					<span class="said">{{ .TakeoutFolder }}</span>. Nothing to share:
-					we already have read-only access, and we pick it up from there.
-				</p>
-				{{ end }}
-				<details class="why">
-					<summary>Why not?</summary>
-					<div>
-						<p>
-							Until March 2025 an app could ask permission to read your photos and you granted it on one screen. Google removed that permission.
-						</p>
-						<p>
-							What is left is Google Takeout, where <em>you</em> ask for a copy of your own library. No program can press that button for you.
-						</p>
-						<p>
-							So we do not pretend otherwise. You press it, we do the rest.
-						</p>
-					</div>
-				</details>
-			</div>
-
-			{{ if .CanTakeout }}
-			<div class="actions">
-				<form method="post" action="/photos/takeout/start">
-					<button class="btn btn--primary" type="submit">Show me how</button>
-				</form>
-			</div>
-			{{ else if .CanTakeoutRoute }}
-			<p class="fine">
-				Connect Google first (in the Files section above): we collect the
-				export from your own Drive, so we need read access before you ask for it.
-			</p>
-			{{ else }}
-			<p class="fine">This route is not available right now.</p>
-			{{ end }}
-
-			{{ if and .CanUpload (not .CanTakeout) }}
-			<details class="why">
-				<summary>Send the file myself</summary>
-				<div>
-					{{ template "upload" . }}
-				</div>
-			</details>
-			{{ end }}
-		</section>
-	</main>
-
-	{{ if .QuotaWarning }}
-	<aside class="notice" role="status">
-		<h3>This copy is larger than your budget</h3>
-		<p>{{ .QuotaWarning }}</p>
-	</aside>
-	{{ end }}
-
-{{ else if eq .Screen "tracks" }}
-	<div class="prose">
-		<h1>Your moves are under way</h1>
-		<p class="lede">
-			You can close this tab. The work happens on the home server.
-		</p>
-	</div>
-
-	<main class="tracks">
-		<section class="track" aria-labelledby="drive-h">
-			<div class="track__head">
-				<div class="track__titles">
-					<h2 id="drive-h">Files and folders</h2>
-					<span class="pill {{ pillClass $drive.State }}">{{ pillLabel $drive.State }}</span>
-				</div>
-				<p class="track__route">Google Drive → Nextcloud</p>
-			</div>
-
-			<div class="state" aria-live="polite">
-				<p class="state__line" data-track="drive">{{ stateLine "drive" $drive.State }}</p>
-				{{ if or $drive.Done $drive.Failed }}{{ else }}<div class="scan" aria-hidden="true"></div>{{ end }}
-				{{ if gt .DriveFiles 0 }}
-				<p class="facts num">
-					<span><b>{{ count .DriveFiles }}</b> files copied</span>
-					<span><b>{{ bytes .DriveBytes }}</b></span>
-				</p>
-				{{ end }}
-				{{ if $drive.Progress }}<p class="now-doing" title="{{ $drive.Progress }}">{{ $drive.Progress }}</p>{{ end }}
-			</div>
-
-			<div class="note">
-				<p>
-					If it stops, it starts again where it left off. No file is copied twice.
-				</p>
-			</div>
-		</section>
-
-		<section class="track" aria-labelledby="photos-h">
-			<div class="track__head">
-				<div class="track__titles">
-					<h2 id="photos-h">Photos and videos</h2>
-					<span class="pill {{ pillClass $photos.State }}">{{ pillLabel $photos.State }}</span>
-				</div>
-				<p class="track__route">Google Photos → Immich</p>
-			</div>
-
-			<div class="state" aria-live="polite">
-				<p class="state__line" data-track="photos">{{ stateLine "photos" $photos.State }}</p>
-				{{ if or $photos.Done $photos.Failed }}{{ else }}<div class="scan" aria-hidden="true"></div>{{ end }}
-				{{ if gt .PhotosAssets 0 }}
-				<p class="facts num"><span><b>{{ count .PhotosAssets }}</b> items imported</span></p>
-				{{ end }}
-				{{ if $photos.Progress }}<p class="now-doing" title="{{ $photos.Progress }}">{{ $photos.Progress }}</p>{{ end }}
-			</div>
-
-			<div class="note">
-				<p>
-					Usually a few hours. A large library can take a day and can arrive in several parts. We wait for all of them.
-				</p>
-			</div>
-
-			{{ if .CanUpload }}
-			<div class="stack">
-				<h3>Send the file myself</h3>
-				{{ template "upload" . }}
-			</div>
-			{{ end }}
-		</section>
-	</main>
-
+{{ if eq .Screen "upload" }}
+	{{ template "upload" . }}
 {{ else if eq .Screen "takeout" }}
-	<div class="prose">
-		<a class="back" href="/">← Both tracks</a>
-		<h1>Ask Google for a copy of your photos</h1>
-		<p class="lede">
-			Five short steps, on Google’s own pages. Nothing here is urgent: this
-			page remembers where you got to, so you can stop and come back tomorrow.
-		</p>
-	</div>
-
+	<div class="prose"><h1>{{ .T "takeout.title" }}</h1></div>
 	<main class="panel">
-		<ol class="steps">
-			<li class="step" data-state="done">
-				<div class="step__label">
-					<span class="step__n">1</span>
-					Opened Google Takeout
-				</div>
-			</li>
-
-			<li class="step" data-state="done">
-				<div class="step__label">
-					<span class="step__n">2</span>
-					Chose Google Photos only
-				</div>
-			</li>
-
-			<li class="step" data-state="now" aria-current="step">
-				<div class="step__label">
-					<span class="step__n">3</span>
-					<h2>Tell Google where to put it</h2>
-				</div>
-				<div class="step__body">
-					<p>
-						At the bottom of the Takeout page press <span class="said">Next step</span>, then set these four:
-					</p>
-
-					<div class="split" role="group" aria-label="Settings to choose">
-						<div>
-							<h4>Where it goes</h4>
-							<p><span class="said">Add to Drive</span></p>
-						</div>
-						<div>
-							<h4>How often</h4>
-							<p><span class="said">Export once</span></p>
-						</div>
-						<div>
-							<h4>File type</h4>
-							<p><span class="said">.zip</span></p>
-						</div>
-						<div>
-							<h4>File size</h4>
-							<p><span class="said">50 GB</span></p>
-						</div>
-					</div>
-
-					<p class="fine">
-						<b>Add to Drive</b> is the one that matters: the copy lands in your own Drive and we collect it from there. The large file size means fewer pieces.
-					</p>
-
-					<div class="actions">
-						{{ if .CanTakeout }}
-						<form method="post" action="/photos/takeout/start">
-							<button class="btn btn--primary" type="submit">I’ve set these</button>
-						</form>
-						{{ end }}
-						<a class="btn btn--ghost" href="https://takeout.google.com/" target="_blank" rel="noopener">
-							Open Takeout again
-						</a>
-					</div>
-				</div>
-			</li>
-
-			<li class="step" data-state="todo">
-				<div class="step__label">
-					<span class="step__n">4</span>
-					Ask Google to start
-				</div>
-			</li>
-
-			<li class="step" data-state="todo">
-				<div class="step__label">
-					<span class="step__n">5</span>
-					Wait for it to land in your Drive. We collect it from there.
-				</div>
-			</li>
-		</ol>
-
-		<div class="note">
-			<p>
-				<b>If the page looks different</b>, Google has moved something. Pick the closest option, or send us the file yourself. Both routes end in the same place.
-			</p>
-		</div>
-	</main>
-
-	{{ if .CanUpload }}
-	<section class="calm narrow">
-		<h3>If it will not fit in your Google storage</h3>
-		<p class="fine">
-			<span class="said">Add to Drive</span> needs room for the whole copy. Do not delete anything to make space; come this way instead.
-		</p>
-		<div class="stack">
-			{{ template "upload" . }}
-		</div>
-	</section>
-	{{ end }}
-
-{{ else if eq .Screen "upload" }}
-	<div class="prose">
-		<a class="back" href="/">← Both tracks</a>
-		<h1>Send us the file yourself</h1>
-		<p class="lede">
-			For when the copy will not fit in your Google storage. It goes from this device straight to the home server.
-		</p>
-	</div>
-
-	<main class="panel">
-		<ol class="steps">
-			<li class="step" data-state="done">
-				<div class="step__label"><span class="step__n">1</span> Asked Google for the copy</div>
-				<div class="step__body">
-					<p class="fine">Same as before, but <span class="said">Send download link by email</span> instead of <span class="said">Add to Drive</span>.</p>
-				</div>
-			</li>
-
-			<li class="step" data-state="done">
-				<div class="step__label"><span class="step__n">2</span> Downloaded it from Google’s email</div>
-				<div class="step__body">
-					<p class="fine">Google can split the export into several files. Add them one at a time, in any order.</p>
-				</div>
-			</li>
-
-			<li class="step" data-state="now" aria-current="step">
-				<div class="step__label">
-					<span class="step__n">3</span>
-					<h2>Hand them over</h2>
-				</div>
-				<div class="step__body">
-					<div class="state" id="upload-state" aria-live="polite">
-						<p class="state__line" data-track="photos">{{ stateLine "photos" $photos.State }}</p>
-						<div class="scan" aria-hidden="true"></div>
-					</div>
-
-					<div class="note">
-						<p>
-							<b>Keep this tab open while it sends.</b> This part runs in your browser, so closing the tab pauses it.
-						</p>
-						<p>
-							Nothing is lost if it does. Come back and it continues from the last piece that arrived, days later or on another device.
-						</p>
-					</div>
-
-					{{ if .CanUpload }}
-					{{ template "upload" . }}
-					{{ else }}
-					<p class="fine">This route is not available right now.</p>
-					{{ end }}
-				</div>
-			</li>
-
-			<li class="step" data-state="todo">
-				<div class="step__label"><span class="step__n">4</span> We unpack it and fill Immich</div>
-			</li>
-		</ol>
-	</main>
-
-{{ else if eq .Screen "waiting" }}
-	<div class="prose">
-		<a class="back" href="/">← Both tracks</a>
-		<h1>Your part is done</h1>
-		<p class="lede">
-			Google is making the copy. Nothing else is needed from you, now or when it arrives.
-		</p>
-	</div>
-
-	<main class="panel">
-		<div class="track__titles">
-			<h2>Photos and videos</h2>
-			<span class="pill {{ pillClass $photos.State }}">{{ pillLabel $photos.State }}</span>
-		</div>
-
-		<div class="state" aria-live="polite">
-			<p class="state__line" data-track="photos">{{ stateLine "photos" $photos.State }}</p>
-			<p class="wait"><span class="beat" aria-hidden="true"></span> This runs on the home server. You do not have to keep this page open.</p>
-			{{ if gt .PhotosAssets 0 }}
-			<p class="facts num"><span><b>{{ count .PhotosAssets }}</b> items imported so far</span></p>
+		{{ template "guide" . }}
+		<div class="actions">
+			<form method="post" action="/photos/takeout/start">
+				<button class="btn btn--primary" type="submit">{{ .T "btn.asked" }}</button>
+			</form>
+			{{ if .CanUpload }}
+			<form method="post" action="/photos/upload/start">
+				<button class="btn btn--quiet" type="submit">{{ .T "btn.upload" }}</button>
+			</form>
 			{{ end }}
 		</div>
-
-		{{ if .TakeoutFolder }}
-		<div class="calm">
-			<h3>What we are watching for</h3>
-			<p class="fine">
-				A folder called <span class="said">{{ .TakeoutFolder }}</span> in your own
-				Google Drive, with the export inside it. We already have read-only
-				access, so there is nothing for you to share.
-			</p>
-		</div>
-		{{ end }}
-
-		<div class="note">
-			<p>
-				<b>How long this takes.</b> A few hours for most libraries, up to a day for a very large one. It often arrives in several parts and we wait for all of them, so nothing lands in Immich half-finished.
-			</p>
-		</div>
-
-		<div class="stack">
-			<h3>What happens when it arrives</h3>
-			<ol class="steps steps--auto">
-				<li class="step"><div class="step__label">Copy it from your Drive to the home server</div></li>
-				<li class="step"><div class="step__label">Unpack it and read Google’s notes on each photo</div></li>
-				<li class="step"><div class="step__label">Restore the dates, places and albums</div></li>
-				<li class="step"><div class="step__label">Fill up Immich with the photos and their albums</div></li>
-			</ol>
-		</div>
-
-		<div class="note">
-			<p>
-				<b>You can close this tab now.</b> Come back to this page whenever you
-				like to see where the import has got to.
-			</p>
-		</div>
-
-		{{ if .CanUpload }}
-		<div class="stack">
-			<h3>Send the file myself</h3>
-			{{ template "upload" . }}
-		</div>
-		{{ end }}
 	</main>
-
-{{ else if eq .Screen "done" }}
+{{ else }}
 	<div class="prose">
-		<h1>Everything is across</h1>
-		<p class="lede">
-			The moves finished. Here is exactly what arrived, so you can go and look
-			for yourself.
-		</p>
+		<h1>{{ if eq .Screen "done" }}{{ .T "done.title" }}{{ else }}{{ .T "page.title" }}{{ end }}</h1>
 	</div>
 
 	<main class="tracks">
-		<section class="track" aria-labelledby="drive-h">
-			<div class="track__head">
-				<div class="track__titles">
-					<h2 id="drive-h">Files and folders</h2>
-					<span class="pill {{ pillClass $drive.State }}">{{ pillLabel $drive.State }}</span>
-				</div>
-				<p class="track__route">Google Drive → Nextcloud</p>
-			</div>
-
-			<dl class="totals">
-				<div><dt>Files</dt><dd class="num">{{ count .DriveFiles }}</dd></div>
-				<div><dt>Copied</dt><dd class="num">{{ bytes .DriveBytes }}</dd></div>
-			</dl>
-
-			<div class="note">
-				{{ if .DriveVerification }}
-				<p>{{ .DriveVerification.Detail }}. The folders keep the structure they had on Google.</p>
-				{{ else }}
-				<p>The copy finished without errors. The folders keep the structure they had on Google.</p>
-				{{ end }}
-			</div>
-		</section>
-
-		<section class="track" aria-labelledby="photos-h">
-			<div class="track__head">
-				<div class="track__titles">
-					<h2 id="photos-h">Photos and videos</h2>
-					<span class="pill {{ pillClass $photos.State }}">{{ pillLabel $photos.State }}</span>
-				</div>
-				<p class="track__route">Google Photos → Immich</p>
-			</div>
-
-			<dl class="totals">
-				<div><dt>Photos and videos</dt><dd class="num">{{ count .PhotosAssets }}</dd></div>
-			</dl>
-
-			<div class="note">
-				{{ if .PhotosVerification }}
-				<p>{{ .PhotosVerification.Detail }}. The dates from your Takeout are kept.</p>
-				{{ else }}
-				<p>The import finished without errors, keeping the dates taken from your Takeout.</p>
-				{{ end }}
-			</div>
-		</section>
+		{{ template "drive" . }}
+		{{ template "photos" . }}
 	</main>
 
-	<section class="calm narrow">
-		<h3>Google still has all of it</h3>
-		<p class="fine">
-			Nothing was removed; zlatan only ever read. Everything is in two places now. Clear out Google yourself, once you have had a proper look at what is here.
-		</p>
-	</section>
-
-{{ else if eq .Screen "error" }}
-	<div class="prose">
-		<h1>Something stopped</h1>
-		<p class="lede">
-			{{ if and $drive.Failed $photos.Failed }}Both moves stopped. Nothing has been lost on either side.
-			{{ else if $drive.Failed }}Your photos are unaffected. Nothing has been lost.
-			{{ else }}Your files are unaffected and still on their way. Nothing has been lost on either side.{{ end }}
-		</p>
-	</div>
-
-	<main class="tracks">
-		<section class="track" aria-labelledby="drive-h">
-			<div class="track__head">
-				<div class="track__titles">
-					<h2 id="drive-h">Files and folders</h2>
-					<span class="pill {{ pillClass $drive.State }}">{{ pillLabel $drive.State }}</span>
-				</div>
-				<p class="track__route">Google Drive → Nextcloud</p>
-			</div>
-
-			{{ if $drive.Failed }}
-			<div class="notice" role="status">
-				<h3>The file copy stopped</h3>
-				{{ if .LastError }}<p>{{ .LastError }}</p>{{ end }}
-				<p>
-					<b>Nothing was lost.</b>
-					{{ if gt .DriveFiles 0 }}<span class="num">{{ count .DriveFiles }}</span> files are already in Nextcloud and they stay there.{{ end }}
-					Starting again continues from there and copies nothing twice.
-				</p>
-			</div>
-			<div class="actions">
-				{{ if .CanStartDrive }}
-				<form method="post" action="/drive/start">
-					<button class="btn btn--primary" type="submit">Try again</button>
-				</form>
-				{{ end }}
-			</div>
-			{{ else }}
-			<div class="state" aria-live="polite">
-				<p class="state__line" data-track="drive">{{ stateLine "drive" $drive.State }}</p>
-				{{ if or $drive.Done $drive.Failed }}{{ else }}<div class="scan" aria-hidden="true"></div>{{ end }}
-			</div>
-			<div class="note"><p>This track is unaffected. The two are independent.</p></div>
-			{{ end }}
-		</section>
-
-		<section class="track" aria-labelledby="photos-h">
-			<div class="track__head">
-				<div class="track__titles">
-					<h2 id="photos-h">Photos and videos</h2>
-					<span class="pill {{ pillClass $photos.State }}">{{ pillLabel $photos.State }}</span>
-				</div>
-				<p class="track__route">Google Photos → Immich</p>
-			</div>
-
-			{{ if $photos.Failed }}
-			<div class="notice" role="status">
-				<h3>The photo import stopped</h3>
-				{{ if .LastError }}<p>{{ .LastError }}</p>{{ end }}
-				<p>
-					<b>Nothing was lost.</b>
-					{{ if gt .PhotosAssets 0 }}<span class="num">{{ count .PhotosAssets }}</span> items are already in Immich and they stay there.{{ end }}
-					Starting again picks up from where it stopped.
-				</p>
-			</div>
-			<div class="actions">
-				{{ if .CanUpload }}
-				<form method="post" action="/photos/upload/start">
-					<button class="btn btn--primary" type="submit">Try again</button>
-				</form>
-				{{ end }}
-			</div>
-			{{ else }}
-			<div class="state" aria-live="polite">
-				<p class="state__line" data-track="photos">{{ stateLine "photos" $photos.State }}</p>
-				{{ if or $photos.Done $photos.Failed }}{{ else }}<div class="scan" aria-hidden="true"></div>{{ end }}
-			</div>
-			<div class="note"><p>This track is unaffected. The two are independent.</p></div>
-			{{ end }}
-		</section>
-	</main>
-
+	<p class="fine">
+		{{- if eq .Screen "done" }}{{ .T "done.google" }}
+		{{- else if eq .Screen "entry" }}{{ .T "nothing.deleted" }}
+		{{- else }}{{ .T "tab.close" }}{{ end -}}
+	</p>
 {{ end }}
 
 	<footer class="foot">
-		<p>zlatan {{ .Version }} — running on the home server</p>
+		<p>zlatan {{ .Version }}</p>
 	</footer>
 </div>
 
@@ -646,26 +88,193 @@
 </body>
 </html>
 
-{{- define "upload" }}
-<div id="upload" class="upload" data-upload-url="/upload">
-	<noscript>
-		<div class="note">
+{{/* ---------------------------------------------------------------- Drive */}}
+{{ define "drive" }}
+<section class="track" data-track="drive" data-state="{{ .Drive.State }}" aria-labelledby="drive-h">
+	<div class="track__head">
+		<div class="track__titles">
+			<h2 id="drive-h">{{ .T "drive.title" }}</h2>
+			<span class="pill {{ .Drive.PillClass }}">{{ .Drive.Pill }}</span>
+		</div>
+		<p class="track__route">{{ .Route "src.drive" .NextcloudHost }}</p>
+	</div>
+
+	<div class="state" aria-live="polite">
+		{{ with .DriveFacts }}<p class="facts">{{ . }}</p>{{ end }}
+		{{ with .Drive.Progress }}<p class="now-doing" title="{{ . }}">{{ . }}</p>{{ end }}
+	</div>
+
+	{{ if .QuotaOver }}<p class="fine">{{ .T "quota.over" (.B .QuotaProjected) (.B .QuotaBudget) }}</p>{{ end }}
+
+	{{ if .Drive.Failed }}
+		<div class="notice" role="status">
 			<p>
-				<b>Uploading needs JavaScript.</b> This is the one part of zlatan
-				that lives in your browser. Turn it on, or use the guided route
-				("Add to Drive") instead.
+				{{- if .DriveFiles }}{{ .T "error.resume" (.N .DriveFiles) }}
+				{{- else }}{{ .T "error.noFiles" }}{{ end -}}
 			</p>
 		</div>
-	</noscript>
-	<label class="drop" for="upload-input" data-upload-when-js hidden>
-		<span><b>Drop a file here</b>, or choose one</span>
-		<span class="fine">Takeout .zip files, up to 50 GB each</span>
-		<input id="upload-input" type="file" accept=".zip,application/zip">
-	</label>
-	<div id="upload-drop" class="drop drop--over" hidden>Drop the file here</div>
-	<div class="actions" data-upload-when-js hidden>
-		<button type="button" id="upload-button" class="btn btn--ghost">Choose a file</button>
+		{{ if .CanStartDrive }}
+		<div class="actions">
+			<form method="post" action="/drive/start">
+				<button class="btn btn--primary" type="submit">{{ .T "btn.retry" }}</button>
+			</form>
+		</div>
+		{{ end }}
+		{{ with .LastError }}
+		<details class="why">
+			<summary>{{ $.T "btn.details" }}</summary>
+			<div><p class="mono">{{ . }}</p></div>
+		</details>
+		{{ end }}
+	{{ else if .Drive.Done }}
+		<p class="fine">{{ with .Check .DriveVerification }}{{ . }}{{ else }}{{ $.T "done.plain" }}{{ end }}</p>
+		{{ with .NextcloudURL }}
+		<div class="actions">
+			<a class="btn btn--primary" href="{{ . }}">{{ $.T "btn.openNextcloud" }}</a>
+		</div>
+		{{ end }}
+	{{ else if not .CanStartDrive }}
+		<p class="fine">{{ .T "unavailable" }}</p>
+	{{ else if not .GoogleConnected }}
+		<div class="actions">
+			<a class="btn btn--primary" href="/oauth/google/start">{{ .T "btn.google" }}</a>
+		</div>
+		<p class="fine">{{ .T "hint.readOnly" }}</p>
+	{{ else if not .NextcloudConnected }}
+		<div class="actions">
+			<form method="post" action="/nextcloud/start">
+				<button class="btn btn--primary" type="submit">{{ .T "btn.nextcloud" }}</button>
+			</form>
+		</div>
+		<p class="fine">{{ .T "hint.nextcloud" }}</p>
+	{{ else if or (eq .Drive.State "not_started") (eq .Drive.State "selecting") (eq .Drive.State "consent_pending") }}
+		<div class="actions">
+			<form method="post" action="/drive/start">
+				<button class="btn btn--primary" type="submit">{{ .T "btn.start" }}</button>
+			</form>
+		</div>
+	{{ end }}
+</section>
+{{ end }}
+
+{{/* --------------------------------------------------------------- Photos */}}
+{{ define "photos" }}
+<section class="track" data-track="photos" data-state="{{ .Photos.State }}" aria-labelledby="photos-h">
+	<div class="track__head">
+		<div class="track__titles">
+			<h2 id="photos-h">{{ .T "photos.title" }}</h2>
+			<span class="pill {{ .Photos.PillClass }}">{{ .Photos.Pill }}</span>
+		</div>
+		<p class="track__route">{{ .Route "src.photos" .ImmichHost }}</p>
 	</div>
-	<p id="upload-progress" class="fine" hidden></p>
+
+	<div class="state" aria-live="polite">
+		{{ with .PhotosFacts }}<p class="facts">{{ . }}</p>{{ end }}
+		{{ with .Photos.Progress }}<p class="now-doing" title="{{ . }}">{{ . }}</p>{{ end }}
+	</div>
+
+	{{ if .Photos.Failed }}
+		{{ if .CanStartPhotos }}
+		<div class="actions">
+			<form method="post" action="/photos/takeout/start">
+				<button class="btn btn--primary" type="submit">{{ .T "btn.retry" }}</button>
+			</form>
+		</div>
+		{{ end }}
+		{{ with .LastError }}
+		<details class="why">
+			<summary>{{ $.T "btn.details" }}</summary>
+			<div><p class="mono">{{ . }}</p></div>
+		</details>
+		{{ end }}
+	{{ else if .Photos.Done }}
+		<p class="fine">{{ with .Check .PhotosVerification }}{{ . }}{{ else }}{{ $.T "done.plain" }}{{ end }}</p>
+		{{ with .ImmichURL }}
+		<div class="actions">
+			<a class="btn btn--primary" href="{{ . }}">{{ $.T "btn.openImmich" }}</a>
+		</div>
+		{{ end }}
+	{{ else if eq .Photos.State "awaiting_takeout" }}
+		<p class="fine">{{ .T "wait.watching" .TakeoutFolder }} {{ .Every }}</p>
+		<p class="fine">{{ .T "wait.horizon" }}</p>
+		{{ if .CanUpload }}
+		<div class="actions">
+			<form method="post" action="/photos/upload/start">
+				<button class="btn btn--quiet" type="submit">{{ .T "btn.upload" }}</button>
+			</form>
+		</div>
+		{{ end }}
+	{{ else if not .CanStartPhotos }}
+		<p class="fine">{{ .T "unavailable" }}</p>
+	{{ else if eq .Photos.State "not_started" }}
+		<p>{{ .T "photos.why" }}</p>
+		<details class="why">
+			<summary>{{ .T "btn.how" }}</summary>
+			<div>{{ template "guide" . }}</div>
+		</details>
+		{{ if not .CanTakeout }}<p class="fine">{{ .T "photos.needGoogle" }}</p>{{ end }}
+		<div class="actions">
+			{{ if .CanTakeout }}
+			<form method="post" action="/photos/takeout/start">
+				<button class="btn btn--primary" type="submit">{{ .T "btn.asked" }}</button>
+			</form>
+			{{ end }}
+			{{ if .CanUpload }}
+			<form method="post" action="/photos/upload/start">
+				<button class="btn btn--quiet" type="submit">{{ .T "btn.upload" }}</button>
+			</form>
+			{{ end }}
+		</div>
+	{{ end }}
+</section>
+{{ end }}
+
+{{/* ------------------------------------------------------ the Takeout steps */}}
+{{ define "guide" }}
+<ol class="steps">
+	<li class="step"><div class="step__label"><span class="step__n">1</span>
+		<a href="https://takeout.google.com/" target="_blank" rel="noopener">{{ .T "takeout.s1" }}</a></div></li>
+	<li class="step"><div class="step__label"><span class="step__n">2</span>{{ .T "takeout.s2" }}</div></li>
+	<li class="step">
+		<div class="step__label"><span class="step__n">3</span>{{ .T "takeout.s3" }}</div>
+		<div class="step__body">
+			<div class="split">
+				<div><h4>{{ .T "takeout.where" }}</h4><p><span class="said">{{ .T "takeout.drive" }}</span></p></div>
+				<div><h4>{{ .T "takeout.often" }}</h4><p><span class="said">{{ .T "takeout.once" }}</span></p></div>
+				<div><h4>{{ .T "takeout.type" }}</h4><p><span class="said">{{ .T "takeout.zip" }}</span></p></div>
+				<div><h4>{{ .T "takeout.size" }}</h4><p><span class="said">{{ .T "takeout.gb" }}</span></p></div>
+			</div>
+		</div>
+	</li>
+	<li class="step"><div class="step__label"><span class="step__n">4</span>{{ .T "takeout.s4" }}</div></li>
+	<li class="step"><div class="step__label"><span class="step__n">5</span>{{ .T "takeout.s5" .TakeoutFolder }}</div></li>
+</ol>
+{{ end }}
+
+{{/* ------------------------------------------------------------ file sender */}}
+{{ define "upload" }}
+<div class="prose">
+	<h1>{{ .T "upload.title" }}</h1>
+	<p class="fine">{{ .T "upload.how" }}</p>
 </div>
-{{- end }}
+
+<main class="panel" id="upload"
+      data-sending="{{ .T "upload.sending" }}"
+      data-progress="{{ .T "upload.progress" }}"
+      data-sent="{{ .T "upload.sent" }}"
+      data-failed="{{ .T "upload.failed" }}">
+	<div class="state" aria-live="polite">
+		{{ with .PhotosFacts }}<p class="facts">{{ . }}</p>{{ end }}
+		<p id="upload-progress" class="facts" hidden></p>
+	</div>
+
+	<label class="drop" for="upload-input" id="upload-drop" data-upload-when-js hidden>
+		<span>{{ .T "upload.drop" }}</span>
+		<span class="btn btn--ghost">{{ .T "btn.choose" }}</span>
+	</label>
+	<input id="upload-input" type="file" accept=".zip,application/zip">
+
+	<p class="fine" id="upload-nojs">{{ .T "upload.needsJs" }}</p>
+	<p class="fine" data-upload-when-js hidden>{{ .T "upload.keepOpen" }} {{ .T "upload.resumes" }}</p>
+</main>
+{{ end }}

@@ -6,65 +6,162 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 
+	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/i18n"
 	"github.com/marcodellemarche/zlatan/internal/nextcloud"
 	"github.com/marcodellemarche/zlatan/internal/store"
 )
 
-// page is what the wizard template renders.
+// page is what the wizard template renders. Everything the person reads is
+// resolved here, in their language, so the template holds no logic and the
+// polling script holds no text.
 type page struct {
 	User    string
-	Email   string
 	Version string
-	Tracks  []core.TrackSummary
+
+	// Lang is the language for this request; Langs is the switcher.
+	Lang  i18n.Lang
+	Langs []langChoice
 
 	// Screen is which of the design's screens the wizard renders: entry,
-	// tracks, takeout, share, upload, waiting, done or error. It is derived
-	// from the two track states so the markup and the state cannot disagree.
+	// tracks, takeout, upload, waiting, done or error. It is derived from the
+	// two track states so the markup and the state cannot disagree.
 	Screen string
 
-	// DriveBytes and DriveFiles are rendered through FormatBytes, so the
-	// person reads "4.1 GiB" rather than a nine-digit number.
+	Drive  trackView
+	Photos trackView
+
 	DriveBytes   int64
 	DriveFiles   int64
 	PhotosAssets int64
 
 	LastError string
 
-	// QuotaWarning is a sentence shown when the Drive copy would push the
-	// person past their budget. Empty when there is nothing to warn about or
-	// the numbers are not known yet. It never blocks the copy.
-	QuotaWarning string
+	// DriveFacts and PhotosFacts are the one line of numbers under each track,
+	// already rendered. Empty while there is nothing to count.
+	DriveFacts  string
+	PhotosFacts string
 
 	// DriveVerification and PhotosVerification are the last recorded checks, so
-	// the closing page states what was compared rather than a bare "done".
-	// Nil means no check was recorded.
+	// the closing screen states what was compared rather than a bare "done".
 	DriveVerification  *core.Verify
 	PhotosVerification *core.Verify
 
-	// CanTakeoutRoute is whether the "Add to Drive" route is available on this
-	// instance at all (the Google client and Immich are configured).
-	// CanTakeout is the narrower question of whether it can be offered to this
-	// person right now, which also needs them to have connected Google.
-	CanTakeoutRoute bool
-	CanTakeout      bool
-	CanUpload       bool
+	// TakeoutPoll is how often the watcher looks in the person's Drive. The
+	// waiting screen states it rather than inventing a number.
+	TakeoutPoll time.Duration
+
+	// Quota is advisory: the copy runs either way, so this is a line, never a
+	// block.
+	QuotaOver      bool
+	QuotaProjected int64
+	QuotaBudget    int64
+
+	// Where the data is going. Read from configuration, never hardcoded: the
+	// person should be able to see which cloud is theirs.
+	NextcloudURL  string
+	NextcloudHost string
+	ImmichURL     string
+	ImmichHost    string
 
 	// TakeoutFolder is the folder name the wizard tells the person to look
 	// for. It is Google's own name, not something they choose.
 	TakeoutFolder string
 
-	// CanStartDrive is false when the OAuth client or Nextcloud is not
-	// configured, so the button is not offered when it cannot work.
+	CanTakeoutRoute bool
+	CanTakeout      bool
+	CanUpload       bool
+
 	CanStartDrive  bool
 	CanStartPhotos bool
 
-	// GoogleConnected and NextcloudConnected drive which button the Drive
-	// section shows: connect Google, connect Nextcloud, or start the copy.
-	// The copy needs both.
 	GoogleConnected    bool
 	NextcloudConnected bool
+}
+
+// langChoice is one entry in the switcher.
+type langChoice struct {
+	Lang    i18n.Lang
+	Name    string
+	Current bool
+}
+
+// trackView is one half of the migration, ready to render: the state named in
+// the person's language and the class that colours it.
+type trackView struct {
+	Track     core.Track
+	State     string
+	Progress  string
+	Pill      string
+	PillClass string
+	Done      bool
+	Failed    bool
+}
+
+// T, N and B are the template's only formatting helpers. They are methods
+// rather than template functions because every one of them needs the language,
+// and a template function cannot see it.
+func (p page) T(key string, args ...any) string { return i18n.T(p.Lang, key, args...) }
+func (p page) N(n int64) string                 { return i18n.Count(p.Lang, n) }
+func (p page) B(n int64) string                 { return i18n.Bytes(p.Lang, n) }
+
+// Check renders a recorded verification from its numbers, so the sentence is
+// in the reader's language rather than the runner's. It returns "" when no
+// check ran, and the closing screen then falls back to the plain sentence.
+func (p page) Check(v *core.Verify) string {
+	if v == nil || v.Checked == 0 {
+		return ""
+	}
+	if v.Mismatch > 0 {
+		return p.T("check.mismatch", p.N(int64(v.Checked)), p.N(int64(v.Mismatch)))
+	}
+	return p.T("check.ok", p.N(int64(v.Checked)))
+}
+
+// Every states the real poll interval from configuration.
+func (p page) Every() string {
+	return p.T("wait.every", i18n.Span(p.Lang, p.TakeoutPoll))
+}
+
+// Route is "Google Drive → nextcloud.example.org", with the destination taken
+// from configuration. When no destination is configured the arrow is dropped
+// rather than pointing at nothing.
+func (p page) Route(srcKey, host string) string {
+	if host == "" {
+		return p.T(srcKey)
+	}
+	return p.T("route", p.T(srcKey), host)
+}
+
+// hostOf reduces a configured URL to the name a person recognises. A value
+// that will not parse is shown as it was configured, which is more useful than
+// an empty line.
+func hostOf(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return strings.TrimSuffix(strings.TrimPrefix(raw, "https://"), "/")
+	}
+	return u.Host
+}
+
+func viewOf(lang i18n.Lang, t core.TrackSummary) trackView {
+	return trackView{
+		Track:     t.Track,
+		State:     t.State,
+		Progress:  t.Progress,
+		Pill:      i18n.T(lang, pillKey(t.State)),
+		PillClass: pillClass(t.State),
+		Done:      t.Done,
+		Failed:    t.Failed,
+	}
 }
 
 // wizard renders the person's own progress. The identity is resolved from the
@@ -77,6 +174,18 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An explicit language choice is remembered and the parameter dropped, so
+	// the address bar stays clean and a bookmark does not pin a language
+	// forever. It works without JavaScript because it is a plain link.
+	if choice := r.URL.Query().Get(i18n.Param); choice != "" {
+		if l, ok := i18n.Parse(choice); ok {
+			i18n.SetCookie(w, l)
+		}
+		http.Redirect(w, r, r.URL.Path, http.StatusSeeOther)
+		return
+	}
+	lang := i18n.FromRequest(r)
+
 	m, err := opts.State.EnsureMigration(r.Context(), user, email)
 	if err != nil {
 		opts.Log.Error("wizard: ensure migration", "user", user, "error", err)
@@ -84,35 +193,48 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	summaries := m.Summaries()
 	p := page{
 		User:           user,
-		Email:          email,
 		Version:        opts.Version,
-		Tracks:         m.Summaries(),
+		Lang:           lang,
+		Langs:          langChoices(lang),
 		Screen:         screenFor(m),
+		Drive:          viewOf(lang, summaries[0]),
+		Photos:         viewOf(lang, summaries[1]),
 		DriveBytes:     m.DriveBytesCopied,
 		DriveFiles:     m.DriveFilesCopied,
 		PhotosAssets:   m.PhotosAssetsAdded,
 		LastError:      m.LastError,
 		TakeoutFolder:  opts.Config.Google.TakeoutFolder,
+		NextcloudURL:   opts.Config.Nextcloud.URL,
+		NextcloudHost:  hostOf(opts.Config.Nextcloud.URL),
+		ImmichURL:      opts.Config.Immich.URL,
+		ImmichHost:     hostOf(opts.Config.Immich.URL),
 		CanUpload:      opts.Config.Immich.Configured(),
 		CanStartDrive:  opts.Google != nil && opts.Sealer != nil && opts.TokenStore != nil && opts.Config.Nextcloud.Configured(),
 		CanStartPhotos: opts.Config.Immich.Configured() && opts.Runner != nil,
+		TakeoutPoll:    opts.Config.TakeoutPoll,
 	}
+	if p.TakeoutPoll <= 0 {
+		p.TakeoutPoll = config.DefaultTakeoutPoll
+	}
+	p.DriveFacts = factsFor(lang, p.Drive, m)
+	p.PhotosFacts = factsFor(lang, p.Photos, m)
 
-	// The budget is advisory. It is computed here rather than stored so it
-	// always reflects the current policy, and shown only once the pre-copy scan
-	// has produced numbers.
-	p.QuotaWarning = m.QuotaWarning(opts.Config.Quota.BudgetGiBFor(user))
-
-	// The closing page states what was actually compared. A missing row is not
-	// an error: the page falls back to the plain sentence.
+	// The closing screen states what was actually compared. A missing row is
+	// not an error: the screen falls back to the plain sentence.
 	if v, err := opts.State.LatestVerification(r.Context(), user, core.TrackDrive); err == nil {
 		p.DriveVerification = &v
 	}
 	if v, err := opts.State.LatestVerification(r.Context(), user, core.TrackPhotos); err == nil {
 		p.PhotosVerification = &v
 	}
+
+	// The budget is advisory. It is computed here rather than stored so it
+	// always reflects the current policy, and shown only once the pre-copy scan
+	// has produced numbers.
+	p.QuotaProjected, p.QuotaBudget, p.QuotaOver = m.QuotaOverrun(opts.Config.Quota.BudgetGiBFor(user))
 
 	// The "Add to Drive" route needs the Google client to watch the Drive and
 	// Immich to import. Whether the person has connected Google is filled in
@@ -135,9 +257,18 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Vary", "Accept-Language, Cookie")
 	if err := wizardTemplate.ExecuteTemplate(w, "wizard.html", p); err != nil {
 		opts.Log.Error("wizard: render", "error", err)
 	}
+}
+
+func langChoices(current i18n.Lang) []langChoice {
+	out := make([]langChoice, 0, len(i18n.Supported))
+	for _, l := range i18n.Supported {
+		out = append(out, langChoice{Lang: l, Name: i18n.Name(l), Current: l == current})
+	}
+	return out
 }
 
 // status is the JSON the page polls, so a multi-hour copy is not a frozen
@@ -169,28 +300,29 @@ func (opts Options) status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The line is resolved here so the polling script can refresh the calm
-	// sentence without knowing the state names, exactly as the server rendered
-	// it. Progress is the technical detail shown underneath.
+	// Every string here is already rendered in the reader's language, so the
+	// polling script never has to know a state name or a plural rule. When the
+	// state itself changes the script reloads, because a different state means
+	// a different screen.
+	lang := i18n.FromRequest(r)
 	tracks := make([]map[string]any, 0, 2)
 	for _, t := range m.Summaries() {
+		v := viewOf(lang, t)
 		tracks = append(tracks, map[string]any{
-			"Track":    t.Track,
-			"State":    t.State,
-			"Progress": t.Progress,
-			"Line":     stateLine(string(t.Track), t.State),
-			"Done":     t.Done,
-			"Failed":   t.Failed,
+			"Track":     v.Track,
+			"State":     v.State,
+			"Pill":      v.Pill,
+			"PillClass": v.PillClass,
+			"Facts":     factsFor(lang, v, m),
+			"Progress":  v.Progress,
+			"Done":      v.Done,
+			"Failed":    v.Failed,
 		})
 	}
 
 	writeJSON(w, opts, map[string]any{
-		"user":         m.User,
-		"tracks":       tracks,
-		"driveBytes":   m.DriveBytesCopied,
-		"driveFiles":   m.DriveFilesCopied,
-		"photosAssets": m.PhotosAssetsAdded,
-		"lastError":    m.LastError,
+		"user":   m.User,
+		"tracks": tracks,
 	})
 }
 

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="it">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Porta i tuoi dati fuori da Google · zlatan</title>
+	<link rel="icon" href="../../../internal/web/static/favicon.svg">
+	<link rel="stylesheet" href="../../../internal/web/static/style.css">
+</head>
+<body>
+<div class="page">
+
+	<header class="masthead">
+		<a class="brand" href="/" aria-label="zlatan">
+			<svg class="mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+				<defs>
+					<linearGradient id="zg" x1="6.5" y1="0" x2="17.5" y2="0" gradientUnits="userSpaceOnUse">
+						<stop offset=".25" class="g-b"/><stop offset=".25" class="g-r"/>
+						<stop offset=".50" class="g-r"/><stop offset=".50" class="g-y"/>
+						<stop offset=".75" class="g-y"/><stop offset=".75" class="g-g"/>
+					</linearGradient>
+				</defs>
+				<path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2" fill="none" stroke="url(#zg)" stroke-width="2" stroke-linecap="round"/>
+				<path d="M17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+			</svg>
+			<span class="word">zlatan</span>
+		</a>
+		<p class="whoami">
+			<b>marco</b>
+			<span class="langs"><a href="?lang=en" hreflang="en" title="English">en</a><b aria-current="true">it</b>
+			</span>
+		</p>
+	</header>
+
+
+	<div class="prose"><h1>Chiedi a Google una copia delle tue foto</h1></div>
+	<main class="panel">
+		
+<ol class="steps">
+	<li class="step"><div class="step__label"><span class="step__n">1</span>
+		<a href="https://takeout.google.com/" target="_blank" rel="noopener">Apri Google Takeout</a></div></li>
+	<li class="step"><div class="step__label"><span class="step__n">2</span>Scegli solo Google Foto</div></li>
+	<li class="step">
+		<div class="step__label"><span class="step__n">3</span>Imposta l&#39;esportazione</div>
+		<div class="step__body">
+			<div class="split">
+				<div><h4>Dove va</h4><p><span class="said">Aggiungi a Drive</span></p></div>
+				<div><h4>Ogni quanto</h4><p><span class="said">Esporta una volta</span></p></div>
+				<div><h4>Tipo di file</h4><p><span class="said">.zip</span></p></div>
+				<div><h4>Dimensione file</h4><p><span class="said">50 GB</span></p></div>
+			</div>
+		</div>
+	</li>
+	<li class="step"><div class="step__label"><span class="step__n">4</span>Chiedi a Google di iniziare</div></li>
+	<li class="step"><div class="step__label"><span class="step__n">5</span>Aspetta la cartella «Takeout» nel tuo Drive</div></li>
+</ol>
+
+		<div class="actions">
+			<form method="post" action="/photos/takeout/start">
+				<button class="btn btn--primary" type="submit">Ho chiesto a Google</button>
+			</form>
+			
+			<form method="post" action="/photos/upload/start">
+				<button class="btn btn--quiet" type="submit">Mando io il file</button>
+			</form>
+			
+		</div>
+	</main>
+
+
+	<footer class="foot">
+		<p>zlatan 0.4.0</p>
+	</footer>
+</div>
+
+<script src="../../../internal/web/static/wizard.js" defer></script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+

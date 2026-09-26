@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-  <!-- Monochrome: at 16px the four Google bands are three pixels of mud. -->
-  <style>
-    path { stroke: #1c1c1a }
-    @media (prefers-color-scheme: dark) { path { stroke: #e6e6e3 } }
-  </style>
-  <path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2 L6.5 17.2 H17.5"
-        fill="none" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>

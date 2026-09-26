@@ -780,12 +780,13 @@ func (r *Runner) recordQuota(ctx context.Context, user string, tokens oauth.Toke
 	if err := r.store.SetQuotaEstimate(ctx, user, size, used, total); err != nil {
 		r.log.Warn("quota: store estimate", "user", user, "error", err)
 	}
-	if msg := (core.Migration{
+	if projected, budget, over := (core.Migration{
 		DriveSourceBytes: size,
 		QuotaUsedBytes:   used,
 		QuotaTotalBytes:  total,
-	}).QuotaWarning(r.cfg.Quota.BudgetGiBFor(user)); msg != "" {
-		r.log.Info("quota: the copy will exceed the budget", "user", user, "warning", msg)
+	}).QuotaOverrun(r.cfg.Quota.BudgetGiBFor(user)); over {
+		r.log.Info("quota: the copy will exceed the budget", "user", user,
+			"projected", core.FormatBytes(projected), "budget", core.FormatBytes(budget))
 	}
 }
 

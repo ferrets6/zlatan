@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Move your things off Google · zlatan</title>
+	<link rel="icon" href="../../../internal/web/static/favicon.svg">
+	<link rel="stylesheet" href="../../../internal/web/static/style.css">
+</head>
+<body>
+<div class="page">
+
+	<header class="masthead">
+		<a class="brand" href="/" aria-label="zlatan">
+			<svg class="mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+				<defs>
+					<linearGradient id="zg" x1="6.5" y1="0" x2="17.5" y2="0" gradientUnits="userSpaceOnUse">
+						<stop offset=".25" class="g-b"/><stop offset=".25" class="g-r"/>
+						<stop offset=".50" class="g-r"/><stop offset=".50" class="g-y"/>
+						<stop offset=".75" class="g-y"/><stop offset=".75" class="g-g"/>
+					</linearGradient>
+				</defs>
+				<path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2" fill="none" stroke="url(#zg)" stroke-width="2" stroke-linecap="round"/>
+				<path d="M17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+			</svg>
+			<span class="word">zlatan</span>
+		</a>
+		<p class="whoami">
+			<b>marco</b>
+			<span class="langs"><b aria-current="true">en</b><a href="?lang=it" hreflang="it" title="Italiano">it</a>
+			</span>
+		</p>
+	</header>
+
+
+	
+<div class="prose">
+	<h1>Send us the file</h1>
+	<p class="fine">Download the export from Google, then add the files here.</p>
+</div>
+
+<main class="panel" id="upload"
+      data-sending="Sending {file}"
+      data-progress="{sent} of {total} parts"
+      data-sent="Sent. The import has started."
+      data-failed="Interrupted. Try again: it continues from the last piece.">
+	<div class="state" aria-live="polite">
+		
+		<p id="upload-progress" class="facts" hidden></p>
+	</div>
+
+	<label class="drop" for="upload-input" id="upload-drop" data-upload-when-js hidden>
+		<span>Drop a file here</span>
+		<span class="btn btn--ghost">Choose a file</span>
+	</label>
+	<input id="upload-input" type="file" accept=".zip,application/zip">
+
+	<p class="fine" id="upload-nojs">Sending a file needs JavaScript.</p>
+	<p class="fine" data-upload-when-js hidden>Keep this tab open while it sends. If it stops, it continues from the last piece.</p>
+</main>
+
+
+
+	<footer class="foot">
+		<p>zlatan 0.4.0</p>
+	</footer>
+</div>
+
+<script src="../../../internal/web/static/wizard.js" defer></script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+

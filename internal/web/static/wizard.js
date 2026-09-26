@@ -9,27 +9,46 @@ const POLL_MS = 5000;
 
 function render(state) {
 	for (const track of state.tracks ?? []) {
-		// The live region is the whole .state block, so the calm line and the
-		// technical detail underneath are always a matching pair.
-		const root = document.querySelector(`[data-track="${track.Track}"]`)?.closest('.state');
-		if (!root) continue;
+		const card = document.querySelector(`[data-track="${track.Track}"]`);
+		if (!card) continue;
 
-		const line = root.querySelector('.state__line');
-		if (line && track.Line) line.textContent = track.Line;
-
-		let now = root.querySelector('.now-doing');
-		if (track.Progress) {
-			if (!now) {
-				now = document.createElement('p');
-				now.className = 'now-doing';
-				root.append(now);
-			}
-			now.textContent = track.Progress;
-			now.title = track.Progress;
-		} else if (now) {
-			now.remove();
+		// A different state means a different screen: the server decides what
+		// that looks like, so ask it rather than guessing here.
+		if (card.dataset.state && card.dataset.state !== track.State) {
+			location.reload();
+			return;
 		}
+
+		const pill = card.querySelector('.pill');
+		if (pill && track.Pill) {
+			pill.textContent = track.Pill;
+			pill.className = `pill ${track.PillClass}`;
+		}
+
+		// Every string below was rendered by the server in the reader's
+		// language. Nothing here formats a number or picks a word.
+		set(card, '.facts', track.Facts);
+		set(card, '.now-doing', track.Progress);
 	}
+}
+
+// set writes one line inside a card, creating it when there is something to
+// say and removing it when there is not.
+function set(card, selector, text) {
+	const region = card.querySelector('.state');
+	if (!region) return;
+	let el = region.querySelector(selector);
+	if (!text) {
+		if (el) el.remove();
+		return;
+	}
+	if (!el) {
+		el = document.createElement('p');
+		el.className = selector.slice(1);
+		region.append(el);
+	}
+	el.textContent = text;
+	if (selector === '.now-doing') el.title = text;
 }
 
 async function poll() {
@@ -111,66 +130,50 @@ function wireUpload() {
 	const root = document.getElementById('upload');
 	if (!root) return;
 
-	// The controls are hidden in the markup so a browser without JavaScript
-	// sees only the noscript note, not a button that cannot work. This is the
-	// one place that turns them on.
+	// Reveal what only works with a script running, and retire the note that
+	// says so.
 	for (const el of root.querySelectorAll('[data-upload-when-js]')) el.hidden = false;
+	document.getElementById('upload-nojs')?.remove();
 
 	const input = document.getElementById('upload-input');
-	const button = document.getElementById('upload-button');
 	const progress = document.getElementById('upload-progress');
 	const dropzone = document.getElementById('upload-drop');
+
+	// Every phrase comes from the server, already translated. This fills in
+	// the placeholders and nothing else.
+	const say = (key, values = {}) =>
+		Object.entries(values).reduce(
+			(text, [k, v]) => text.replaceAll(`{${k}}`, v),
+			root.dataset[key] ?? '');
 
 	const start = async (file) => {
 		if (!file) return;
 		progress.hidden = false;
-		progress.textContent = `Preparing to upload ${file.name}…`;
-		button.disabled = true;
+		progress.textContent = say('sending', { file: file.name });
 		try {
 			await upload(file, (sent, total) => {
-				const pct = Math.round((sent / total) * 100);
-				progress.textContent = `Sent ${sent} of ${total} parts (${pct}%) — keep this tab open while it sends.`;
+				progress.textContent = say('progress', { sent, total });
 			});
-			progress.textContent = 'Upload complete: the import has started. You can close the page now.';
+			progress.textContent = say('sent');
 			poll();
-		} catch (err) {
-			progress.textContent = `Upload interrupted: ${err.message}. Try again: it resumes where it left off.`;
-		} finally {
-			button.disabled = false;
+		} catch {
+			progress.textContent = say('failed');
 		}
 	};
 
-	button?.addEventListener('click', () => input?.click());
 	input?.addEventListener('change', () => start(input.files?.[0]));
 
-	// Drag and drop, with the highlight only while a file is over the zone.
+	// Drag and drop, with the zone lit only while a file is over it.
 	root.addEventListener('dragover', (e) => {
 		e.preventDefault();
-		if (dropzone) dropzone.hidden = false;
+		dropzone?.classList.add('drop--over');
 	});
-	root.addEventListener('dragleave', () => {
-		if (dropzone) dropzone.hidden = true;
-	});
+	root.addEventListener('dragleave', () => dropzone?.classList.remove('drop--over'));
 	root.addEventListener('drop', (e) => {
 		e.preventDefault();
-		if (dropzone) dropzone.hidden = true;
+		dropzone?.classList.remove('drop--over');
 		start(e.dataTransfer?.files?.[0]);
 	});
 }
 
 wireUpload();
-
-// --- Copy to clipboard ------------------------------------------------------
-// Progressive enhancement, and nothing more: without this the address is still
-// on the page and still selectable.
-for (const btn of document.querySelectorAll('[data-copy]')) {
-	btn.addEventListener('click', () => {
-		const text = document.querySelector(btn.dataset.copy)?.textContent.trim();
-		if (!text) return;
-		navigator.clipboard.writeText(text).then(() => {
-			const was = btn.textContent;
-			btn.textContent = 'Copied';
-			setTimeout(() => { btn.textContent = was; }, 2000);
-		});
-	});
-}

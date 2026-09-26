@@ -168,7 +168,7 @@ func TestSummaries(t *testing.T) {
 	}
 }
 
-func TestQuotaWarning(t *testing.T) {
+func TestQuotaOverrun(t *testing.T) {
 	gib := int64(1024 * 1024 * 1024)
 	cases := []struct {
 		name    string
@@ -206,9 +206,12 @@ func TestQuotaWarning(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := c.m.QuotaWarning(c.budget)
-			if (got != "") != c.wantAny {
-				t.Errorf("QuotaWarning(%d) = %q, want a warning: %v", c.budget, got, c.wantAny)
+			projected, budget, over := c.m.QuotaOverrun(c.budget)
+			if over != c.wantAny {
+				t.Errorf("QuotaOverrun(%d) over = %v, want %v", c.budget, over, c.wantAny)
+			}
+			if over && projected <= budget {
+				t.Errorf("QuotaOverrun(%d) says over but %d <= %d", c.budget, projected, budget)
 			}
 		})
 	}

@@ -5,9 +5,24 @@ package web
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/i18n"
 )
+
+// donePage is the closing screen with both tracks finished, which several
+// tests need and none of them should have to spell out.
+func donePage() page {
+	return page{
+		User: "marco", Screen: "done", Lang: i18n.EN,
+		Drive:      trackView{Track: core.TrackDrive, State: "done", Done: true},
+		Photos:     trackView{Track: core.TrackPhotos, State: "done", Done: true},
+		DriveFiles: 1200, DriveBytes: 4400000000, PhotosAssets: 5000,
+		NextcloudURL: "https://nextcloud.example.org",
+		ImmichURL:    "https://immich.example.org",
+	}
+}
 
 // The wizard renders exactly one of the design's screens, chosen from the two
 // track states. These cases are the mapping the design depends on.
@@ -60,8 +75,14 @@ func TestPillClassCoversEveryState(t *testing.T) {
 		if c := pillClass(s); !known[c] {
 			t.Errorf("pillClass(%q) = %q, which is not a pill modifier in the stylesheet", s, c)
 		}
-		if l := pillLabel(s); l == "" {
-			t.Errorf("pillLabel(%q) is empty", s)
+		// Every state must also have a word, in every language the wizard
+		// speaks. T falls back to the key, so an untranslated state shows up
+		// here rather than on screen.
+		for _, lang := range i18n.Supported {
+			key := pillKey(s)
+			if word := i18n.T(lang, key); word == key {
+				t.Errorf("state %q has no %s word for %q", s, lang, key)
+			}
 		}
 	}
 }
@@ -74,31 +95,23 @@ func TestScreensDoNotPromiseUnimplementedWork(t *testing.T) {
 		screen string
 		p      page
 	}{
-		{"done-without-checks", page{
-			User: "marco", Screen: "done",
-			Tracks: []core.TrackSummary{
-				{Track: core.TrackDrive, State: "done", Done: true},
-				{Track: core.TrackPhotos, State: "done", Done: true},
-			},
-			DriveFiles: 1200, DriveBytes: 4400000000, PhotosAssets: 5000,
-		}},
+		{"done-without-checks", donePage()},
 		{"waiting", page{
-			User: "marco", Email: "marco@example.com", Screen: "waiting",
-			Tracks: []core.TrackSummary{
-				{Track: core.TrackDrive, State: "done", Done: true},
-				{Track: core.TrackPhotos, State: "importing"},
-			},
-			CanUpload: true,
+			User: "marco", Screen: "waiting", Lang: i18n.EN,
+			Drive:         trackView{Track: core.TrackDrive, State: "done", Done: true},
+			Photos:        trackView{Track: core.TrackPhotos, State: "awaiting_takeout"},
+			TakeoutFolder: "Takeout", TakeoutPoll: 10 * time.Minute,
+			CanUpload: true, CanStartPhotos: true,
 		}},
 	}
 	// Each claim names work that no code performs. Verification now exists, so
 	// its sentence is no longer banned; email is still not sent, and the runner
 	// still computes no ETA, so those stay.
 	banned := []string{
-		"we will email you",
+		"we will email",
 		"we will send you an email",
-		"every ten minutes",
 		"of 32,900 files",
+		"hours left",
 	}
 	for _, s := range screens {
 		t.Run(s.screen, func(t *testing.T) {
@@ -120,14 +133,7 @@ func TestScreensDoNotPromiseUnimplementedWork(t *testing.T) {
 // exists, and falls back to the plain sentence when it does not. It must never
 // claim a check that did not run.
 func TestDoneScreenStatesTheCheckThatRan(t *testing.T) {
-	base := page{
-		User: "marco", Screen: "done",
-		Tracks: []core.TrackSummary{
-			{Track: core.TrackDrive, State: "done", Done: true},
-			{Track: core.TrackPhotos, State: "done", Done: true},
-		},
-		DriveFiles: 1200, DriveBytes: 4400000000, PhotosAssets: 5000,
-	}
+	base := donePage()
 
 	t.Run("no check recorded", func(t *testing.T) {
 		var b strings.Builder
@@ -141,13 +147,13 @@ func TestDoneScreenStatesTheCheckThatRan(t *testing.T) {
 
 	t.Run("a recorded check is shown", func(t *testing.T) {
 		p := base
-		p.DriveVerification = &core.Verify{Detail: "checked 1200 files by size, 10 byte for byte"}
+		p.DriveVerification = &core.Verify{Checked: 1200, Matched: 1200}
 		var b strings.Builder
 		if err := wizardTemplate.ExecuteTemplate(&b, "wizard.html", p); err != nil {
 			t.Fatalf("render: %v", err)
 		}
-		if !strings.Contains(b.String(), "checked 1200 files by size") {
-			t.Error("a recorded check should be shown on the done screen")
+		if !strings.Contains(b.String(), "1,200 files against the originals") {
+			t.Error("a recorded check should be stated from its own numbers")
 		}
 	})
 }

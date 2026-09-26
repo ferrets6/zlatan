@@ -3,7 +3,7 @@
 GO ?= go
 VERSION ?= dev
 
-.PHONY: build test vet fmt check image clean
+.PHONY: screens build test vet fmt check image clean
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o bin/zlatan ./cmd/zlatan
@@ -27,3 +27,7 @@ image:
 
 clean:
 	rm -rf bin
+
+# Renders every screen, in every language, from the template the service runs.
+screens:
+	ZLATAN_SCREENS_DIR=$(CURDIR)/docs/design/screens go test ./internal/web/ -run TestEveryScreen -count=1

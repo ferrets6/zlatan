@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="it">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Porta i tuoi dati fuori da Google · zlatan</title>
+	<link rel="icon" href="../../../internal/web/static/favicon.svg">
+	<link rel="stylesheet" href="../../../internal/web/static/style.css">
+</head>
+<body>
+<div class="page">
+
+	<header class="masthead">
+		<a class="brand" href="/" aria-label="zlatan">
+			<svg class="mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+				<defs>
+					<linearGradient id="zg" x1="6.5" y1="0" x2="17.5" y2="0" gradientUnits="userSpaceOnUse">
+						<stop offset=".25" class="g-b"/><stop offset=".25" class="g-r"/>
+						<stop offset=".50" class="g-r"/><stop offset=".50" class="g-y"/>
+						<stop offset=".75" class="g-y"/><stop offset=".75" class="g-g"/>
+					</linearGradient>
+				</defs>
+				<path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2" fill="none" stroke="url(#zg)" stroke-width="2" stroke-linecap="round"/>
+				<path d="M17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+			</svg>
+			<span class="word">zlatan</span>
+		</a>
+		<p class="whoami">
+			<b>marco</b>
+			<span class="langs"><a href="?lang=en" hreflang="en" title="English">en</a><b aria-current="true">it</b>
+			</span>
+		</p>
+	</header>
+
+
+	<div class="prose">
+		<h1>Porta i tuoi dati fuori da Google</h1>
+	</div>
+
+	<main class="tracks">
+		
+<section class="track" data-track="drive" data-state="copying" aria-labelledby="drive-h">
+	<div class="track__head">
+		<div class="track__titles">
+			<h2 id="drive-h">File e cartelle</h2>
+			<span class="pill pill--running">Copia</span>
+		</div>
+		<p class="track__route">Google Drive → nextcloud.example.org</p>
+	</div>
+
+	<div class="state" aria-live="polite">
+		<p class="facts">12.480 file · 41,1 GiB</p>
+		<p class="now-doing" title="Photos/2019/Sardinia/IMG_2231.jpg">Photos/2019/Sardinia/IMG_2231.jpg</p>
+	</div>
+
+	
+
+	
+</section>
+
+		
+<section class="track" data-track="photos" data-state="awaiting_takeout" aria-labelledby="photos-h">
+	<div class="track__head">
+		<div class="track__titles">
+			<h2 id="photos-h">Foto e video</h2>
+			<span class="pill pill--waiting">In attesa di Google</span>
+		</div>
+		<p class="track__route">Google Foto → immich.example.org</p>
+	</div>
+
+	<div class="state" aria-live="polite">
+		
+		
+	</div>
+
+	
+		<p class="fine">Aspettiamo la cartella «Takeout» nel tuo Drive. Guardiamo ogni 10 min.</p>
+		<p class="fine">Qualche ora, fino a un giorno per una libreria grande.</p>
+		
+		<div class="actions">
+			<form method="post" action="/photos/upload/start">
+				<button class="btn btn--quiet" type="submit">Mando io il file</button>
+			</form>
+		</div>
+		
+	
+</section>
+
+	</main>
+
+	<p class="fine">Il lavoro continua anche se chiudi questa scheda.</p>
+
+
+	<footer class="foot">
+		<p>zlatan 0.4.0</p>
+	</footer>
+</div>
+
+<script src="../../../internal/web/static/wizard.js" defer></script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
