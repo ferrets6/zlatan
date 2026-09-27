@@ -4,11 +4,14 @@ package upload
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -59,13 +62,21 @@ func TestBeginIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestBeginRefusesSizeChange(t *testing.T) {
+// A different size under the same name is a different file: its chunks
+// cannot be resumed, so the session starts over.
+func TestBeginReplacesASessionOfAnotherSize(t *testing.T) {
 	s := newStore(t)
 	begin(t, s, "takeout.zip", 100, 10)
+	if _, err := s.WriteChunk("marco", "takeout.zip", 0, strings.NewReader("0123456789")); err != nil {
+		t.Fatal(err)
+	}
 
-	_, err := s.Begin("marco", "takeout.zip", 200, 10, "")
-	if err == nil {
-		t.Fatal("announcing a different size under the same name must be refused")
+	session, err := s.Begin("marco", "takeout.zip", 200, 10, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.TotalChunks != 20 || session.ReceivedChunks != 0 {
+		t.Errorf("session = %+v, want a fresh 20-chunk session", session)
 	}
 }
 
@@ -470,49 +481,202 @@ func TestCompleteAcceptsAShortFinalChunk(t *testing.T) {
 	}
 }
 
-// Different content under the same name must be refused: accepting it would
-// splice two files' chunks into one corrupt archive.
-func TestBeginRefusesDifferentContentUnderTheSameName(t *testing.T) {
+// sha is the lowercase hex SHA-256 of body, as the browser announces it.
+func sha(body string) string {
+	sum := sha256.Sum256([]byte(body))
+	return hex.EncodeToString(sum[:])
+}
+
+// upload sends body in chunks under name and completes it.
+func upload(t *testing.T, s *Store, name, body string, chunk int64) (Session, string) {
+	t.Helper()
+	session, err := s.Begin("marco", name, int64(len(body)), chunk, sha(body))
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	for _, i := range session.MissingChunks() {
+		end := min(int64(len(body)), int64(i+1)*chunk)
+		if _, err := s.WriteChunk("marco", session.Name, int64(i), strings.NewReader(body[int64(i)*chunk:end])); err != nil {
+			t.Fatalf("WriteChunk %d: %v", i, err)
+		}
+	}
+	path, err := s.Complete("marco", session.Name)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	return session, path
+}
+
+// A stale upload under the same name can never become the new file, and a
+// person must not be stuck until they rename it: the old one is replaced.
+func TestBeginReplacesDifferentContentUnderTheSameName(t *testing.T) {
 	s := newStore(t)
-	if _, err := s.Begin("marco", "takeout.zip", 10, 10, "aaaa"); err != nil {
+	if _, err := s.Begin("marco", "takeout.zip", 20, 10, sha("old content, twenty!")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Begin("marco", "takeout.zip", 10, 10, "bbbb"); err == nil {
-		t.Fatal("Begin should refuse different content under a name in use")
+	if _, err := s.WriteChunk("marco", "takeout.zip", 0, strings.NewReader("old conten")); err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := s.Begin("marco", "takeout.zip", 20, 10, sha("new content, twenty!"))
+	if err != nil {
+		t.Fatalf("Begin with new content: %v", err)
+	}
+	if session.ReceivedChunks != 0 || session.Name != "takeout.zip" {
+		t.Errorf("session = %+v, want a fresh one under the same name", session)
 	}
 }
 
-// The same content announced under a new name (Google renames a re-downloaded
-// Takeout) must resume the existing session instead of starting over.
+// A finished archive is never thrown away for a new announcement: different
+// content under its name is stored beside it.
+func TestBeginKeepsAnAssembledArchiveAndStoresNewContentBesideIt(t *testing.T) {
+	s := newStore(t)
+	_, first := upload(t, s, "takeout.zip", "first archive", 5)
+
+	second, err := s.Begin("marco", "takeout.zip", 14, 5, sha("second archive"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Complete || second.Name == "takeout.zip" {
+		t.Fatalf("session = %+v, want a new upload under another name", second)
+	}
+	if !strings.HasSuffix(second.Name, ".zip") {
+		t.Errorf("name %q must stay a .zip, or the import will not find it", second.Name)
+	}
+	if got, _ := os.ReadFile(first); string(got) != "first archive" {
+		t.Errorf("the first archive was changed: %q", got)
+	}
+}
+
+// Google gives a re-downloaded Takeout a new suffix. The same content under
+// the new name must resume the upload already under way.
 func TestBeginResumesByContentAcrossNames(t *testing.T) {
 	s := newStore(t)
-	// A session keyed by name, as the on-disk layout is.
-	session, err := s.Begin("marco", "takeout-001.zip", 10, 10, "samehash")
-	if err != nil {
+	const body = "0123456789abcdefghij"
+	if _, err := s.Begin("marco", "takeout-001.zip", 20, 10, sha(body)); err != nil {
 		t.Fatal(err)
 	}
-	if session.Hash != "samehash" {
-		t.Fatalf("Hash = %q, want samehash", session.Hash)
+	if _, err := s.WriteChunk("marco", "takeout-001.zip", 0, strings.NewReader(body[:10])); err != nil {
+		t.Fatal(err)
 	}
-	// A session that predates the hash field adopts the one the client sends,
-	// so an in-flight upload gains identity without losing its chunks.
-	dir, _ := s.sessionDir("marco", "takeout-001.zip")
-	manifest, _ := s.readManifest(dir)
-	manifest.Hash = ""
-	s.writeManifest(dir, manifest)
 
-	resumed, err := s.Begin("marco", "takeout-001.zip", 10, 10, "samehash")
+	resumed, err := s.Begin("marco", "takeout-001 (1).zip", 20, 10, sha(body))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resumed.Hash != "samehash" {
-		t.Errorf("Hash = %q, want the client's hash to be adopted", resumed.Hash)
+	if resumed.Name != "takeout-001.zip" || resumed.ReceivedChunks != 1 {
+		t.Fatalf("session = %+v, want the existing upload with its chunk", resumed)
 	}
 }
 
-// Complete must verify the assembled bytes against the announced hash, so a
-// mismatch is caught here rather than after an import that has to be thrown
-// away.
+// And once it is assembled, the same content under any name is done.
+func TestBeginRecognisesAnAssembledArchiveAcrossNames(t *testing.T) {
+	s := newStore(t)
+	upload(t, s, "takeout-001.zip", "the whole archive", 4)
+
+	again, err := s.Begin("marco", "takeout-001 (1).zip", 17, 4, sha("the whole archive"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !again.Complete || again.Name != "takeout-001.zip" {
+		t.Errorf("session = %+v, want the finished archive", again)
+	}
+}
+
+// A session begun without a hash adopts the one the client later sends, so an
+// in-flight upload gains identity without losing its chunks.
+func TestBeginAdoptsAHashLater(t *testing.T) {
+	s := newStore(t)
+	begin(t, s, "takeout.zip", 10, 10)
+	if _, err := s.WriteChunk("marco", "takeout.zip", 0, strings.NewReader("0123456789")); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := s.Begin("marco", "takeout.zip", 10, 10, sha("0123456789"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Hash != sha("0123456789") || resumed.ReceivedChunks != 1 {
+		t.Errorf("session = %+v, want the hash adopted and the chunk kept", resumed)
+	}
+	if _, err := s.Complete("marco", "takeout.zip"); err != nil {
+		t.Errorf("Complete after adopting the hash: %v", err)
+	}
+}
+
+// Chunks that arrive out of order, or twice, must still hash to the file.
+func TestCompleteHashesChunksReceivedOutOfOrderAndTwice(t *testing.T) {
+	s := newStore(t)
+	const body = "abcdefghijklmnopqrstuvwxyz"
+	if _, err := s.Begin("marco", "takeout.zip", 26, 10, sha(body)); err != nil {
+		t.Fatal(err)
+	}
+	for _, i := range []int64{2, 0, 0, 1, 2} {
+		end := min(26, (i+1)*10)
+		if _, err := s.WriteChunk("marco", "takeout.zip", i, strings.NewReader(body[i*10:end])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path, err := s.Complete("marco", "takeout.zip")
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != body {
+		t.Errorf("archive = %q", got)
+	}
+}
+
+// A chunk rewritten with different bytes after the running hash consumed it
+// must be caught: the hash is recomputed from the data, not trusted.
+func TestCompleteRehashesAfterAConsumedChunkChanged(t *testing.T) {
+	s := newStore(t)
+	const body = "0123456789abcdefghij"
+	if _, err := s.Begin("marco", "takeout.zip", 20, 10, sha(body)); err != nil {
+		t.Fatal(err)
+	}
+	for i, c := range []string{"XXXXXXXXXX", "abcdefghij", "0123456789"} {
+		index := int64(min(i, 1))
+		if i == 2 {
+			index = 0
+		}
+		if _, err := s.WriteChunk("marco", "takeout.zip", index, strings.NewReader(c)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Complete("marco", "takeout.zip"); err != nil {
+		t.Fatalf("Complete: %v, want the corrected chunk to hash to the file", err)
+	}
+}
+
+// Many requests for the same session must not interleave their writes. The
+// race detector in make check is what makes this test meaningful.
+func TestWriteChunkIsSafeForConcurrentUse(t *testing.T) {
+	s := newStore(t)
+	body := strings.Repeat("0123456789", 20)
+	if _, err := s.Begin("marco", "takeout.zip", int64(len(body)), 10, sha(body)); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := range 20 {
+		for range 2 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				chunk := body[i*10 : (i+1)*10]
+				if _, err := s.WriteChunk("marco", "takeout.zip", int64(i), strings.NewReader(chunk)); err != nil {
+					t.Error(err)
+				}
+			}()
+		}
+	}
+	wg.Wait()
+	if _, err := s.Complete("marco", "takeout.zip"); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+}
+
+// Complete must verify the bytes against the announced hash, so a mismatch is
+// caught here rather than after an import that has to be thrown away. The
+// chunks go too: keeping them would reassemble the same wrong bytes forever.
 func TestCompleteVerifiesTheAnnouncedHash(t *testing.T) {
 	s := newStore(t)
 	// SHA-256 of "0123456789" is not this, so the check must fail.
@@ -522,11 +686,18 @@ func TestCompleteVerifiesTheAnnouncedHash(t *testing.T) {
 	if _, err := s.WriteChunk("marco", "takeout.zip", 0, strings.NewReader("0123456789")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Complete("marco", "takeout.zip"); !errors.Is(err, ErrIncomplete) {
-		t.Fatalf("Complete error = %v, want ErrIncomplete on a hash mismatch", err)
+	if _, err := s.Complete("marco", "takeout.zip"); !errors.Is(err, ErrMismatch) {
+		t.Fatalf("Complete error = %v, want ErrMismatch", err)
 	}
 	if _, err := os.Stat(s.FinalPath("marco", "takeout.zip")); err == nil {
 		t.Error("a mismatched archive must not be left on disk")
+	}
+	status, err := s.Status("marco", "takeout.zip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.ReceivedChunks != 0 {
+		t.Errorf("received = %d after a mismatch, want every chunk to be sent again", status.ReceivedChunks)
 	}
 }
 
@@ -544,5 +715,36 @@ func TestCompleteAcceptsTheMatchingHash(t *testing.T) {
 	}
 	if _, err := s.Complete("marco", "takeout.zip"); err != nil {
 		t.Fatalf("Complete with the right hash: %v", err)
+	}
+}
+
+// A session written by the chunk-file layout cannot be resumed by this one.
+// It must be replaced, not misread as a session with every chunk present.
+func TestBeginReplacesASessionFromTheOldLayout(t *testing.T) {
+	s := newStore(t)
+	dir, err := s.sessionDir("marco", "takeout.zip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	old := `{"user":"marco","name":"takeout.zip","size":20,"chunkSize":10,"hash":"` + sha("0123456789abcdefghij") + `"}`
+	if err := os.WriteFile(filepath.Join(dir, manifestName), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "00000000.chunk"), []byte("0123456789"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := s.Begin("marco", "takeout.zip", 20, 10, sha("0123456789abcdefghij"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ReceivedChunks != 0 || session.TotalChunks != 2 {
+		t.Errorf("session = %+v, want a fresh session", session)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "00000000.chunk")); err == nil {
+		t.Error("the old chunk files should be gone")
 	}
 }

@@ -40,10 +40,12 @@
 </div>
 
 <main class="panel" id="upload"
+      data-reading="Reading {file}: {percent}%"
       data-sending="Sending {file}"
       data-progress="{sent} of {total} parts"
       data-sent="Sent. The import has started."
-      data-failed="Interrupted. Try again: it continues from the last piece.">
+      data-failed="Interrupted. Try again: it continues from the last piece."
+      data-mismatch="The file did not arrive intact. Send it again: it starts from the beginning.">
 	<div class="state" aria-live="polite">
 		
 		<p id="upload-progress" class="facts" hidden></p>

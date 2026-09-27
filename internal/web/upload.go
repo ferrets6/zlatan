@@ -19,9 +19,9 @@ type uploadBeginRequest struct {
 	ChunkSize int64  `json:"chunkSize"`
 	// Hash is the SHA-256 of the whole file, lowercase hex, computed in the
 	// browser. It is what makes a resume recognise the same file even when its
-	// name changed, and what refuses different content under a name already in
-	// use. Optional: a client that omits it still works, without those
-	// guarantees.
+	// name changed, and what keeps different content under a name already in
+	// use from mixing with it. Optional: a client that omits it still works,
+	// without those guarantees.
 	Hash string `json:"hash"`
 }
 
@@ -156,6 +156,11 @@ func (opts Options) uploadComplete(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, upload.ErrIncomplete):
 			// 409: the browser is expected to resume and retry, not to give up.
 			http.Error(w, err.Error(), http.StatusConflict)
+		case errors.Is(err, upload.ErrMismatch):
+			// 422: the chunks were discarded, so the file must be sent again
+			// from the start, and the person has to be told that.
+			opts.Log.Warn("uploadComplete: the upload does not match its hash", "user", user, "error", err)
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		case errors.Is(err, upload.ErrNotFound):
 			http.Error(w, "no such upload session", http.StatusNotFound)
 		default:

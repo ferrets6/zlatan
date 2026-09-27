@@ -302,10 +302,12 @@ in internal/i18n, through .T, already in their language.
 </div>
 
 <main class="panel" id="upload"
+      data-reading="{{ .T "upload.reading" }}"
       data-sending="{{ .T "upload.sending" }}"
       data-progress="{{ .T "upload.progress" }}"
       data-sent="{{ .T "upload.sent" }}"
-      data-failed="{{ .T "upload.failed" }}">
+      data-failed="{{ .T "upload.failed" }}"
+      data-mismatch="{{ .T "upload.mismatch" }}">
 	<div class="state" aria-live="polite">
 		{{ with .PhotosFacts }}<p class="facts">{{ . }}</p>{{ end }}
 		<p id="upload-progress" class="facts" hidden></p>

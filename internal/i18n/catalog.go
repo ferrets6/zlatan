@@ -107,11 +107,14 @@ var catalog = map[Lang]map[string]string{
 		"upload.keepOpen": "Keep this tab open while it sends.",
 		"upload.resumes":  "If it stops, it continues from the last piece.",
 		"upload.needsJs":  "Sending a file needs JavaScript.",
-		// {file}, {sent} and {total} are filled in by the upload script.
+		// {file}, {percent}, {sent} and {total} are filled in by the upload
+		// script.
+		"upload.reading":  "Reading {file}: {percent}%",
 		"upload.sending":  "Sending {file}",
 		"upload.progress": "{sent} of {total} parts",
 		"upload.sent":     "Sent. The import has started.",
 		"upload.failed":   "Interrupted. Try again: it continues from the last piece.",
+		"upload.mismatch": "The file did not arrive intact. Send it again: it starts from the beginning.",
 
 		"done.title":          "Done",
 		"done.google":         "Nothing was removed from Google.",
@@ -250,10 +253,12 @@ var catalog = map[Lang]map[string]string{
 		"upload.keepOpen": "Tieni aperta questa scheda mentre carica.",
 		"upload.resumes":  "Se si ferma, riprende dall'ultimo pezzo.",
 		"upload.needsJs":  "Per inviare un file serve JavaScript.",
+		"upload.reading":  "Lettura di {file}: {percent}%",
 		"upload.sending":  "Invio di {file}",
 		"upload.progress": "{sent} parti su {total}",
 		"upload.sent":     "Inviato. L'importazione è partita.",
 		"upload.failed":   "Interrotto. Riprova: continua dall'ultimo pezzo.",
+		"upload.mismatch": "Il file non è arrivato integro. Mandalo di nuovo: riparte dall'inizio.",
 
 		"done.title":          "Fatto",
 		"done.google":         "Da Google non è stato tolto niente.",

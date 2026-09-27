@@ -202,3 +202,29 @@ func TestUploadUnavailableWithoutStore(t *testing.T) {
 		t.Fatalf("code = %d, want 503", rec.Code)
 	}
 }
+
+// A file that arrives whole but is not what was announced must be told apart
+// from one still missing chunks: the browser has to send it all again, and
+// the person has to be told why. No import may start.
+func TestUploadCompleteReportsAMismatch(t *testing.T) {
+	runner := &fakeRunner{}
+	opts := uploadOptions(t, runner)
+	handler := Routes(opts)
+
+	body, _ := json.Marshal(map[string]any{"name": "takeout.zip", "size": 10, "chunkSize": 10, "hash": strings.Repeat("0", 64)})
+	r := request("POST", "/upload/begin", "marco")
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	handler.ServeHTTP(httptest.NewRecorder(), r)
+	if rec := putChunk(t, handler, "marco", "takeout.zip", 0, "0123456789"); rec.Code != http.StatusOK {
+		t.Fatalf("chunk: code = %d", rec.Code)
+	}
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, request("POST", "/upload/complete?name=takeout.zip", "marco"))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("complete: code = %d, want 422", rec.Code)
+	}
+	if len(runner.started) != 0 {
+		t.Errorf("a mismatched upload must not start an import: %v", runner.started)
+	}
+}
