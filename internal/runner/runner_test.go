@@ -1097,6 +1097,32 @@ func TestRunDriveRecordsTheQuotaEstimate(t *testing.T) {
 	}
 }
 
+// Read-only access cannot delete the export Zlatan collected from the Drive,
+// so the done message must tell the person to, and only on that route.
+func TestPhotosDoneNotificationMentionsTheExportLeftInDrive(t *testing.T) {
+	for _, fromDrive := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fromDrive=%v", fromDrive), func(t *testing.T) {
+			store := newFakeStore()
+			exec := &fakeExecutor{byCommand: map[string]scripted{
+				"upload": {lines: []string{"Processed: 3"}},
+			}}
+			r := newRunner(t, store, exec)
+			seedImmich(t, store, sealerOf(t, r))
+			writeTakeout(t, filepath.Join(r.cfg.StagingDir, core.SafeName("marco")))
+			n := &recordingNotifier{}
+			r = r.WithNotifier(n)
+
+			r.runPhotosImportHeld(context.Background(), "marco", fromDrive)
+
+			waitFor(t, func() bool { return len(n.all()) > 0 })
+			mentions := strings.Contains(n.all()[0].Body, `"Takeout"`)
+			if mentions != fromDrive {
+				t.Errorf("mentions the Takeout folder = %v, want %v: %q", mentions, fromDrive, n.all()[0].Body)
+			}
+		})
+	}
+}
+
 func TestRunDriveNotifiesOnSuccessAndFailure(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		store := newFakeStore()

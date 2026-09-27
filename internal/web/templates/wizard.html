@@ -187,6 +187,9 @@ in internal/i18n, through .T, already in their language.
 		{{ end }}
 	{{ else if .Photos.Done }}
 		<p class="fine">{{ with .Check .PhotosVerification }}{{ . }}{{ else }}{{ $.T "done.plain" }}{{ end }}</p>
+		{{- /* Zlatan only reads the Drive, so the export it collected from there
+		     stays in the person's Google storage until they delete it. */}}
+		{{ if .GoogleConnected }}<p class="fine">{{ .T "done.takeoutCleanup" .TakeoutFolder }}</p>{{ end }}
 		{{ with .ImmichURL }}
 		<div class="actions">
 			<a class="btn btn--primary" href="{{ . }}" data-app-scheme="immich://">{{ $.T "btn.openImmich" }}</a>

@@ -75,6 +75,7 @@ func screens(lang i18n.Lang) map[string]page {
 	done.DriveFacts = i18n.T(lang, "fact.files", i18n.Count(lang, 32900)) + " · " + i18n.Bytes(lang, 116_000_000_000)
 	done.PhotosFacts = i18n.T(lang, "fact.photos", i18n.Count(lang, 42552))
 	done.DriveVerification = &core.Verify{Checked: 500, Matched: 500}
+	done.GoogleConnected = true
 
 	stopped := base
 	stopped.Screen = "error"

@@ -583,11 +583,7 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	// Drive (the "Add to Drive" route), copying everything would drop tens of
 	// gigabytes of photo archive into Nextcloud as files. The photos belong in
 	// Immich, and the archive is disposable. Exclude it from the Drive copy.
-	takeoutFolder := r.cfg.Google.TakeoutFolder
-	if takeoutFolder == "" {
-		takeoutFolder = config.DefaultTakeoutFolder
-	}
-	args = append(args, "--exclude", "/"+takeoutFolder+"/**")
+	args = append(args, "--exclude", "/"+r.takeoutFolder()+"/**")
 
 	env, err := r.rcloneEnv(tokens, creds)
 	if err != nil {
@@ -930,10 +926,7 @@ func (r *Runner) checkTakeout(ctx context.Context, w core.TakeoutWait) error {
 // listed is present, because importing a half-written export is the failure
 // this whole step exists to avoid.
 func (r *Runner) takeoutReady(ctx context.Context, tokens oauth.Tokens) (bool, error) {
-	folder := r.cfg.Google.TakeoutFolder
-	if folder == "" {
-		folder = config.DefaultTakeoutFolder
-	}
+	folder := r.takeoutFolder()
 
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -999,10 +992,7 @@ func (r *Runner) runTakeoutDownload(ctx context.Context, user string, tokens oau
 		return
 	}
 
-	folder := r.cfg.Google.TakeoutFolder
-	if folder == "" {
-		folder = config.DefaultTakeoutFolder
-	}
+	folder := r.takeoutFolder()
 
 	// The state is already downloading: the watcher claimed it before starting
 	// this goroutine, so a second tick cannot start a second download.
@@ -1030,7 +1020,7 @@ func (r *Runner) runTakeoutDownload(ctx context.Context, user string, tokens oau
 
 	// The download holds the heavy slot for the whole download+import, so the
 	// import must not take it again: see runPhotosImportHeld.
-	r.runPhotosImportHeld(ctx, user)
+	r.runPhotosImportHeld(ctx, user, true)
 }
 
 // runPhotosImport is the entry point for a caller that is not already holding
@@ -1038,14 +1028,18 @@ func (r *Runner) runTakeoutDownload(ctx context.Context, user string, tokens oau
 func (r *Runner) runPhotosImport(ctx context.Context, user string) {
 	r.acquire()
 	defer r.release()
-	r.runPhotosImportHeld(ctx, user)
+	r.runPhotosImportHeld(ctx, user, false)
 }
 
 // runPhotosImportHeld does the import without taking the heavy slot. The
 // Takeout download already holds it for the whole download+import, and taking
 // it twice in the same goroutine deadlocks a one-slot limiter: the second
 // acquire waits for a release that can only happen after it returns.
-func (r *Runner) runPhotosImportHeld(ctx context.Context, user string) {
+//
+// fromDrive says the archive was collected from the person's Drive, where it
+// still takes up their Google storage: read-only access cannot delete it, so
+// the person is told to.
+func (r *Runner) runPhotosImportHeld(ctx context.Context, user string, fromDrive bool) {
 	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
 	defer cancel()
 
@@ -1167,9 +1161,13 @@ func (r *Runner) runPhotosImportHeld(ctx context.Context, user string) {
 	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosDone, v.Detail); err != nil {
 		r.log.Error("runPhotosImport: set done", "user", user, "error", err)
 	}
+	body := "The import finished. " + v.Detail + "."
+	if fromDrive {
+		body += "\n\nThe export is still in the folder \"" + r.takeoutFolder() + "\" in your Google Drive, taking up your Google storage: delete it there."
+	}
 	r.notifyBestEffort(ctx, notify.Message{
 		Title: "zlatan: your photos are in Immich",
-		Body:  "The import finished. " + v.Detail + ".",
+		Body:  body,
 		Tags:  []string{"white_check_mark"},
 	})
 }
@@ -1249,6 +1247,14 @@ func (r *Runner) failPhotos(ctx context.Context, user, message string) {
 		Priority: 4,
 		Tags:     []string{"warning"},
 	})
+}
+
+// takeoutFolder is the folder Google writes an "Add to Drive" export into.
+func (r *Runner) takeoutFolder() string {
+	if r.cfg.Google.TakeoutFolder == "" {
+		return config.DefaultTakeoutFolder
+	}
+	return r.cfg.Google.TakeoutFolder
 }
 
 func (r *Runner) openTokens(tok core.Token) (oauth.Tokens, error) {
