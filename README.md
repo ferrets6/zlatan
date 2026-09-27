@@ -4,7 +4,7 @@
 
 # zlatan
 
-> Status: **v0.6.4** (2026-09-27). The service runs, the schema is applied, the wizard renders and gates access; the Google OAuth flow, the Nextcloud Login Flow (per-person app password), the runner that drives `rclone` straight into Nextcloud over WebDAV, the runner that drives `immich-go`, the resumable Takeout upload and the watcher that collects a Takeout from the person's own Drive all work. A finished copy is now **verified** (whole tree by size, a sample byte for byte), **notified** over ntfy, and its staging is **purged** on a retention clock; before the copy Zlatan reads the source size and the person's Nextcloud usage and **warns** if the copy would exceed their budget. The image is published at `ghcr.io/marcodellemarche/zlatan`. Each person connects their own Immich API key, so their photos land in their own account, and the wizard links them to the public address of each cloud, never the internal Docker one. A migration a restart left mid-flight is put back to a state the person can restart, rather than spinning forever.
+> Status: **v0.7.0** (2026-09-27). The service runs, the schema is applied, the wizard renders and gates access; the Google OAuth flow, the Nextcloud Login Flow (per-person app password), the runner that drives `rclone` straight into Nextcloud over WebDAV, the runner that drives `immich-go`, the resumable Takeout upload and the watcher that collects a Takeout from the person's own Drive all work. A finished copy is now **verified** (whole tree by size, a sample byte for byte), **notified** over ntfy, and its staging is **purged** on a retention clock; before the copy Zlatan reads the source size and the person's Nextcloud usage and **warns** if the copy would exceed their budget. The image is published at `ghcr.io/marcodellemarche/zlatan`. Each person connects their own Immich API key, so their photos land in their own account, and the wizard links them to the public address of each cloud, never the internal Docker one. A migration a restart left mid-flight is put back to a state the person can restart, rather than spinning forever. `/about`, `/privacy` and `/terms` are readable without signing in, which is what Google's OAuth verification requires.
 
 zlatan is a self-guided migration service for self-hosted stacks. A person who is not technical (a family member, a friend) opens it in a browser, signs in with the household single sign-on, and is walked through moving their data off Google: **Google Drive → Nextcloud** and **Google Photos → Immich**. The operator configures it once and is not in the loop for every person.
 
@@ -50,6 +50,7 @@ The service **holds the Google OAuth refresh token of every person who uses it**
 - **The identity comes only from the forward-auth header** (`Remote-User`), and is believed only when the request arrives from the configured proxy network. Never from a URL parameter or a cookie: a person can only ever see their own migration, by construction.
 - **A secret shared with the proxy** (`X-Zlatan-Proxy-Secret`): a container on the same Docker network cannot reach the service directly and skip the SSO.
 - **A public bind without a secret is refused at startup**, not accepted silently.
+- **The public pages carry no data.** They are outside the SSO but still behind the proxy secret, and since the identity comes only from the forward-auth header, every other route answers an anonymous request with an empty page anyway.
 
 ## Configuration
 
@@ -87,5 +88,6 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - [x] Quotas: the warning (source size + current Nextcloud usage against the budget) is implemented.
 - [x] A per-person Immich API key. Immich has no admin endpoint that mints a key for another account, so the person creates their own in Immich and pastes it into the wizard; Zlatan validates it against `/api/users/me`, shows whose account it is, and seals it per person. The import runs as them, so photos land in their own library and no shared key exists to misfile anyone.
 - [x] Recovery after a restart: a track left copying, verifying, downloading or importing is put back to a restartable state at startup. The work is not resumed on its own, and restarting it is safe because rclone and immich-go skip what is already there.
+- [x] Public pages: `/about`, `/privacy` and `/terms`, in English and Italian, readable without an identity. Google will not verify an app whose privacy policy sits behind a login, and rejects a home page that is only a login screen. The policy renders the scope from the same constant the OAuth client asks with, so it cannot drift from the request. Caddy serves these four paths, plus `/static`, outside the SSO.
 
 The full design lives in the homelab repository, `docs/zlatan-service.md`.
