@@ -216,3 +216,41 @@ func TestQuotaOverrun(t *testing.T) {
 		})
 	}
 }
+
+// A progress with no arguments is stored as the bare key, so the common case
+// stays readable in the database and in a log line.
+func TestProgressRoundTripsWithoutArguments(t *testing.T) {
+	p := Progress{Key: ProgressPreparing}
+	if got := EncodeProgress(p); got != ProgressPreparing {
+		t.Fatalf("EncodeProgress = %q, want the bare key", got)
+	}
+	if got := DecodeProgress(ProgressPreparing); got.Key != ProgressPreparing || len(got.Args) != 0 {
+		t.Fatalf("DecodeProgress = %+v, want the key and no args", got)
+	}
+}
+
+// A progress with arguments carries the numbers as numbers, so the web layer
+// can format them in the reader's language rather than the server's.
+func TestProgressRoundTripsWithArguments(t *testing.T) {
+	p := Progress{Key: ProgressCopying, Args: []int64{44_181_000_000, 12480}}
+	encoded := EncodeProgress(p)
+	if !strings.HasPrefix(encoded, "{") {
+		t.Fatalf("a progress with arguments must be JSON, got %q", encoded)
+	}
+	got := DecodeProgress(encoded)
+	if got.Key != p.Key || len(got.Args) != 2 || got.Args[0] != p.Args[0] || got.Args[1] != p.Args[1] {
+		t.Fatalf("DecodeProgress(EncodeProgress(p)) = %+v, want %+v", got, p)
+	}
+}
+
+// A line written before the keys existed, or by hand, must not blank the slot:
+// it is shown as it is.
+func TestDecodeProgressKeepsAPlainSentence(t *testing.T) {
+	got := DecodeProgress("some older sentence")
+	if got.Key != "some older sentence" || len(got.Args) != 0 {
+		t.Fatalf("DecodeProgress = %+v, want the sentence as the key", got)
+	}
+	if DecodeProgress("").Key != "" {
+		t.Error("an empty value must decode to an empty progress")
+	}
+}

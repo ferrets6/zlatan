@@ -18,6 +18,7 @@ import (
 
 	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/i18n"
 	"github.com/marcodellemarche/zlatan/internal/immich"
 	"github.com/marcodellemarche/zlatan/internal/oauth"
 	"github.com/marcodellemarche/zlatan/internal/store"
@@ -282,7 +283,8 @@ func TestStatusOnlyEverReturnsTheCaller(t *testing.T) {
 
 func TestStatusReportsOwnProgress(t *testing.T) {
 	opts := testOptions(&fakeRunner{})
-	if _, err := opts.State.SetDriveState(context.Background(), "marco", core.DriveCopying, "copied 2 GiB"); err != nil {
+	progress := core.EncodeProgress(core.Progress{Key: core.ProgressCopying, Args: []int64{2 << 30, 4}})
+	if _, err := opts.State.SetDriveState(context.Background(), "marco", core.DriveCopying, progress); err != nil {
 		t.Fatal(err)
 	}
 	handler := Routes(opts)
@@ -296,6 +298,21 @@ func TestStatusReportsOwnProgress(t *testing.T) {
 	}
 	if body["user"] != "marco" {
 		t.Errorf("user = %v", body["user"])
+	}
+	// The progress must reach the page as a rendered sentence, not the key it
+	// is stored as: the polling script shows it verbatim.
+	tracks, _ := body["tracks"].([]any)
+	if len(tracks) == 0 {
+		t.Fatalf("no tracks in the status response")
+	}
+	drive, _ := tracks[0].(map[string]any)
+	got, _ := drive["Progress"].(string)
+	want := i18n.Progress(i18n.EN, core.Progress{Key: core.ProgressCopying, Args: []int64{2 << 30, 4}})
+	if got != want {
+		t.Errorf("progress = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "progress.") {
+		t.Errorf("the raw key leaked to the page: %q", got)
 	}
 }
 
@@ -649,10 +666,11 @@ func TestInterruptedStateIsRestartableFromThePage(t *testing.T) {
 	opts := oauthOptions(&fakeGoogle{}, store)
 	opts.Runner = &fakeRunner{}
 	// Seed a row stuck in the states only the running process writes.
-	if _, err := opts.State.SetDriveState(context.Background(), "marco", core.DriveSelecting, "interrupted by a restart: it will pick up where it left off"); err != nil {
+	interrupted := core.EncodeProgress(core.Progress{Key: core.ProgressInterrupted})
+	if _, err := opts.State.SetDriveState(context.Background(), "marco", core.DriveSelecting, interrupted); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := opts.State.SetPhotosState(context.Background(), "marco", core.PhotosNotStarted, "interrupted by a restart: it will pick up where it left off"); err != nil {
+	if _, err := opts.State.SetPhotosState(context.Background(), "marco", core.PhotosNotStarted, interrupted); err != nil {
 		t.Fatal(err)
 	}
 	handler := Routes(opts)

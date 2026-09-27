@@ -32,6 +32,7 @@ import (
 
 	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
+	"github.com/marcodellemarche/zlatan/internal/i18n"
 	"github.com/marcodellemarche/zlatan/internal/immich"
 	"github.com/marcodellemarche/zlatan/internal/nextcloud"
 	"github.com/marcodellemarche/zlatan/internal/notify"
@@ -48,12 +49,6 @@ const DriveDestination = "Google Drive"
 // nextcloudFlowProvider is the token provider under which the in-flight Login
 // Flow poll token is stored, separate from the granted credentials.
 const nextcloudFlowProvider = "nextcloud-flow"
-
-// msgCredentialUnreadable is the failure for a stored credential that no
-// longer decrypts. That is the server's configuration (a changed token key),
-// not the person's credential, so it is never cleared: clearing it would turn
-// a configuration mistake into every person losing every connection.
-const msgCredentialUnreadable = "a saved connection could not be read: ask whoever runs the server"
 
 // probeTimeout bounds a credential check, so a provider that hangs cannot hold
 // up the request or the failure path that asked.
@@ -242,13 +237,13 @@ func (r *Runner) RecoverInterrupted(ctx context.Context) {
 			// Back to "selecting": the credentials are still stored, so the
 			// person only has to press start again.
 			if _, err := r.store.SetDriveState(ctx, m.User, core.DriveSelecting,
-				"interrupted by a restart: it will pick up where it left off"); err != nil {
+				core.EncodeProgress(core.Progress{Key: core.ProgressInterrupted})); err != nil {
 				r.log.Error("recovery: reset drive", "user", m.User, "error", err)
 			}
 		}
 		if m.Photos {
 			if _, err := r.store.SetPhotosState(ctx, m.User, core.PhotosNotStarted,
-				"interrupted by a restart: it will pick up where it left off"); err != nil {
+				core.EncodeProgress(core.Progress{Key: core.ProgressInterrupted})); err != nil {
 				r.log.Error("recovery: reset photos", "user", m.User, "error", err)
 			}
 		}
@@ -328,7 +323,7 @@ func (r *Runner) PollNextcloud(ctx context.Context, user string) (core.DriveStat
 	_ = r.store.DeleteToken(ctx, user, nextcloudFlowProvider)
 
 	if _, err := r.store.SetDriveState(ctx, user, core.DriveSelecting,
-		"Nextcloud is connected: ready to copy"); err != nil {
+		core.EncodeProgress(core.Progress{Key: core.ProgressNextcloudReady})); err != nil {
 		return "", err
 	}
 	return core.DriveSelecting, nil
@@ -398,7 +393,7 @@ func (r *Runner) StartDrive(ctx context.Context, user string) error {
 	tokens, err := r.openTokens(tok)
 	if err != nil {
 		r.log.Error("StartDrive: open Google token", "user", user, "error", err)
-		r.failDrive(ctx, user, msgCredentialUnreadable)
+		r.failDrive(ctx, user, core.Progress{Key: core.FailCredentialUnread})
 		return fmt.Errorf("%w: %v", core.ErrCredentialUnreadable, err)
 	}
 	ncTok, err := r.store.GetToken(ctx, user, nextcloud.Provider)
@@ -408,16 +403,16 @@ func (r *Runner) StartDrive(ctx context.Context, user string) error {
 	creds, err := nextcloud.OpenCredentials(r.sealer, ncTok.Sealed)
 	if err != nil {
 		r.log.Error("StartDrive: open Nextcloud credential", "user", user, "error", err)
-		r.failDrive(ctx, user, msgCredentialUnreadable)
+		r.failDrive(ctx, user, core.Progress{Key: core.FailCredentialUnread})
 		return fmt.Errorf("%w: %v", core.ErrCredentialUnreadable, err)
 	}
 
 	if err := r.preflightGoogle(ctx, user, tokens); err != nil {
-		r.reconnectDrive(ctx, user, "Google is not connected: connect it before copying")
+		r.reconnectDrive(ctx, user, core.ReconnectGoogleCopy)
 		return err
 	}
 	if err := r.preflightNextcloud(ctx, user, creds); err != nil {
-		r.reconnectDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
+		r.reconnectDrive(ctx, user, core.ReconnectNextcloudCopy)
 		return err
 	}
 
@@ -497,16 +492,22 @@ func (r *Runner) preflightImmich(ctx context.Context, user string, creds immich.
 // the missing credential again, and tells the person why. The credential
 // itself is cleared by the preflight or the caller; without that the wizard
 // would still read it as connected and show a start button that loops.
-func (r *Runner) reconnectDrive(ctx context.Context, user, message string) {
-	if _, err := r.store.SetDriveState(ctx, user, core.DriveSelecting, message); err != nil {
+//
+// key is a catalogue key, not a sentence: the wizard renders it in the
+// reader's language. The notification is the one place a sentence is needed,
+// because a push has no reader language to consult, so it is composed here in
+// English.
+func (r *Runner) reconnectDrive(ctx context.Context, user, key string) {
+	progress := core.EncodeProgress(core.Progress{Key: key})
+	if _, err := r.store.SetDriveState(ctx, user, core.DriveSelecting, progress); err != nil {
 		r.log.Error("reconnectDrive: set state", "user", user, "error", err)
 	}
-	if err := r.store.SetError(ctx, user, message); err != nil {
+	if err := r.store.SetError(ctx, user, progress); err != nil {
 		r.log.Error("reconnectDrive: set error", "user", user, "error", err)
 	}
 	r.notifyBestEffort(ctx, notify.Message{
 		Title:    "zlatan: a connection needs renewing",
-		Body:     message + "\n\nNothing was lost. Connect it again and the copy picks up where it stopped.",
+		Body:     reasonSentence(core.Progress{Key: key}) + "\n\nNothing was lost. Connect it again and the copy picks up where it stopped.",
 		Priority: 4,
 		Tags:     []string{"warning"},
 	})
@@ -515,16 +516,17 @@ func (r *Runner) reconnectDrive(ctx context.Context, user, message string) {
 // reconnectPhotos is reconnectDrive for the Photos half: it clears the dead
 // credential and moves the track back to the start, where the wizard asks for
 // the Immich key again.
-func (r *Runner) reconnectPhotos(ctx context.Context, user, message string) {
-	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosNotStarted, message); err != nil {
+func (r *Runner) reconnectPhotos(ctx context.Context, user, key string) {
+	progress := core.EncodeProgress(core.Progress{Key: key})
+	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosNotStarted, progress); err != nil {
 		r.log.Error("reconnectPhotos: set state", "user", user, "error", err)
 	}
-	if err := r.store.SetError(ctx, user, message); err != nil {
+	if err := r.store.SetError(ctx, user, progress); err != nil {
 		r.log.Error("reconnectPhotos: set error", "user", user, "error", err)
 	}
 	r.notifyBestEffort(ctx, notify.Message{
 		Title:    "zlatan: a connection needs renewing",
-		Body:     message + "\n\nNothing was lost. Connect it again and the import picks up where it stopped.",
+		Body:     reasonSentence(core.Progress{Key: key}) + "\n\nNothing was lost. Connect it again and the import picks up where it stopped.",
 		Priority: 4,
 		Tags:     []string{"warning"},
 	})
@@ -537,7 +539,7 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
 	defer cancel()
 
-	if _, err := r.store.SetDriveState(ctx, user, core.DriveCopying, "preparing the copy"); err != nil {
+	if _, err := r.store.SetDriveState(ctx, user, core.DriveCopying, core.EncodeProgress(core.Progress{Key: core.ProgressPreparing})); err != nil {
 		r.log.Error("runDrive: set state", "user", user, "error", err)
 		return
 	}
@@ -545,24 +547,24 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	tokens, err := r.openTokens(tok)
 	if err != nil {
 		r.log.Error("runDrive: open Google token", "user", user, "error", err)
-		r.failDrive(ctx, user, msgCredentialUnreadable)
+		r.failDrive(ctx, user, core.Progress{Key: core.FailCredentialUnread})
 		return
 	}
 
 	// The Nextcloud app password the person granted through the Login Flow.
 	ncTok, err := r.store.GetToken(ctx, user, nextcloud.Provider)
 	if err != nil {
-		r.reconnectDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
+		r.reconnectDrive(ctx, user, core.ReconnectNextcloudCopy)
 		return
 	}
 	creds, err := nextcloud.OpenCredentials(r.sealer, ncTok.Sealed)
 	if err != nil {
 		r.log.Error("runDrive: open Nextcloud credential", "user", user, "error", err)
-		r.failDrive(ctx, user, msgCredentialUnreadable)
+		r.failDrive(ctx, user, core.Progress{Key: core.FailCredentialUnread})
 		return
 	}
 	if r.nc == nil {
-		r.failDrive(ctx, user, "Nextcloud is not configured")
+		r.failDrive(ctx, user, core.Progress{Key: core.FailNextcloudMissing})
 		return
 	}
 
@@ -587,7 +589,7 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 
 	env, err := r.rcloneEnv(tokens, creds)
 	if err != nil {
-		r.failDrive(ctx, user, "the copy could not be prepared")
+		r.failDrive(ctx, user, core.Progress{Key: core.FailCopyPrepare})
 		r.log.Error("runDrive: build environment", "user", user, "error", err)
 		return
 	}
@@ -600,10 +602,10 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	// rather than copying for hours against a password that no longer works.
 	if err := r.recordQuota(ctx, user, tokens, creds, env); err != nil {
 		if errors.Is(err, core.ErrCredentialRefused) {
-			r.reconnectDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
+			r.reconnectDrive(ctx, user, core.ReconnectNextcloudCopy)
 			return
 		}
-		r.failDrive(ctx, user, "the copy could not be prepared")
+		r.failDrive(ctx, user, core.Progress{Key: core.FailCopyPrepare})
 		r.log.Error("runDrive: record quota", "user", user, "error", err)
 		return
 	}
@@ -625,7 +627,10 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		if !ok {
 			return
 		}
-		lastProgress = fmt.Sprintf("copied %s in %d files", core.FormatBytes(bytes), files)
+		lastProgress = core.EncodeProgress(core.Progress{
+			Key:  core.ProgressCopying,
+			Args: []int64{bytes, files},
+		})
 		// Clamp both at zero: a re-scan can report a lower count, and a
 		// negative delta would subtract from the running total.
 		if deltaBytes, deltaFiles := bytes-reportedBytes, files-reportedFiles; deltaBytes > 0 || deltaFiles > 0 {
@@ -657,13 +662,13 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		nextcloudDead := errors.Is(r.preflightNextcloud(ctx, user, creds), core.ErrCredentialRefused)
 		switch {
 		case googleDead && nextcloudDead:
-			r.reconnectDrive(ctx, user, "Google and Nextcloud are not connected: connect them before copying")
+			r.reconnectDrive(ctx, user, core.ReconnectBothCopy)
 		case googleDead:
-			r.reconnectDrive(ctx, user, "Google is not connected: connect it before copying")
+			r.reconnectDrive(ctx, user, core.ReconnectGoogleCopy)
 		case nextcloudDead:
-			r.reconnectDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
+			r.reconnectDrive(ctx, user, core.ReconnectNextcloudCopy)
 		default:
-			r.failDrive(ctx, user, "the copy from Google Drive did not finish")
+			r.failDrive(ctx, user, core.Progress{Key: core.FailCopyUnfinished})
 		}
 		return
 	}
@@ -671,24 +676,24 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	// Verify before declaring victory: the whole tree by size, then a random
 	// sample byte for byte. A copy that exited cleanly can still be missing a
 	// file, and this is the step that says so.
-	if _, err := r.store.SetDriveState(ctx, user, core.DriveVerifying, "checking the copy against your Drive"); err != nil {
+	if _, err := r.store.SetDriveState(ctx, user, core.DriveVerifying, core.EncodeProgress(core.Progress{Key: core.ProgressChecking})); err != nil {
 		r.log.Error("runDrive: set verifying", "user", user, "error", err)
 	}
 	v, err := r.VerifyDrive(ctx, user, tokens, creds)
 	if err != nil {
 		r.log.Error("runDrive: verify", "user", user, "error", err)
-		r.failDrive(ctx, user, "the copy finished but could not be checked")
+		r.failDrive(ctx, user, core.Progress{Key: core.FailCopyUnchecked})
 		return
 	}
 	if err := r.store.PutVerification(ctx, v); err != nil {
 		r.log.Error("runDrive: store verification", "user", user, "error", err)
 	}
 	if !v.OK() {
-		r.failDrive(ctx, user, fmt.Sprintf("the check found %d files that did not match: %s", v.Mismatch, v.Detail))
+		r.failDrive(ctx, user, core.Progress{Key: core.FailMismatch, Args: []int64{int64(v.Mismatch)}})
 		return
 	}
 
-	if _, err := r.store.SetDriveState(ctx, user, core.DriveDone, v.Detail); err != nil {
+	if _, err := r.store.SetDriveState(ctx, user, core.DriveDone, core.EncodeProgress(core.Progress{Key: core.ProgressDriveVerified})); err != nil {
 		r.log.Error("runDrive: set done", "user", user, "error", err)
 	}
 	r.notifyBestEffort(ctx, notify.Message{
@@ -696,10 +701,19 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		Body:  "The copy finished and was checked. " + v.Detail + ".",
 		Tags:  []string{"white_check_mark"},
 	})
-	r.log.Info("runDrive: copy finished and verified", "user", user, "checked", v.Checked, "progress", lastProgress)
+	r.log.Info("runDrive: copy finished and verified", "user", user, "checked", v.Checked)
 }
 
-func (r *Runner) failDrive(ctx context.Context, user, message string) {
+// reasonSentence renders a stored reason in English, for a push notification.
+// A notification has no reader language to consult, so English is the honest
+// choice; the wizard, which does know, renders the same key in its own
+// language.
+func reasonSentence(p core.Progress) string {
+	return i18n.Progress(i18n.EN, p)
+}
+
+func (r *Runner) failDrive(ctx context.Context, user string, reason core.Progress) {
+	message := core.EncodeProgress(reason)
 	if err := r.store.SetError(ctx, user, message); err != nil {
 		r.log.Error("failDrive: set error", "user", user, "error", err)
 	}
@@ -708,7 +722,7 @@ func (r *Runner) failDrive(ctx context.Context, user, message string) {
 	}
 	r.notifyBestEffort(ctx, notify.Message{
 		Title:    "zlatan: the file copy stopped",
-		Body:     message + "\n\nNothing was lost. Starting again picks up where it stopped.",
+		Body:     reasonSentence(reason) + "\n\nNothing was lost. Starting again picks up where it stopped.",
 		Priority: 4,
 		Tags:     []string{"warning"},
 	})
@@ -729,7 +743,7 @@ func (r *Runner) BeginPhotosUpload(ctx context.Context, user string) error {
 		return fmt.Errorf("%w: connect Immich before uploading", err)
 	}
 	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosAwaitingUpload,
-		"waiting for you to send the export"); err != nil {
+		core.EncodeProgress(core.Progress{Key: core.ProgressAwaitingUpload})); err != nil {
 		return err
 	}
 	return nil
@@ -749,7 +763,7 @@ func (r *Runner) StartPhotosImport(ctx context.Context, user string) error {
 		return fmt.Errorf("%w: connect Immich before importing", err)
 	}
 	if err := r.preflightImmich(ctx, user, creds); err != nil {
-		r.reconnectPhotos(ctx, user, "Immich is not connected: add your API key before importing")
+		r.reconnectPhotos(ctx, user, core.ReconnectImmichImport)
 		return err
 	}
 	go r.runPhotosImport(context.WithoutCancel(ctx), user)
@@ -790,7 +804,7 @@ func (r *Runner) StartPhotosTakeout(ctx context.Context, user string) error {
 		return fmt.Errorf("%w: connect Immich before asking for the export", err)
 	}
 	if err := r.preflightImmich(ctx, user, immichCreds); err != nil {
-		r.reconnectPhotos(ctx, user, "Immich is not connected: add your API key before asking for the export")
+		r.reconnectPhotos(ctx, user, core.ReconnectImmichExport)
 		return err
 	}
 	// Without the Drive token there is nothing to watch the Drive with: the
@@ -803,15 +817,15 @@ func (r *Runner) StartPhotosTakeout(ctx context.Context, user string) error {
 	tokens, err := r.openTokens(tok)
 	if err != nil {
 		r.log.Error("StartPhotosTakeout: open Google token", "user", user, "error", err)
-		r.failPhotos(ctx, user, msgCredentialUnreadable)
+		r.failPhotos(ctx, user, core.Progress{Key: core.FailCredentialUnread})
 		return fmt.Errorf("%w: %v", core.ErrCredentialUnreadable, err)
 	}
 	if err := r.preflightGoogle(ctx, user, tokens); err != nil {
-		r.reconnectPhotos(ctx, user, "Google is not connected: connect it before asking for the export")
+		r.reconnectPhotos(ctx, user, core.ReconnectGoogleExport)
 		return err
 	}
 	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosAwaitingTakeout,
-		"waiting for Google to put the export in your Drive"); err != nil {
+		core.EncodeProgress(core.Progress{Key: core.ProgressAwaitingTakeout})); err != nil {
 		return err
 	}
 	return nil
@@ -873,7 +887,7 @@ func (r *Runner) checkTakeout(ctx context.Context, w core.TakeoutWait) error {
 	}
 	if !w.Since.IsZero() && time.Since(w.Since) > maxWait {
 		r.log.Info("takeout wait expired", "user", user, "since", w.Since)
-		r.failPhotos(ctx, user, "the export did not arrive in time: upload the Takeout file instead")
+		r.failPhotos(ctx, user, core.Progress{Key: core.FailTakeoutLate})
 		return nil
 	}
 
@@ -883,7 +897,7 @@ func (r *Runner) checkTakeout(ctx context.Context, w core.TakeoutWait) error {
 	}
 	tokens, err := r.openTokens(tok)
 	if err != nil {
-		r.failPhotos(ctx, user, msgCredentialUnreadable)
+		r.failPhotos(ctx, user, core.Progress{Key: core.FailCredentialUnread})
 		return err
 	}
 
@@ -893,7 +907,7 @@ func (r *Runner) checkTakeout(ctx context.Context, w core.TakeoutWait) error {
 		// that can never move. The listing's failure is only a reason to ask
 		// Google directly; its text is not evidence of a refusal.
 		if errors.Is(r.preflightGoogle(ctx, user, tokens), core.ErrCredentialRefused) {
-			r.reconnectPhotos(ctx, user, "Google is not connected: connect it before asking for the export")
+			r.reconnectPhotos(ctx, user, core.ReconnectGoogleExport)
 			return nil
 		}
 		return err
@@ -911,7 +925,7 @@ func (r *Runner) checkTakeout(ctx context.Context, w core.TakeoutWait) error {
 	// of the same folder. Claiming the person in the tick makes the claim
 	// atomic with the decision to start.
 	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosDownloading,
-		"downloading the export from your Drive"); err != nil {
+		core.EncodeProgress(core.Progress{Key: core.ProgressDownloading})); err != nil {
 		return err
 	}
 
@@ -987,7 +1001,7 @@ func (r *Runner) runTakeoutDownload(ctx context.Context, user string, tokens oau
 
 	staging := filepath.Join(r.cfg.StagingDir, core.SafeName(user))
 	if err := os.MkdirAll(staging, 0o750); err != nil {
-		r.failPhotos(ctx, user, "the staging area could not be prepared")
+		r.failPhotos(ctx, user, core.Progress{Key: core.FailStagingPrepare})
 		r.log.Error("runTakeoutDownload: create staging", "user", user, "error", err)
 		return
 	}
@@ -1011,10 +1025,10 @@ func (r *Runner) runTakeoutDownload(ctx context.Context, user string, tokens oau
 	if err := r.exec.Run(ctx, "rclone", args, r.driveEnv(tokens), tail.Add); err != nil {
 		r.log.Error("runTakeoutDownload: rclone", "user", user, "error", err, "output", tail.String())
 		if errors.Is(r.preflightGoogle(ctx, user, tokens), core.ErrCredentialRefused) {
-			r.reconnectPhotos(ctx, user, "Google is not connected: connect it before asking for the export")
+			r.reconnectPhotos(ctx, user, core.ReconnectGoogleExport)
 			return
 		}
-		r.failPhotos(ctx, user, "the export could not be downloaded from your Drive")
+		r.failPhotos(ctx, user, core.Progress{Key: core.FailDownloadFailed})
 		return
 	}
 
@@ -1043,7 +1057,7 @@ func (r *Runner) runPhotosImportHeld(ctx context.Context, user string, fromDrive
 	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
 	defer cancel()
 
-	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosImporting, "importing into Immich"); err != nil {
+	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosImporting, core.EncodeProgress(core.Progress{Key: core.ProgressImporting})); err != nil {
 		r.log.Error("runPhotosImport: set state", "user", user, "error", err)
 		return
 	}
@@ -1054,11 +1068,11 @@ func (r *Runner) runPhotosImportHeld(ctx context.Context, user string, fromDrive
 	staging := filepath.Join(r.cfg.StagingDir, core.SafeName(user))
 	archives, err := filepath.Glob(filepath.Join(staging, "*.zip"))
 	if err != nil {
-		r.failPhotos(ctx, user, "the staging area could not be read")
+		r.failPhotos(ctx, user, core.Progress{Key: core.FailStagingRead})
 		return
 	}
 	if len(archives) == 0 {
-		r.failPhotos(ctx, user, "no Takeout archive found: upload one first")
+		r.failPhotos(ctx, user, core.Progress{Key: core.FailNoArchive})
 		return
 	}
 
@@ -1067,9 +1081,13 @@ func (r *Runner) runPhotosImportHeld(ctx context.Context, user string, fromDrive
 	// ready, and importing it would mark the migration done having copied
 	// nothing. Refuse it here, where the reason can be said, rather than after
 	// an import that found zero assets.
-	if err := r.validateArchives(ctx, archives); err != nil {
-		r.failPhotos(ctx, user, err.Error())
+	if reason, err := r.validateArchives(ctx, archives); err != nil {
+		r.failPhotos(ctx, user, core.Progress{Key: core.FailArchiveUnreadable})
 		r.log.Error("runPhotosImport: archive validation", "user", user, "archives", archives, "error", err)
+		return
+	} else if reason.Key != "" {
+		r.failPhotos(ctx, user, reason)
+		r.log.Warn("runPhotosImport: archive rejected", "user", user, "archives", archives, "reason", reason.Key)
 		return
 	}
 
@@ -1079,7 +1097,7 @@ func (r *Runner) runPhotosImportHeld(ctx context.Context, user string, fromDrive
 	// with a fallback that would silently misfile the import.
 	creds, err := r.ImmichKey(ctx, user)
 	if err != nil {
-		r.failPhotos(ctx, user, "Immich is not connected: add your API key before importing")
+		r.failPhotos(ctx, user, core.Progress{Key: core.FailImmichMissing})
 		r.log.Error("runPhotosImport: no Immich key", "user", user, "error", err)
 		return
 	}
@@ -1120,19 +1138,37 @@ func (r *Runner) runPhotosImportHeld(ctx context.Context, user string, fromDrive
 		// output names every file it touched, so it cannot tell a refusal from
 		// a photo called "Forbidden.jpg": Immich is asked directly instead.
 		if errors.Is(r.preflightImmich(ctx, user, creds), core.ErrCredentialRefused) {
-			r.reconnectPhotos(ctx, user, "Immich is not connected: add your API key before importing")
+			r.reconnectPhotos(ctx, user, core.ReconnectImmichImport)
 			return
 		}
-		r.failPhotos(ctx, user, "the import into Immich did not finish")
+		// immich-go exits non-zero when any single asset failed, and it prints
+		// the report before doing so. That report was already parsed line by
+		// line, so a run that imported thousands of photos and failed on one is
+		// not "did not finish": saying so is false, and it hides the fact that
+		// the library is now in Immich. Report what actually happened, and let
+		// the retry button (which is safe: duplicates are skipped) finish the
+		// rest.
+		if report.processed > 0 {
+			r.finishPhotosImport(ctx, user, report, fromDrive)
+			return
+		}
+		r.failPhotos(ctx, user, core.Progress{Key: core.FailImportUnfinished})
 		return
 	}
 
+	r.finishPhotosImport(ctx, user, report, fromDrive)
+}
+
+// finishPhotosImport records the outcome of a run that reached its report. It
+// is the single place that decides done from failed, so a clean exit and a
+// non-zero one that still did the work cannot report differently.
+func (r *Runner) finishPhotosImport(ctx context.Context, user string, report immichReport, fromDrive bool) {
 	processed, discarded, errs, pending := report.processed, report.discarded, report.errors, report.pending
 	// A run that processed nothing, discarded nothing and failed on nothing did
 	// not import: it found no assets at all. Reporting that as done would claim
 	// a migration that never happened, so it is a failure with a plain reason.
 	if processed == 0 && discarded == 0 && errs == 0 && pending == 0 {
-		r.failPhotos(ctx, user, "the archive did not contain any photos or videos to import")
+		r.failPhotos(ctx, user, core.Progress{Key: core.FailArchiveEmpty})
 		r.log.Warn("runPhotosImport: nothing to import", "user", user)
 		return
 	}
@@ -1154,11 +1190,11 @@ func (r *Runner) runPhotosImportHeld(ctx context.Context, user string, fromDrive
 		r.log.Error("runPhotosImport: store verification", "user", user, "error", err)
 	}
 	if errs > 0 || pending > 0 {
-		r.failPhotos(ctx, user, fmt.Sprintf("the import finished with %d errors and %d assets pending", errs, pending))
+		r.failPhotos(ctx, user, core.Progress{Key: core.FailImportErrors, Args: []int64{int64(errs), int64(pending)}})
 		return
 	}
 
-	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosDone, v.Detail); err != nil {
+	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosDone, core.EncodeProgress(core.Progress{Key: core.ProgressPhotosDone})); err != nil {
 		r.log.Error("runPhotosImport: set done", "user", user, "error", err)
 	}
 	body := "The import finished. " + v.Detail + "."
@@ -1180,13 +1216,17 @@ func (r *Runner) runPhotosImportHeld(ctx context.Context, user string, fromDrive
 // nothing downstream would question it, and the import would find no photos
 // and mark the migration done. The check is therefore on content, not on the
 // file being a zip: a zip with no image or video inside is refused.
-func (r *Runner) validateArchives(ctx context.Context, archives []string) error {
+func (r *Runner) validateArchives(ctx context.Context, archives []string) (core.Progress, error) {
 	for _, archive := range archives {
-		if err := r.archiveHasPhotos(ctx, archive); err != nil {
-			return err
+		reason, err := r.archiveHasPhotos(ctx, archive)
+		if err != nil {
+			return core.Progress{}, err
+		}
+		if reason.Key != "" {
+			return reason, nil
 		}
 	}
-	return nil
+	return core.Progress{}, nil
 }
 
 // mediaExtensions are the file types a Takeout holding photos must contain.
@@ -1204,37 +1244,38 @@ var mediaExtensions = map[string]bool{
 // 50 GB archive costs a few kilobytes of I/O. Pure Go on purpose: the runtime
 // image is distroless and has no unzip to shell out to.
 //
-// The messages it returns are fixed sentences, not sentences with a file name
-// spliced in: they are shown to the person and must be translatable, and a
-// name is already in the log.
-func (r *Runner) archiveHasPhotos(ctx context.Context, archive string) error {
+// A rejection is a catalogue key, not a sentence: the wizard renders it in the
+// reader's language. Only a cancelled context is an error, because that is not
+// the person's archive and has no key of its own.
+func (r *Runner) archiveHasPhotos(ctx context.Context, archive string) (core.Progress, error) {
 	f, err := os.Open(archive)
 	if err != nil {
-		return errors.New("the archive could not be opened")
+		return core.Progress{Key: core.FailArchiveUnreadable}, nil
 	}
 	defer f.Close()
 
 	info, err := f.Stat()
 	if err != nil {
-		return errors.New("the archive could not be read")
+		return core.Progress{Key: core.FailArchiveUnreadable}, nil
 	}
 	zr, err := zip.NewReader(f, info.Size())
 	if err != nil {
-		return errors.New("the archive is not a valid zip")
+		return core.Progress{Key: core.FailArchiveUnreadable}, nil
 	}
 
 	for _, entry := range zr.File {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return core.Progress{}, ctx.Err()
 		}
 		if mediaExtensions[strings.ToLower(filepath.Ext(entry.Name))] {
-			return nil
+			return core.Progress{}, nil
 		}
 	}
-	return errors.New("the archive did not contain any photos or videos to import")
+	return core.Progress{Key: core.FailArchiveEmpty}, nil
 }
 
-func (r *Runner) failPhotos(ctx context.Context, user, message string) {
+func (r *Runner) failPhotos(ctx context.Context, user string, reason core.Progress) {
+	message := core.EncodeProgress(reason)
 	if err := r.store.SetError(ctx, user, message); err != nil {
 		r.log.Error("failPhotos: set error", "user", user, "error", err)
 	}
@@ -1243,7 +1284,7 @@ func (r *Runner) failPhotos(ctx context.Context, user, message string) {
 	}
 	r.notifyBestEffort(ctx, notify.Message{
 		Title:    "zlatan: the photo import stopped",
-		Body:     message + "\n\nNothing was lost. Starting again picks up where it stopped.",
+		Body:     reasonSentence(reason) + "\n\nNothing was lost. Starting again picks up where it stopped.",
 		Priority: 4,
 		Tags:     []string{"warning"},
 	})

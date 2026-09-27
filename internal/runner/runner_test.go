@@ -708,8 +708,8 @@ func TestRunDriveFailsWhenVerificationFindsMismatches(t *testing.T) {
 	if store.verification.Mismatch < 1 {
 		t.Errorf("verification should have found a mismatch, got %+v", store.verification)
 	}
-	if !strings.Contains(store.state().LastError, "did not match") {
-		t.Errorf("the error should say the check failed, got %q", store.state().LastError)
+	if got := core.DecodeProgress(store.state().LastError).Key; got != core.FailMismatch {
+		t.Errorf("the error should be the mismatch reason, got %q", got)
 	}
 }
 
@@ -817,8 +817,8 @@ func TestRunPhotosImportRefusesAnArchiveWithNoPhotos(t *testing.T) {
 	if got := store.state().PhotosState; got != core.PhotosFailed {
 		t.Fatalf("photos state = %q, want failed", got)
 	}
-	if !strings.Contains(store.state().LastError, "photos or videos") {
-		t.Errorf("the error should say the archive had no media, got %q", store.state().LastError)
+	if got := core.DecodeProgress(store.state().LastError).Key; got != core.FailArchiveEmpty {
+		t.Errorf("the error should be the empty-archive reason, got %q", got)
 	}
 	if _, ok := exec.first("upload"); ok {
 		t.Error("immich-go must not run on an archive with no photos")
@@ -835,8 +835,8 @@ func TestRunPhotosImportRefusesWithoutArchives(t *testing.T) {
 	if got := store.state().PhotosState; got != core.PhotosFailed {
 		t.Fatalf("photos state = %q, want failed", got)
 	}
-	if !strings.Contains(store.state().LastError, "Takeout") {
-		t.Errorf("the error should mention the Takeout, got %q", store.state().LastError)
+	if got := core.DecodeProgress(store.state().LastError).Key; got != core.FailNoArchive {
+		t.Errorf("the error should be the no-archive reason, got %q", got)
 	}
 }
 
@@ -923,8 +923,8 @@ func TestCheckTakeoutGivesUpAfterMaxWait(t *testing.T) {
 	if m.PhotosState != core.PhotosFailed {
 		t.Fatalf("photos state = %q, want failed", m.PhotosState)
 	}
-	if !strings.Contains(m.LastError, "upload") {
-		t.Errorf("the message should point at the upload route, got %q", m.LastError)
+	if got := core.DecodeProgress(m.LastError).Key; got != core.FailTakeoutLate {
+		t.Errorf("the message should be the late-export reason, got %q", got)
 	}
 	// No rclone call should have been made: there was nothing to look at.
 	if _, ok := exec.last(); ok {
@@ -1349,9 +1349,9 @@ func TestRecoverInterruptedFreesAStuckCopy(t *testing.T) {
 	if m.PhotosState != core.PhotosNotStarted {
 		t.Errorf("photos state = %q, want not_started so the person can start again", m.PhotosState)
 	}
-	// The message must say what happened, and must not read as a failure.
-	if !strings.Contains(m.DriveProgress, "interrupted") {
-		t.Errorf("drive progress = %q, want it to say it was interrupted", m.DriveProgress)
+	// The line must say what happened, and must not read as a failure.
+	if got := core.DecodeProgress(m.DriveProgress).Key; got != core.ProgressInterrupted {
+		t.Errorf("drive progress = %q, want the interrupted key", got)
 	}
 	if m.DriveState.Terminal() || m.PhotosState.Terminal() {
 		t.Error("a recovered track must not be terminal: a terminal state starts the staging retention clock")
@@ -1525,6 +1525,46 @@ func TestRunDriveRoutesAMidCopyAuthFailureToReconnect(t *testing.T) {
 	}
 }
 
+// A copy runs for hours and rclone prints a stats line every ten seconds, so
+// the refusal arrives after far more output than any fixed buffer would keep.
+// It must still route to reconnect: this is the case the product is built
+// around, and a first-64-KiB buffer sent a credential revoked at hour three to
+// the generic failure screen. The probe, not the volume of output, decides.
+func TestRunDriveRoutesAnAuthFailureAfterLongOutputToReconnect(t *testing.T) {
+	// About 1 MiB of stats lines, sixteen times the 64 KiB the old buffer kept.
+	stats := "2026/09/27 10:00:00 NOTICE:   12.500 GiB / 80.000 GiB, 15%, 12.000 MiB/s, ETA 1h35m12s (xfr#2222/9999)"
+	var lines []string
+	for len(lines)*len(stats) < 1<<20 {
+		lines = append(lines, stats)
+	}
+	lines = append(lines, "2026/09/27 13:00:00 ERROR : report.pdf: Failed to copy: googleapi: Error 401: Invalid Credentials, authError")
+	exec := &fakeExecutor{byCommand: map[string]scripted{
+		"copy": {lines: lines, err: errors.New("rclone exited 1")},
+	}}
+	store := newFakeStore()
+	r := newRunner(t, store, exec)
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+	r = r.WithNextcloud(&fakeNextcloud{})
+	google := &fakeGoogle{}
+	r = r.WithGoogle(google)
+	// The copy starts with a working token and Google revokes it mid-way.
+	exec.onRun = func(args []string) {
+		if len(args) > 0 && args[0] == "copy" {
+			google.err = fmt.Errorf("probe: %w", oauth.ErrUnauthorized)
+		}
+	}
+
+	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
+
+	if got := store.state().DriveState; got != core.DriveSelecting {
+		t.Fatalf("drive state = %q, want selecting so the person can reconnect", got)
+	}
+	if _, err := store.GetToken(context.Background(), "marco", "google"); err == nil {
+		t.Error("the dead Google token should have been cleared")
+	}
+}
+
 // Google answers 403 for rate limits and full quotas, and a file name can say
 // anything. Output that looks like a refusal, from providers that still accept
 // the credentials, is a failure and nothing more: clearing a working
@@ -1582,8 +1622,8 @@ func TestRunDriveKeepsACredentialThatDoesNotDecrypt(t *testing.T) {
 	if _, err := store.GetToken(context.Background(), "marco", "google"); err != nil {
 		t.Error("an unreadable credential must be kept for the operator to recover")
 	}
-	if got := store.state().LastError; got != msgCredentialUnreadable {
-		t.Errorf("last error = %q, want %q", got, msgCredentialUnreadable)
+	if got := store.state().LastError; got != core.EncodeProgress(core.Progress{Key: core.FailCredentialUnread}) {
+		t.Errorf("last error = %q, want the credential-unreadable key", got)
 	}
 }
 

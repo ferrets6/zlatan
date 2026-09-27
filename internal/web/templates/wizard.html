@@ -86,8 +86,8 @@ in internal/i18n, through .T, already in their language.
 
 	<div class="state" aria-live="polite">
 		{{ with .DriveFacts }}<p class="facts">{{ . }}</p>{{ end }}
-		{{/* A failed track's Progress holds the raw runner sentence; it is shown
-		     translated and untruncated in the notice below, not here where the
+		{{/* A failed track's Progress holds the same reason as LastError, shown
+		     untruncated in the notice below rather than here, where the
 		     one-line ellipsis would cut it. */}}
 		{{ if not .Drive.Failed }}{{ with .Drive.Progress }}<p class="now-doing" title="{{ . }}">{{ . }}</p>{{ end }}{{ end }}
 	</div>

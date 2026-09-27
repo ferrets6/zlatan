@@ -129,10 +129,35 @@ var catalog = map[Lang]map[string]string{
 		"error.resume":  "%s files are already in Nextcloud. Starting again continues from there.",
 		"error.noFiles": "Nothing was copied yet.",
 
-		// Runner messages, shown on the stopped screen. The runner stores a
-		// fixed sentence; these are the same sentences in each language, so the
-		// reason a migration stopped is readable in the reader's own language
-		// rather than only in the one the runner happens to speak.
+		// Progress lines, shown on the card as "now doing". The runner stores
+		// only the key, and the numbers travel as arguments, so the sentence is
+		// chosen here in the reader's language and the decimal mark follows it.
+		"progress.preparing":       "Preparing the copy",
+		"progress.copying":         "Copied %s in %s files",
+		"progress.checking":        "Checking the copy against your Drive",
+		"progress.interrupted":     "Interrupted by a restart: it will pick up where it left off",
+		"progress.nextcloudReady":  "Nextcloud is connected: ready to copy",
+		"progress.googleReady":     "Google is connected: ready for the copy",
+		"progress.consentPending":  "Waiting for your Nextcloud consent",
+		"progress.awaitingUpload":  "Waiting for you to send the export",
+		"progress.awaitingTakeout": "Waiting for Google to put the export in your Drive",
+		"progress.downloading":     "Downloading the export from your Drive",
+		"progress.importing":       "Importing into Immich",
+		"progress.driveVerified":   "The copy finished and was checked",
+		"progress.photosDone":      "The import into Immich finished",
+
+		// Why a track went back to reconnect. These are reasons, so the same key
+		// fills the progress line and the stopped screen's reason.
+		"reconnect.googleCopy":    "Google is not connected: connect it before copying.",
+		"reconnect.nextcloudCopy": "Nextcloud is not connected: connect it before copying.",
+		"reconnect.bothCopy":      "Google and Nextcloud are not connected: connect them before copying.",
+		"reconnect.googleExport":  "Google is not connected: connect it before asking for the export.",
+		"reconnect.immichImport":  "Immich is not connected: add your API key before importing.",
+		"reconnect.immichExport":  "Immich is not connected: add your API key before asking for the export.",
+
+		// Failure reasons, shown on the stopped screen. The runner stores the
+		// key, so the reason a migration stopped is rendered in the reader's
+		// own language rather than the one the runner happens to speak.
 		"why.nextcloudMissing":     "Nextcloud is not configured.",
 		"why.copyPrepare":          "The copy could not be prepared.",
 		"why.copyUnfinished":       "The copy from Google Drive did not finish.",
@@ -273,6 +298,27 @@ var catalog = map[Lang]map[string]string{
 
 		"error.resume":  "%s file sono già in Nextcloud. Ripartendo si continua da lì.",
 		"error.noFiles": "Non è stato ancora copiato niente.",
+
+		"progress.preparing":       "Preparo la copia",
+		"progress.copying":         "Copiati %s in %s file",
+		"progress.checking":        "Controllo la copia con il tuo Drive",
+		"progress.interrupted":     "Interrotta da un riavvio: riprende da dove era rimasta",
+		"progress.nextcloudReady":  "Nextcloud è collegato: pronti a copiare",
+		"progress.googleReady":     "Google è collegato: pronti a copiare",
+		"progress.consentPending":  "In attesa del tuo consenso a Nextcloud",
+		"progress.awaitingUpload":  "In attesa che tu mandi l'esportazione",
+		"progress.awaitingTakeout": "In attesa che Google metta l'esportazione nel tuo Drive",
+		"progress.downloading":     "Scarico l'esportazione dal tuo Drive",
+		"progress.importing":       "Importo in Immich",
+		"progress.driveVerified":   "La copia è finita ed è stata controllata",
+		"progress.photosDone":      "L'importazione in Immich è finita",
+
+		"reconnect.googleCopy":    "Google non è collegato: collegalo prima di copiare.",
+		"reconnect.nextcloudCopy": "Nextcloud non è collegato: collegalo prima di copiare.",
+		"reconnect.bothCopy":      "Google e Nextcloud non sono collegati: collegali prima di copiare.",
+		"reconnect.googleExport":  "Google non è collegato: collegalo prima di chiedere l'esportazione.",
+		"reconnect.immichImport":  "Immich non è collegato: aggiungi la tua API key prima di importare.",
+		"reconnect.immichExport":  "Immich non è collegato: aggiungi la tua API key prima di chiedere l'esportazione.",
 
 		"why.nextcloudMissing":     "Nextcloud non è configurato.",
 		"why.copyPrepare":          "La copia non è potuta partire.",

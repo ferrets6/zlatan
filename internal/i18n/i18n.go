@@ -133,6 +133,39 @@ func T(l Lang, key string, args ...any) string {
 // Name is the language's own name, for the switcher.
 func Name(l Lang) string { return T(l, "lang.name") }
 
+// Progress renders a stored progress line in the reader's language. The runner
+// stores a catalogue key and, when the line carries numbers, the raw counts;
+// the formatting belongs here, where the language is known, so the decimal
+// mark and the thousands separator follow the reader rather than the server.
+//
+// An unknown key is returned as it is, which keeps a line written before the
+// keys existed visible instead of blanking it.
+func Progress(l Lang, p core.Progress) string {
+	if p.Key == "" {
+		return ""
+	}
+	if len(p.Args) == 0 {
+		return T(l, p.Key)
+	}
+	switch p.Key {
+	case core.ProgressCopying:
+		// copied <size> in <n> files
+		return T(l, p.Key, Bytes(l, p.Args[0]), Count(l, p.Args[1]))
+	case core.FailMismatch:
+		return T(l, p.Key, Count(l, p.Args[0]))
+	case core.FailImportErrors:
+		return T(l, p.Key, Count(l, p.Args[0]), Count(l, p.Args[1]))
+	default:
+		// A key with arguments this renderer does not know about: show the
+		// phrase with the numbers as plain integers rather than dropping it.
+		args := make([]any, len(p.Args))
+		for i, n := range p.Args {
+			args[i] = Count(l, n)
+		}
+		return T(l, p.Key, args...)
+	}
+}
+
 // Count groups thousands the way the language does.
 func Count(l Lang, n int64) string {
 	sep := ","

@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/marcodellemarche/zlatan/internal/core"
 )
 
 // A missing key falls back to English, which is the kind of gap nobody notices
@@ -134,5 +136,18 @@ func TestSpan(t *testing.T) {
 		if got := Span(c.lang, c.d); got != c.want {
 			t.Errorf("Span(%q, %v) = %q, want %q", c.lang, c.d, got, c.want)
 		}
+	}
+}
+
+// A progress key is rendered in the reader's language, and the numbers follow
+// it: the same stored value reads "4.0 GiB in 12,480 files" in English and
+// "4,0 GiB in 12.480 file" in Italian.
+func TestProgressFollowsTheLanguage(t *testing.T) {
+	p := core.Progress{Key: core.ProgressCopying, Args: []int64{4 * 1024 * 1024 * 1024, 12480}}
+	if got, want := Progress(EN, p), "Copied 4.0 GiB in 12,480 files"; got != want {
+		t.Errorf("Progress(EN) = %q, want %q", got, want)
+	}
+	if got, want := Progress(IT, p), "Copiati 4,0 GiB in 12.480 file"; got != want {
+		t.Errorf("Progress(IT) = %q, want %q", got, want)
 	}
 }

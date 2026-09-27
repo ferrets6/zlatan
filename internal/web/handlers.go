@@ -147,18 +147,14 @@ func (p page) Check(v *core.Verify) string {
 }
 
 // Why renders the reason a track stopped in the reader's language. The runner
-// stores a fixed English sentence, because that is what a log wants; the
-// wizard shows the same sentence translated. An unknown sentence is shown as
-// it is rather than hidden, so a reason the catalogue has not caught up with
-// is still visible, just not translated.
+// stores a catalogue key, not a sentence, so the reason is chosen here in the
+// reader's language. A value that is not a key is shown as it is rather than
+// hidden, so a reason written before the keys existed is still visible.
 func (p page) Why(message string) string {
 	if message == "" {
 		return ""
 	}
-	if key, args := whyKey(message); key != "" {
-		return p.T(key, args...)
-	}
-	return message
+	return i18n.Progress(p.Lang, core.DecodeProgress(message))
 }
 
 // Every states the real poll interval from configuration.
@@ -194,7 +190,7 @@ func viewOf(lang i18n.Lang, t core.TrackSummary) trackView {
 	return trackView{
 		Track:     t.Track,
 		State:     t.State,
-		Progress:  t.Progress,
+		Progress:  i18n.Progress(lang, core.DecodeProgress(t.Progress)),
 		Pill:      i18n.T(lang, pillKey(t.State)),
 		PillClass: pillClass(t.State),
 		Done:      t.Done,
@@ -473,7 +469,7 @@ func (opts Options) startNextcloud(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := opts.State.SetDriveState(r.Context(), user, core.DriveConsentPending,
-		"Waiting for your Nextcloud consent"); err != nil {
+		core.EncodeProgress(core.Progress{Key: core.ProgressConsentPending})); err != nil {
 		opts.Log.Error("startNextcloud: set state", "user", user, "error", err)
 	}
 	http.Redirect(w, r, loginURL, http.StatusSeeOther)
@@ -609,52 +605,4 @@ func (opts Options) startPhotos(w http.ResponseWriter, r *http.Request, route st
 // staticHandler serves the embedded assets.
 func staticHandler() http.Handler {
 	return http.FileServer(http.FS(staticRoot))
-}
-
-// whyKey maps a runner message onto a catalogue key. The runner writes fixed
-// sentences, so the match is exact: a message that changes shape simply falls
-// through untranslated rather than being mistranslated.
-//
-// The two messages that carry numbers are matched by prefix, because the
-// numbers are part of the sentence and differ per migration.
-func whyKey(message string) (string, []any) {
-	if strings.HasPrefix(message, "the check found ") {
-		// "the check found 3 files that did not match: <detail>"
-		rest := strings.TrimPrefix(message, "the check found ")
-		n, _, ok := strings.Cut(rest, " ")
-		if ok {
-			return "why.mismatch", []any{n}
-		}
-	}
-	if strings.HasPrefix(message, "the import finished with ") {
-		// "the import finished with 2 errors and 5 assets pending"
-		fields := strings.Fields(message)
-		if len(fields) >= 9 {
-			return "why.importErrors", []any{fields[4], fields[8]}
-		}
-	}
-	if key, ok := whyKeys[message]; ok {
-		return key, nil
-	}
-	return "", nil
-}
-
-// whyKeys is the exact-match table for the runner's fixed failure sentences.
-var whyKeys = map[string]string{
-	"Nextcloud is not configured":                                        "why.nextcloudMissing",
-	"the copy could not be prepared":                                     "why.copyPrepare",
-	"the copy from Google Drive did not finish":                          "why.copyUnfinished",
-	"the copy finished but could not be checked":                         "why.copyUnchecked",
-	"the export did not arrive in time: upload the Takeout file instead": "why.takeoutLate",
-	"the staging area could not be prepared":                             "why.stagingPrepare",
-	"the staging area could not be read":                                 "why.stagingRead",
-	"the export could not be downloaded from your Drive":                 "why.downloadFailed",
-	"no Takeout archive found: upload one first":                         "why.noArchive",
-	"the archive did not contain any photos or videos to import":         "why.archiveEmpty",
-	"the archive could not be read":                                      "why.archiveUnreadable",
-	"the archive could not be opened":                                    "why.archiveUnreadable",
-	"the archive is not a valid zip":                                     "why.archiveUnreadable",
-	"Immich is not connected: add your API key before importing":         "why.immichMissing",
-	"the import into Immich did not finish":                              "why.importUnfinished",
-	"a saved connection could not be read: ask whoever runs the server":  "why.credentialUnreadable",
 }
