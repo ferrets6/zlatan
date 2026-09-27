@@ -436,6 +436,11 @@ func (opts Options) startDrive(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
+		// The runner recorded why on the track, so the wizard says it.
+		if errors.Is(err, core.ErrCredentialUnreadable) {
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
 		opts.Log.Error("startDrive: queue", "user", user, "error", err)
 		http.Error(w, "could not start the Drive migration", http.StatusConflict)
 		return
@@ -590,6 +595,10 @@ func (opts Options) startPhotos(w http.ResponseWriter, r *http.Request, route st
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
+		if errors.Is(startErr, core.ErrCredentialUnreadable) {
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
 		opts.Log.Error("startPhotos: queue", "user", user, "route", route, "error", startErr)
 		http.Error(w, "could not start the Photos migration", http.StatusConflict)
 		return
@@ -647,4 +656,5 @@ var whyKeys = map[string]string{
 	"the archive is not a valid zip":                                     "why.archiveUnreadable",
 	"Immich is not connected: add your API key before importing":         "why.immichMissing",
 	"the import into Immich did not finish":                              "why.importUnfinished",
+	"a saved connection could not be read: ask whoever runs the server":  "why.credentialUnreadable",
 }

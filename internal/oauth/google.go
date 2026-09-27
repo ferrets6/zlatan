@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/marcodellemarche/zlatan/internal/core"
@@ -121,23 +120,14 @@ func (p *Provider) Probe(ctx context.Context, refresh string) error {
 }
 
 // isRefused reports whether an error from the token endpoint means the
-// credential itself was rejected, rather than a transient failure. Google
-// answers invalid_grant for a revoked or expired refresh token, and 401/403
-// for a token the client may not use.
+// refresh token itself was rejected. Only invalid_grant says that: it is what
+// Google answers for a revoked or expired refresh token. invalid_client and
+// unauthorized_client (401) mean this service's own OAuth client is wrong,
+// and reading those as a dead credential would clear the token of everyone
+// who starts anything after a misconfigured deploy.
 func isRefused(err error) bool {
 	var re *oauth2.RetrieveError
-	if errors.As(err, &re) {
-		if re.ErrorCode == "invalid_grant" || re.ErrorCode == "invalid_client" {
-			return true
-		}
-		if re.Response != nil {
-			switch re.Response.StatusCode {
-			case http.StatusUnauthorized, http.StatusForbidden:
-				return true
-			}
-		}
-	}
-	return false
+	return errors.As(err, &re) && re.ErrorCode == "invalid_grant"
 }
 
 // Sealer is the part of core.Sealer this package needs. Keeping it an

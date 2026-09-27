@@ -932,6 +932,55 @@ func TestCheckTakeoutGivesUpAfterMaxWait(t *testing.T) {
 	}
 }
 
+// The folder is absent for most of the wait, and rclone says so on stderr.
+// That is "not yet", not a failure, and it must not cost a probe per tick.
+func TestCheckTakeoutTreatsAMissingFolderAsNotYet(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{byCommand: map[string]scripted{
+		"lsjson": {lines: []string{"ERROR : : error listing: directory not found"}, err: errors.New("exit 3")},
+	}}
+	r := newRunner(t, store, exec)
+	seedToken(t, store, sealerOf(t, r))
+	google := &fakeGoogle{}
+	r = r.WithGoogle(google)
+
+	if err := r.checkTakeout(context.Background(), core.TakeoutWait{User: "marco", Since: time.Now()}); err != nil {
+		t.Fatalf("a missing folder is not an error: %v", err)
+	}
+	if google.probeCall != 0 {
+		t.Error("a missing folder must not trigger a credential probe")
+	}
+}
+
+// A failed listing asks Google directly, and only its answer clears the token.
+func TestCheckTakeoutClearsOnlyARefusedToken(t *testing.T) {
+	for _, dead := range []bool{false, true} {
+		t.Run(fmt.Sprintf("refused=%v", dead), func(t *testing.T) {
+			store := newFakeStore()
+			exec := &fakeExecutor{byCommand: map[string]scripted{
+				"lsjson": {lines: []string{"googleapi: Error 403: Rate Limit Exceeded"}, err: errors.New("exit 1")},
+			}}
+			r := newRunner(t, store, exec)
+			seedToken(t, store, sealerOf(t, r))
+			google := &fakeGoogle{}
+			if dead {
+				google.err = fmt.Errorf("probe: %w", oauth.ErrUnauthorized)
+			}
+			r = r.WithGoogle(google)
+
+			_ = r.checkTakeout(context.Background(), core.TakeoutWait{User: "marco", Since: time.Now()})
+
+			_, err := store.GetToken(context.Background(), "marco", "google")
+			if dead && err == nil {
+				t.Error("a token Google refuses should have been cleared")
+			}
+			if !dead && err != nil {
+				t.Error("a rate limit must not clear a working token")
+			}
+		})
+	}
+}
+
 // The Drive copy must exclude the Takeout folder: otherwise the "Add to Drive"
 // archive lands in Nextcloud as files, when the photos belong in Immich.
 func TestRunDriveExcludesTheTakeoutFolder(t *testing.T) {
@@ -1210,10 +1259,13 @@ func TestRunPhotosImportUsesThePersonsOwnKey(t *testing.T) {
 		t.Fatal("no immich-go upload was run")
 	}
 	// The key passed to immich-go must be the person's own, not a shared one:
-	// Immich files every asset under the key's owner.
-	joined := strings.Join(cmd.args, " ")
-	if !strings.Contains(joined, "immich-personal-key") {
-		t.Errorf("the import should use the person's own key, got: %v", cmd.args)
+	// Immich files every asset under the key's owner. It travels in the
+	// environment: a command line is readable by any process through /proc.
+	if !containsArg(cmd.env, "IMMICH_GO_UPLOAD_API_KEY=immich-personal-key") {
+		t.Error("the import should pass the person's own key through the environment")
+	}
+	if joined := strings.Join(cmd.args, " "); strings.Contains(joined, "immich-personal-key") {
+		t.Errorf("the key must not be on the command line: %v", cmd.args)
 	}
 }
 
@@ -1414,16 +1466,25 @@ func TestRecordQuotaSeparatesAuthFromComputation(t *testing.T) {
 
 // An auth failure during the copy, not only at start, must route to the same
 // reconnect state rather than a generic failure. The copy has a 24h window and
-// a credential can be revoked inside it.
+// a credential can be revoked inside it. What decides is Google's own answer
+// to a fresh probe, not the text rclone printed.
 func TestRunDriveRoutesAMidCopyAuthFailureToReconnect(t *testing.T) {
 	store := newFakeStore()
-	exec := &fakeExecutor{
-		lines: []string{"Failed to copy: googleapi: Error 401: Invalid Credentials, authError"},
-		err:   errors.New("rclone exited 1"),
-	}
+	exec := &fakeExecutor{byCommand: map[string]scripted{
+		"copy": {lines: []string{"Failed to copy: couldn't list directory"}, err: errors.New("rclone exited 1")},
+	}}
 	r := newRunner(t, store, exec)
 	seedToken(t, store, sealerOf(t, r))
 	seedNextcloud(t, store, sealerOf(t, r))
+	r = r.WithNextcloud(&fakeNextcloud{})
+	google := &fakeGoogle{}
+	r = r.WithGoogle(google)
+	// The copy starts with a working token and Google revokes it mid-way.
+	exec.onRun = func(args []string) {
+		if len(args) > 0 && args[0] == "copy" {
+			google.err = fmt.Errorf("probe: %w", oauth.ErrUnauthorized)
+		}
+	}
 
 	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
 
@@ -1432,39 +1493,127 @@ func TestRunDriveRoutesAMidCopyAuthFailureToReconnect(t *testing.T) {
 	}
 	if _, err := store.GetToken(context.Background(), "marco", "google"); err == nil {
 		t.Error("the dead Google token should have been cleared")
+	}
+	if _, err := store.GetToken(context.Background(), "marco", nextcloud.Provider); err != nil {
+		t.Error("the Nextcloud credential still works and must be kept")
 	}
 }
 
-// A copy runs for hours and rclone prints a stats line every ten seconds, so
-// the refusal arrives after far more output than is kept. It must still be
-// seen: keeping the head of the output instead of the tail would send a
-// credential revoked at hour three to the generic failure screen.
-func TestRunDriveRoutesAnAuthFailureAfterLongOutputToReconnect(t *testing.T) {
-	// About 1 MiB of stats lines, sixteen times what a 64 KiB buffer holds.
-	stats := "2026/09/27 10:00:00 NOTICE:   12.500 GiB / 80.000 GiB, 15%, 12.000 MiB/s, ETA 1h35m12s (xfr#2222/9999)"
-	var lines []string
-	for len(lines)*len(stats) < 1<<20 {
-		lines = append(lines, stats)
+// Google answers 403 for rate limits and full quotas, and a file name can say
+// anything. Output that looks like a refusal, from providers that still accept
+// the credentials, is a failure and nothing more: clearing a working
+// credential would make the person reconnect for nothing.
+func TestRunDriveKeepsCredentialsTheProvidersStillAccept(t *testing.T) {
+	outputs := map[string][]string{
+		"rate limit": {"ERROR : a.pdf: Failed to copy: googleapi: Error 403: User Rate Limit Exceeded, userRateLimitExceeded"},
+		"file name":  {"ERROR : Unauthorized letter.pdf: Failed to copy: googleapi: Error 503: Backend Error"},
+		"nextcloud":  {"ERROR : nc: webdav 403 Forbidden: quota exceeded"},
 	}
-	lines = append(lines,
-		"2026/09/27 13:00:00 ERROR : report.pdf: Failed to copy: googleapi: Error 401: Invalid Credentials, authError",
-		"2026/09/27 13:00:01 ERROR : Attempt 3/3 failed with 1 errors and: googleapi: Error 401: Invalid Credentials, authError",
-	)
-	exec := &fakeExecutor{byCommand: map[string]scripted{
-		"copy": {lines: lines, err: errors.New("rclone exited 1")},
-	}}
+	for name, lines := range outputs {
+		t.Run(name, func(t *testing.T) {
+			store := newFakeStore()
+			exec := &fakeExecutor{byCommand: map[string]scripted{
+				"copy": {lines: lines, err: errors.New("rclone exited 1")},
+			}}
+			r := newRunner(t, store, exec)
+			seedToken(t, store, sealerOf(t, r))
+			seedNextcloud(t, store, sealerOf(t, r))
+			r = r.WithNextcloud(&fakeNextcloud{})
+			google := &fakeGoogle{}
+			r = r.WithGoogle(google)
+
+			r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
+
+			if got := store.state().DriveState; got != core.DriveFailed {
+				t.Fatalf("drive state = %q, want failed", got)
+			}
+			if google.probeCall == 0 {
+				t.Error("a failed copy must ask Google whether the credential still works")
+			}
+			for _, provider := range []string{"google", nextcloud.Provider} {
+				if _, err := store.GetToken(context.Background(), "marco", provider); err != nil {
+					t.Errorf("the %s credential still works and must be kept", provider)
+				}
+			}
+		})
+	}
+}
+
+// A stored credential that no longer decrypts is the server's configuration
+// (a changed token key), not a dead credential. Clearing it would turn one
+// bad deploy into every person losing every connection.
+func TestRunDriveKeepsACredentialThatDoesNotDecrypt(t *testing.T) {
 	store := newFakeStore()
-	r := newRunner(t, store, exec)
-	seedToken(t, store, sealerOf(t, r))
+	r := newRunner(t, store, &fakeExecutor{})
 	seedNextcloud(t, store, sealerOf(t, r))
+	store.tokens["google"] = core.Token{User: "marco", Provider: "google", Sealed: []byte("sealed under another key")}
 
 	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
 
-	if got := store.state().DriveState; got != core.DriveSelecting {
-		t.Fatalf("drive state = %q, want selecting so the person can reconnect", got)
+	if got := store.state().DriveState; got != core.DriveFailed {
+		t.Fatalf("drive state = %q, want failed", got)
 	}
-	if _, err := store.GetToken(context.Background(), "marco", "google"); err == nil {
-		t.Error("the dead Google token should have been cleared")
+	if _, err := store.GetToken(context.Background(), "marco", "google"); err != nil {
+		t.Error("an unreadable credential must be kept for the operator to recover")
+	}
+	if got := store.state().LastError; got != msgCredentialUnreadable {
+		t.Errorf("last error = %q, want %q", got, msgCredentialUnreadable)
+	}
+}
+
+// A failed import whose output mentions a refusal must still ask Immich
+// before clearing the key: immich-go prints every file name it touches.
+func TestRunPhotosImportKeepsAKeyImmichStillAccepts(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{byCommand: map[string]scripted{
+		"upload": {lines: []string{"error uploading Forbidden 403.jpg: 500 Internal Server Error"}, err: errors.New("exit 1")},
+	}}
+	r := newRunner(t, store, exec)
+	seedImmich(t, store, sealerOf(t, r))
+	r = r.WithImmich(&fakeImmich{me: immich.Me{Email: "marco@example.com"}})
+	writeTakeout(t, filepath.Join(r.cfg.StagingDir, core.SafeName("marco")))
+
+	r.runPhotosImport(context.Background(), "marco")
+
+	if got := store.state().PhotosState; got != core.PhotosFailed {
+		t.Fatalf("photos state = %q, want failed", got)
+	}
+	if _, err := store.GetToken(context.Background(), "marco", immich.Provider); err != nil {
+		t.Error("a key Immich still accepts must be kept")
+	}
+}
+
+func TestRunPhotosImportRoutesARevokedKeyToReconnect(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{byCommand: map[string]scripted{
+		"upload": {err: errors.New("exit 1")},
+	}}
+	r := newRunner(t, store, exec)
+	seedImmich(t, store, sealerOf(t, r))
+	r = r.WithImmich(&fakeImmich{err: fmt.Errorf("validate: %w", immich.ErrUnauthorized)})
+	writeTakeout(t, filepath.Join(r.cfg.StagingDir, core.SafeName("marco")))
+
+	r.runPhotosImport(context.Background(), "marco")
+
+	if got := store.state().PhotosState; got != core.PhotosNotStarted {
+		t.Fatalf("photos state = %q, want not_started so the person can reconnect", got)
+	}
+	if _, err := store.GetToken(context.Background(), "marco", immich.Provider); err == nil {
+		t.Error("the revoked key should have been cleared")
+	}
+}
+
+// A key without a permission is alive: it must not be thrown away.
+func TestStartPhotosImportKeepsAKeyMissingAPermission(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+	seedImmich(t, store, sealerOf(t, r))
+	r = r.WithImmich(&fakeImmich{err: fmt.Errorf("validate: %w", immich.ErrForbidden)})
+	if err := r.StartPhotosImport(context.Background(), "marco"); err != nil {
+		t.Fatalf("StartPhotosImport: %v", err)
+	}
+	if _, err := store.GetToken(context.Background(), "marco", immich.Provider); err != nil {
+		t.Error("a 403 must not clear the key")
 	}
 }
 
@@ -1486,9 +1635,7 @@ func TestTailLinesKeepsTheLastLinesInOrder(t *testing.T) {
 	}
 }
 
-// The executor streams stdout and stderr from two goroutines into the same
-// callback, so the tail must be safe to add to concurrently. The race detector
-// in make check is what makes this test meaningful.
+// The race detector in make check is what makes this test meaningful.
 func TestTailLinesIsSafeForConcurrentUse(t *testing.T) {
 	tail := newTailLines(16)
 	var wg sync.WaitGroup
@@ -1527,29 +1674,6 @@ func TestRunDriveDoesNotClearACredentialOnATransientFailure(t *testing.T) {
 	}
 	if _, err := store.GetToken(context.Background(), "marco", "google"); err != nil {
 		t.Error("a transient failure must not clear the credential")
-	}
-}
-
-func TestAuthFailureProvider(t *testing.T) {
-	cases := []struct {
-		name string
-		out  string
-		want authProvider
-	}{
-		{"google 401", "googleapi: Error 401: Invalid Credentials", providerGoogle},
-		{"nextcloud 403", "nc: 403 Forbidden", providerNextcloud},
-		{"both", "gdrive: 401 and nc: 403", providerBoth},
-		{"a 503 is not a refusal", "gdrive: 503 Service Unavailable", providerNone},
-		{"a timeout is not a refusal", "dial tcp: i/o timeout", providerNone},
-		{"a byte count is not a status", "gdrive: transferred 1401 bytes", providerNone},
-		{"a refusal with no remote named is ambiguous", "401 Unauthorized", providerNone},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := authFailureProvider(c.out); got != c.want {
-				t.Errorf("authFailureProvider(%q) = %v, want %v", c.out, got, c.want)
-			}
-		})
 	}
 }
 

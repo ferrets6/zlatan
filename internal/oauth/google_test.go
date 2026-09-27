@@ -152,9 +152,16 @@ func TestIsRefused(t *testing.T) {
 		t.Error("a 500 from the token endpoint is transient, not a refusal")
 	}
 
-	forbidden := &oauth2.RetrieveError{Response: &http.Response{StatusCode: http.StatusForbidden}}
-	if !isRefused(forbidden) {
-		t.Error("a 403 must be a refusal")
+	// These mean zlatan's own OAuth client is misconfigured. Reading them as a
+	// dead refresh token would clear everyone's credential after a bad deploy.
+	for _, code := range []string{"invalid_client", "unauthorized_client"} {
+		misconfigured := &oauth2.RetrieveError{
+			Response:  &http.Response{StatusCode: http.StatusUnauthorized},
+			ErrorCode: code,
+		}
+		if isRefused(misconfigured) {
+			t.Errorf("%s is the client's configuration, not a dead refresh token", code)
+		}
 	}
 
 	if isRefused(errors.New("connection reset")) {

@@ -49,10 +49,15 @@ type Me struct {
 	IsAdmin bool   `json:"isAdmin"`
 }
 
-// ErrUnauthorized means Immich refused the API key. Only a refusal (401 or
-// 403) is a dead credential: a timeout or a 5xx is transient and must not stop
-// work the person asked for.
+// ErrUnauthorized means Immich refused the API key (401). Only a refusal is a
+// dead credential: a timeout or a 5xx is transient and must not stop work the
+// person asked for.
 var ErrUnauthorized = errors.New("Immich refused the API key")
+
+// ErrForbidden means Immich knows the key but it lacks a permission (403).
+// The key is alive: it is refused for a new connection, since it cannot say
+// whose it is, but a stored one is never cleared for it.
+var ErrForbidden = errors.New("the Immich API key lacks a permission")
 
 // Client is an Immich instance reached over the internal Docker network.
 type Client struct {
@@ -99,13 +104,15 @@ func (c *Client) Validate(ctx context.Context, apiKey string) (Me, error) {
 	}
 	defer drain(resp.Body)
 
-	// 401 and 403 are the honest answer for a wrong or revoked key; anything
-	// else non-200 is a server problem, not the person's mistake, and must not
-	// be read as a dead credential.
+	// 401 is the honest answer for a wrong or revoked key, and 403 for a key
+	// created without a permission; anything else non-200 is a server
+	// problem, not the person's mistake, and must not be read as either.
 	switch resp.StatusCode {
 	case http.StatusOK:
-	case http.StatusUnauthorized, http.StatusForbidden:
+	case http.StatusUnauthorized:
 		return Me{}, fmt.Errorf("Immich did not accept that API key: %w", ErrUnauthorized)
+	case http.StatusForbidden:
+		return Me{}, fmt.Errorf("Immich accepted that API key but refused to name its account: %w", ErrForbidden)
 	default:
 		return Me{}, fmt.Errorf("checking the Immich API key: unexpected status %d", resp.StatusCode)
 	}

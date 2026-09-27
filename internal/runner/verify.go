@@ -222,28 +222,39 @@ func (r *Runner) checkSample(ctx context.Context, src, dst string, env []string,
 // Discarded is not a failure: those are duplicates and banned files, which
 // immich-go is right to skip. Errors and Pending are.
 func parseImmichReport(report string) (processed, discarded, errors, pending int) {
+	var r immichReport
 	for _, line := range strings.Split(report, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		label := strings.TrimSuffix(fields[0], ":")
-		n, ok := firstInt(fields[1:])
-		if !ok {
-			continue
-		}
-		switch label {
-		case "Processed":
-			processed = n
-		case "Discarded":
-			discarded = n
-		case "Errors":
-			errors = n
-		case "Pending":
-			pending = n
-		}
+		r.add(line)
 	}
-	return processed, discarded, errors, pending
+	return r.processed, r.discarded, r.errors, r.pending
+}
+
+// immichReport reads the report one line at a time, so the import can parse
+// it as it streams instead of holding a day of output in memory.
+type immichReport struct {
+	processed, discarded, errors, pending int
+}
+
+func (r *immichReport) add(line string) {
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return
+	}
+	label := strings.TrimSuffix(fields[0], ":")
+	n, ok := firstInt(fields[1:])
+	if !ok {
+		return
+	}
+	switch label {
+	case "Processed":
+		r.processed = n
+	case "Discarded":
+		r.discarded = n
+	case "Errors":
+		r.errors = n
+	case "Pending":
+		r.pending = n
+	}
 }
 
 // firstInt returns the first field that parses as a plain integer. The count

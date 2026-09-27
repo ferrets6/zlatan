@@ -49,6 +49,16 @@ const DriveDestination = "Google Drive"
 // Flow poll token is stored, separate from the granted credentials.
 const nextcloudFlowProvider = "nextcloud-flow"
 
+// msgCredentialUnreadable is the failure for a stored credential that no
+// longer decrypts. That is the server's configuration (a changed token key),
+// not the person's credential, so it is never cleared: clearing it would turn
+// a configuration mistake into every person losing every connection.
+const msgCredentialUnreadable = "a saved connection could not be read: ask whoever runs the server"
+
+// probeTimeout bounds a credential check, so a provider that hangs cannot hold
+// up the request or the failure path that asked.
+const probeTimeout = 30 * time.Second
+
 // Store is the persistence the runner writes progress to.
 type Store interface {
 	GetMigration(ctx context.Context, user string) (core.Migration, error)
@@ -387,10 +397,9 @@ func (r *Runner) StartDrive(ctx context.Context, user string) error {
 	}
 	tokens, err := r.openTokens(tok)
 	if err != nil {
-		r.log.Warn("StartDrive: open Google token", "user", user, "error", err)
-		_ = r.store.DeleteToken(ctx, user, "google")
-		r.reconnectDrive(ctx, user, "Google is not connected: connect it before copying")
-		return fmt.Errorf("%w: connect Google before starting the Drive copy", core.ErrCredentialRefused)
+		r.log.Error("StartDrive: open Google token", "user", user, "error", err)
+		r.failDrive(ctx, user, msgCredentialUnreadable)
+		return fmt.Errorf("%w: %v", core.ErrCredentialUnreadable, err)
 	}
 	ncTok, err := r.store.GetToken(ctx, user, nextcloud.Provider)
 	if err != nil {
@@ -398,10 +407,9 @@ func (r *Runner) StartDrive(ctx context.Context, user string) error {
 	}
 	creds, err := nextcloud.OpenCredentials(r.sealer, ncTok.Sealed)
 	if err != nil {
-		r.log.Warn("StartDrive: open Nextcloud credential", "user", user, "error", err)
-		_ = r.store.DeleteToken(ctx, user, nextcloud.Provider)
-		r.reconnectDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
-		return fmt.Errorf("%w: connect Nextcloud before starting the Drive copy", core.ErrCredentialRefused)
+		r.log.Error("StartDrive: open Nextcloud credential", "user", user, "error", err)
+		r.failDrive(ctx, user, msgCredentialUnreadable)
+		return fmt.Errorf("%w: %v", core.ErrCredentialUnreadable, err)
 	}
 
 	if err := r.preflightGoogle(ctx, user, tokens); err != nil {
@@ -425,6 +433,8 @@ func (r *Runner) preflightGoogle(ctx context.Context, user string, tokens oauth.
 	if r.google == nil {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
 	err := r.google.Probe(ctx, tokens.RefreshToken)
 	if err == nil {
 		return nil
@@ -445,6 +455,8 @@ func (r *Runner) preflightNextcloud(ctx context.Context, user string, creds next
 	if r.nc == nil {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
 	_, err := r.nc.Quota(ctx, creds)
 	if err == nil || errors.Is(err, nextcloud.ErrNoQuota) {
 		return nil
@@ -459,11 +471,15 @@ func (r *Runner) preflightNextcloud(ctx context.Context, user string, creds next
 }
 
 // preflightImmich proves the API key still works. A refusal clears it and
-// returns ErrCredentialRefused; anything else is transient and logged.
+// returns ErrCredentialRefused; anything else is transient and logged. A 403
+// is not a refusal: the key is alive and only lacks a permission, which is
+// the person's to fix in Immich, not a reason to throw the key away.
 func (r *Runner) preflightImmich(ctx context.Context, user string, creds immich.Credentials) error {
 	if r.immich == nil {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
 	_, err := r.immich.Validate(ctx, creds.APIKey)
 	if err == nil {
 		return nil
@@ -528,9 +544,8 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 
 	tokens, err := r.openTokens(tok)
 	if err != nil {
-		r.log.Warn("runDrive: open Google token", "user", user, "error", err)
-		_ = r.store.DeleteToken(ctx, user, "google")
-		r.reconnectDrive(ctx, user, "Google is not connected: connect it before copying")
+		r.log.Error("runDrive: open Google token", "user", user, "error", err)
+		r.failDrive(ctx, user, msgCredentialUnreadable)
 		return
 	}
 
@@ -542,9 +557,8 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	}
 	creds, err := nextcloud.OpenCredentials(r.sealer, ncTok.Sealed)
 	if err != nil {
-		r.log.Warn("runDrive: open Nextcloud credential", "user", user, "error", err)
-		_ = r.store.DeleteToken(ctx, user, nextcloud.Provider)
-		r.reconnectDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
+		r.log.Error("runDrive: open Nextcloud credential", "user", user, "error", err)
+		r.failDrive(ctx, user, msgCredentialUnreadable)
 		return
 	}
 	if r.nc == nil {
@@ -606,13 +620,11 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		reportedBytes int64
 		reportedFiles int64
 	)
-	// authLog keeps the last lines of the output, so a copy that dies because a
-	// credential was revoked mid-way can be told apart from one that hit a
-	// transient error. It must be the tail: the refusal comes at the end, after
-	// hours of stats lines.
-	authLog := newTailLines(authLogLines)
+	// tail keeps the last lines of the output for the log: the cause of a
+	// failure comes at the end, after hours of stats lines.
+	tail := newTailLines(tailLogLines)
 	onLine := func(line string) {
-		authLog.Add(line)
+		tail.Add(line)
 		bytes, files, ok := parseRcloneStats(line)
 		if !ok {
 			return
@@ -638,28 +650,25 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	}
 
 	if err := r.exec.Run(ctx, "rclone", args, env, onLine); err != nil {
+		r.log.Error("runDrive: rclone", "user", user, "error", err, "output", tail.String())
 		// A credential revoked during the 24h window must land the person on
 		// the reconnect screen, not on a generic failure they cannot act on.
-		switch authFailureProvider(authLog.String()) {
-		case providerGoogle:
-			r.log.Warn("runDrive: Google refused the credential mid-copy", "user", user)
-			_ = r.store.DeleteToken(ctx, user, "google")
-			r.reconnectDrive(ctx, user, "Google is not connected: connect it before copying")
-			return
-		case providerNextcloud:
-			r.log.Warn("runDrive: Nextcloud refused the credential mid-copy", "user", user)
-			_ = r.store.DeleteToken(ctx, user, nextcloud.Provider)
-			r.reconnectDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
-			return
-		case providerBoth:
-			r.log.Warn("runDrive: both credentials were refused mid-copy", "user", user)
-			_ = r.store.DeleteToken(ctx, user, "google")
-			_ = r.store.DeleteToken(ctx, user, nextcloud.Provider)
+		// rclone's output is not evidence of that: Google answers 403 for rate
+		// limits and full quotas too, and any file name can say "Unauthorized".
+		// So both providers are asked directly, and only a typed refusal clears
+		// a credential.
+		googleDead := errors.Is(r.preflightGoogle(ctx, user, tokens), core.ErrCredentialRefused)
+		nextcloudDead := errors.Is(r.preflightNextcloud(ctx, user, creds), core.ErrCredentialRefused)
+		switch {
+		case googleDead && nextcloudDead:
 			r.reconnectDrive(ctx, user, "Google and Nextcloud are not connected: connect them before copying")
-			return
+		case googleDead:
+			r.reconnectDrive(ctx, user, "Google is not connected: connect it before copying")
+		case nextcloudDead:
+			r.reconnectDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
+		default:
+			r.failDrive(ctx, user, "the copy from Google Drive did not finish")
 		}
-		r.failDrive(ctx, user, "the copy from Google Drive did not finish")
-		r.log.Error("runDrive: rclone", "user", user, "error", err)
 		return
 	}
 
@@ -797,10 +806,9 @@ func (r *Runner) StartPhotosTakeout(ctx context.Context, user string) error {
 	}
 	tokens, err := r.openTokens(tok)
 	if err != nil {
-		r.log.Warn("StartPhotosTakeout: open Google token", "user", user, "error", err)
-		_ = r.store.DeleteToken(ctx, user, "google")
-		r.reconnectPhotos(ctx, user, "Google is not connected: connect it before asking for the export")
-		return fmt.Errorf("%w: connect Google before asking for the export", core.ErrCredentialRefused)
+		r.log.Error("StartPhotosTakeout: open Google token", "user", user, "error", err)
+		r.failPhotos(ctx, user, msgCredentialUnreadable)
+		return fmt.Errorf("%w: %v", core.ErrCredentialUnreadable, err)
 	}
 	if err := r.preflightGoogle(ctx, user, tokens); err != nil {
 		r.reconnectPhotos(ctx, user, "Google is not connected: connect it before asking for the export")
@@ -879,14 +887,16 @@ func (r *Runner) checkTakeout(ctx context.Context, w core.TakeoutWait) error {
 	}
 	tokens, err := r.openTokens(tok)
 	if err != nil {
+		r.failPhotos(ctx, user, msgCredentialUnreadable)
 		return err
 	}
 
 	found, err := r.takeoutReady(ctx, tokens)
 	if err != nil {
-		if errors.Is(err, core.ErrCredentialRefused) {
-			r.log.Warn("takeout watcher: Google refused the credential", "user", user)
-			_ = r.store.DeleteToken(ctx, user, "google")
+		// A revoked Google token must not leave the person waiting on a screen
+		// that can never move. The listing's failure is only a reason to ask
+		// Google directly; its text is not evidence of a refusal.
+		if errors.Is(r.preflightGoogle(ctx, user, tokens), core.ErrCredentialRefused) {
 			r.reconnectPhotos(ctx, user, "Google is not connected: connect it before asking for the export")
 			return nil
 		}
@@ -935,15 +945,9 @@ func (r *Runner) takeoutReady(ctx context.Context, tokens oauth.Tokens) (bool, e
 	if err := r.exec.Run(ctx, "rclone", args, r.driveEnv(tokens), func(line string) {
 		out.WriteString(line)
 	}); err != nil {
-		// A revoked Google token must not spin forever on a screen that can
-		// never move: report it so the caller can send the person back to
-		// connect Google again.
-		if authFailureProvider(out.String()) != providerNone {
-			return false, fmt.Errorf("listing the Takeout folder: %w", core.ErrCredentialRefused)
-		}
-		// rclone exits non-zero when the path does not exist. Distinguish that
-		// from a real failure by checking whether anything was listed.
-		if out.Len() == 0 {
+		// rclone exits non-zero when the path does not exist, which is the
+		// normal state for most of the wait.
+		if out.Len() == 0 || strings.Contains(out.String(), "directory not found") {
 			return false, nil
 		}
 		return false, fmt.Errorf("listing the Takeout folder: %w", err)
@@ -1013,19 +1017,14 @@ func (r *Runner) runTakeoutDownload(ctx context.Context, user string, tokens oau
 		"--stats", "10s",
 		"--stats-one-line",
 	}
-	var out strings.Builder
-	if err := r.exec.Run(ctx, "rclone", args, r.driveEnv(tokens), func(line string) {
-		out.WriteString(line)
-		out.WriteByte('\n')
-	}); err != nil {
-		if authFailureProvider(out.String()) != providerNone {
-			r.log.Warn("runTakeoutDownload: Google refused the credential", "user", user)
-			_ = r.store.DeleteToken(ctx, user, "google")
+	tail := newTailLines(tailLogLines)
+	if err := r.exec.Run(ctx, "rclone", args, r.driveEnv(tokens), tail.Add); err != nil {
+		r.log.Error("runTakeoutDownload: rclone", "user", user, "error", err, "output", tail.String())
+		if errors.Is(r.preflightGoogle(ctx, user, tokens), core.ErrCredentialRefused) {
 			r.reconnectPhotos(ctx, user, "Google is not connected: connect it before asking for the export")
 			return
 		}
 		r.failPhotos(ctx, user, "the export could not be downloaded from your Drive")
-		r.log.Error("runTakeoutDownload: rclone", "user", user, "error", err)
 		return
 	}
 
@@ -1094,7 +1093,6 @@ func (r *Runner) runPhotosImportHeld(ctx context.Context, user string) {
 	args := []string{
 		"upload", "from-google-photos",
 		"--server", r.cfg.Immich.URL,
-		"--api-key", creds.APIKey,
 		"--manage-burst", "Stack",
 		"--sync-albums",
 		"--people-tag=false",
@@ -1113,25 +1111,29 @@ func (r *Runner) runPhotosImportHeld(ctx context.Context, user string) {
 	// that is the only honest record of what the import did. immich-go verifies
 	// each asset's content hash against the server as it goes, so "processed"
 	// is a real check.
-	var report strings.Builder
-	if err := r.exec.Run(ctx, "immich-go", args, nil, func(line string) {
-		report.WriteString(line)
-		report.WriteByte('\n')
+	// The key travels in the environment, not the arguments: a command line
+	// is readable by every process in the container through /proc.
+	env := append(os.Environ(), "IMMICH_GO_UPLOAD_API_KEY="+creds.APIKey)
+	var report immichReport
+	tail := newTailLines(tailLogLines)
+	if err := r.exec.Run(ctx, "immich-go", args, env, func(line string) {
+		report.add(line)
+		tail.Add(line)
 	}); err != nil {
+		r.log.Error("runPhotosImport: immich-go", "user", user, "error", err, "output", tail.String())
 		// An API key revoked during the 24h window must land the person on the
-		// reconnect screen, not on a generic failure they cannot act on.
-		if looksRefused(report.String()) {
-			r.log.Warn("runPhotosImport: Immich refused the credential", "user", user)
-			_ = r.store.DeleteToken(ctx, user, immich.Provider)
+		// reconnect screen, not on a generic failure they cannot act on. The
+		// output names every file it touched, so it cannot tell a refusal from
+		// a photo called "Forbidden.jpg": Immich is asked directly instead.
+		if errors.Is(r.preflightImmich(ctx, user, creds), core.ErrCredentialRefused) {
 			r.reconnectPhotos(ctx, user, "Immich is not connected: add your API key before importing")
 			return
 		}
 		r.failPhotos(ctx, user, "the import into Immich did not finish")
-		r.log.Error("runPhotosImport: immich-go", "user", user, "error", err)
 		return
 	}
 
-	processed, discarded, errs, pending := parseImmichReport(report.String())
+	processed, discarded, errs, pending := report.processed, report.discarded, report.errors, report.pending
 	// A run that processed nothing, discarded nothing and failed on nothing did
 	// not import: it found no assets at all. Reporting that as done would claim
 	// a migration that never happened, so it is a failure with a plain reason.
@@ -1425,13 +1427,13 @@ func (r *Runner) driveEnv(tokens oauth.Tokens) []string {
 func (r *Runner) acquire() { r.limiter <- struct{}{} }
 func (r *Runner) release() { <-r.limiter }
 
-// authLogLines is how much of a failed copy's output is kept to look for a
-// refused credential. rclone repeats the failing error on every file it tries
-// and again in its final summary, so a few hundred lines is plenty.
-const authLogLines = 256
+// tailLogLines is how much of a failed command's output is kept for the log.
+// rclone repeats the failing error on every file it tries and again in its
+// final summary, so a few hundred lines is plenty, and a copy that prints a
+// stats line every ten seconds for a day cannot grow it.
+const tailLogLines = 256
 
-// tailLines keeps the last max lines it is given. It is safe for concurrent
-// use because the executor streams stdout and stderr from two goroutines.
+// tailLines keeps the last max lines it is given.
 type tailLines struct {
 	mu    sync.Mutex
 	lines []string
@@ -1467,57 +1469,6 @@ func (t *tailLines) String() string {
 		b.WriteByte('\n')
 	}
 	return b.String()
-}
-
-// authProvider names the remote whose credential an error message points at.
-// It is used to tell a revoked credential apart from a transient failure in
-// rclone's output, which rclone reports only as a non-zero exit.
-type authProvider int
-
-const (
-	providerNone authProvider = iota
-	providerGoogle
-	providerNextcloud
-	providerBoth
-)
-
-// looksRefused reports whether output carries the marks of a credential the
-// server refused. It is deliberately conservative: an ambiguous failure is not
-// a refusal, so a transient error is never mistaken for a dead credential. The
-// status match is bounded by non-digits so a byte count that happens to
-// contain 401 or 403 is not read as a refusal.
-func looksRefused(output string) bool {
-	lower := strings.ToLower(output)
-	return authStatus.MatchString(output) ||
-		strings.Contains(lower, "unauthorized") || strings.Contains(lower, "forbidden") ||
-		strings.Contains(lower, "invalid_grant") || strings.Contains(lower, "invalid credentials")
-}
-
-var authStatus = regexp.MustCompile(`(?:^|[^0-9])(401|403)(?:[^0-9]|$)`)
-
-// authFailureProvider looks through the tail of a failed rclone command's
-// output for the marks of a refused credential. rclone answers 401/403 on the
-// remote that was refused, so a 401 mentioning gdrive is Google and one
-// mentioning nc is Nextcloud. Anything ambiguous returns providerNone, so a
-// transient failure is never mistaken for a dead credential and a copy the
-// person asked for is never blocked by a bad guess.
-func authFailureProvider(output string) authProvider {
-	if !looksRefused(output) {
-		return providerNone
-	}
-	lower := strings.ToLower(output)
-	google := strings.Contains(lower, "gdrive") || strings.Contains(lower, "google")
-	nextcloud := strings.Contains(lower, "nc:") || strings.Contains(lower, "nextcloud") ||
-		strings.Contains(lower, "webdav")
-	switch {
-	case google && nextcloud:
-		return providerBoth
-	case google:
-		return providerGoogle
-	case nextcloud:
-		return providerNextcloud
-	}
-	return providerNone
 }
 
 // rcloneStats matches the one-line stats rclone prints with
@@ -1601,10 +1552,21 @@ func (e *OSExecutor) Run(ctx context.Context, name string, args []string, env []
 		return err
 	}
 
+	// Both streams are read: rclone writes stats to stderr, and a pipe nobody
+	// reads fills up and blocks the process. The callback is serialised, so
+	// every caller can treat it as single-threaded instead of each one having
+	// to lock its own buffers and counters.
+	if onLine != nil {
+		var mu sync.Mutex
+		inner := onLine
+		onLine = func(line string) {
+			mu.Lock()
+			defer mu.Unlock()
+			inner(line)
+		}
+	}
 	var wg sync.WaitGroup
 	wg.Add(2)
-	// Both streams are read: rclone writes stats to stderr, and a pipe nobody
-	// reads fills up and blocks the process.
 	go func() { defer wg.Done(); e.scan(stdout, onLine) }()
 	go func() { defer wg.Done(); e.scan(stderr, onLine) }()
 

@@ -59,20 +59,28 @@ func TestValidateRejectsABadKey(t *testing.T) {
 	}
 }
 
-// A 403 is the same dead credential as a 401, and a 5xx is not: the caller
-// must be able to tell them apart so a transient failure never stops a copy.
-func TestValidateReportsARefusedCredential(t *testing.T) {
-	for _, code := range []int{http.StatusUnauthorized, http.StatusForbidden} {
-		t.Run(http.StatusText(code), func(t *testing.T) {
+// A 401 is a dead key. A 403 is a live key without a permission, which the
+// runner must not clear, so it has its own error.
+func TestValidateTellsARefusalFromAMissingPermission(t *testing.T) {
+	cases := []struct {
+		code int
+		want error
+		not  error
+	}{
+		{http.StatusUnauthorized, ErrUnauthorized, ErrForbidden},
+		{http.StatusForbidden, ErrForbidden, ErrUnauthorized},
+	}
+	for _, c := range cases {
+		t.Run(http.StatusText(c.code), func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(code)
+				w.WriteHeader(c.code)
 			}))
 			defer srv.Close()
 
-			c, _ := New(srv.URL, 0)
-			_, err := c.Validate(context.Background(), "wrong")
-			if !errors.Is(err, ErrUnauthorized) {
-				t.Errorf("Validate error = %v, want ErrUnauthorized", err)
+			cl, _ := New(srv.URL, 0)
+			_, err := cl.Validate(context.Background(), "wrong")
+			if !errors.Is(err, c.want) || errors.Is(err, c.not) {
+				t.Errorf("Validate error = %v, want %v and not %v", err, c.want, c.not)
 			}
 		})
 	}
