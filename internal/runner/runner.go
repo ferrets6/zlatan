@@ -605,19 +605,14 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		lastProgress  string
 		reportedBytes int64
 		reportedFiles int64
-		// authLog keeps the tail of the output, so a copy that dies because a
-		// credential was revoked mid-way can be told apart from one that hit a
-		// transient error. A revoked credential must send the person back to
-		// reconnect, not to a generic failure.
-		authLog     strings.Builder
-		authLogSize int
 	)
+	// authLog keeps the last lines of the output, so a copy that dies because a
+	// credential was revoked mid-way can be told apart from one that hit a
+	// transient error. It must be the tail: the refusal comes at the end, after
+	// hours of stats lines.
+	authLog := newTailLines(authLogLines)
 	onLine := func(line string) {
-		if authLogSize < 64*1024 {
-			authLog.WriteString(line)
-			authLog.WriteByte('\n')
-			authLogSize += len(line) + 1
-		}
+		authLog.Add(line)
 		bytes, files, ok := parseRcloneStats(line)
 		if !ok {
 			return
@@ -1429,6 +1424,50 @@ func (r *Runner) driveEnv(tokens oauth.Tokens) []string {
 // acquire blocks until a heavy slot is free.
 func (r *Runner) acquire() { r.limiter <- struct{}{} }
 func (r *Runner) release() { <-r.limiter }
+
+// authLogLines is how much of a failed copy's output is kept to look for a
+// refused credential. rclone repeats the failing error on every file it tries
+// and again in its final summary, so a few hundred lines is plenty.
+const authLogLines = 256
+
+// tailLines keeps the last max lines it is given. It is safe for concurrent
+// use because the executor streams stdout and stderr from two goroutines.
+type tailLines struct {
+	mu    sync.Mutex
+	lines []string
+	next  int
+	full  bool
+}
+
+func newTailLines(max int) *tailLines {
+	return &tailLines{lines: make([]string, max)}
+}
+
+func (t *tailLines) Add(line string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.lines[t.next] = line
+	t.next = (t.next + 1) % len(t.lines)
+	if t.next == 0 {
+		t.full = true
+	}
+}
+
+// String returns the kept lines oldest first, one per line.
+func (t *tailLines) String() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	kept := t.lines[:t.next]
+	if t.full {
+		kept = append(append([]string(nil), t.lines[t.next:]...), t.lines[:t.next]...)
+	}
+	var b strings.Builder
+	for _, line := range kept {
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
 
 // authProvider names the remote whose credential an error message points at.
 // It is used to tell a revoked credential apart from a transient failure in

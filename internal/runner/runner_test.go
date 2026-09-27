@@ -1435,6 +1435,78 @@ func TestRunDriveRoutesAMidCopyAuthFailureToReconnect(t *testing.T) {
 	}
 }
 
+// A copy runs for hours and rclone prints a stats line every ten seconds, so
+// the refusal arrives after far more output than is kept. It must still be
+// seen: keeping the head of the output instead of the tail would send a
+// credential revoked at hour three to the generic failure screen.
+func TestRunDriveRoutesAnAuthFailureAfterLongOutputToReconnect(t *testing.T) {
+	// About 1 MiB of stats lines, sixteen times what a 64 KiB buffer holds.
+	stats := "2026/09/27 10:00:00 NOTICE:   12.500 GiB / 80.000 GiB, 15%, 12.000 MiB/s, ETA 1h35m12s (xfr#2222/9999)"
+	var lines []string
+	for len(lines)*len(stats) < 1<<20 {
+		lines = append(lines, stats)
+	}
+	lines = append(lines,
+		"2026/09/27 13:00:00 ERROR : report.pdf: Failed to copy: googleapi: Error 401: Invalid Credentials, authError",
+		"2026/09/27 13:00:01 ERROR : Attempt 3/3 failed with 1 errors and: googleapi: Error 401: Invalid Credentials, authError",
+	)
+	exec := &fakeExecutor{byCommand: map[string]scripted{
+		"copy": {lines: lines, err: errors.New("rclone exited 1")},
+	}}
+	store := newFakeStore()
+	r := newRunner(t, store, exec)
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+
+	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
+
+	if got := store.state().DriveState; got != core.DriveSelecting {
+		t.Fatalf("drive state = %q, want selecting so the person can reconnect", got)
+	}
+	if _, err := store.GetToken(context.Background(), "marco", "google"); err == nil {
+		t.Error("the dead Google token should have been cleared")
+	}
+}
+
+func TestTailLinesKeepsTheLastLinesInOrder(t *testing.T) {
+	tail := newTailLines(3)
+	if got := tail.String(); got != "" {
+		t.Errorf("empty tail = %q", got)
+	}
+	tail.Add("a")
+	tail.Add("b")
+	if got := tail.String(); got != "a\nb\n" {
+		t.Errorf("partial tail = %q", got)
+	}
+	for _, line := range []string{"c", "d", "e"} {
+		tail.Add(line)
+	}
+	if got := tail.String(); got != "c\nd\ne\n" {
+		t.Errorf("wrapped tail = %q, want the last three in order", got)
+	}
+}
+
+// The executor streams stdout and stderr from two goroutines into the same
+// callback, so the tail must be safe to add to concurrently. The race detector
+// in make check is what makes this test meaningful.
+func TestTailLinesIsSafeForConcurrentUse(t *testing.T) {
+	tail := newTailLines(16)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 1000 {
+				tail.Add("line")
+			}
+		}()
+	}
+	wg.Wait()
+	if got := strings.Count(tail.String(), "\n"); got != 16 {
+		t.Errorf("kept %d lines, want 16", got)
+	}
+}
+
 // A transient mid-copy failure must stay a failure, not be mistaken for a dead
 // credential: clearing a working credential would make the person reconnect
 // for nothing.
