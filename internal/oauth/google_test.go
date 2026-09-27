@@ -3,11 +3,15 @@
 package oauth
 
 import (
+	"context"
+	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/marcodellemarche/zlatan/internal/core"
+	"golang.org/x/oauth2"
 )
 
 func TestNewRefusesIncompleteClient(t *testing.T) {
@@ -118,5 +122,42 @@ func TestOpenJSONWithWrongKeyFails(t *testing.T) {
 	sealed, _ := SealJSON(a, Tokens{RefreshToken: "1//x"})
 	if _, err := OpenJSON(b, sealed); err == nil {
 		t.Fatal("opening with the wrong key should fail")
+	}
+}
+
+// A refresh token Google revoked is a dead credential the caller can test for;
+// a 500 from the token endpoint is not, so a transient failure never stops a
+// copy the person asked for.
+func TestRefreshReportsARefusedCredential(t *testing.T) {
+	p, err := New("id", "secret", "https://zlatan.example/cb")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := p.Refresh(context.Background(), ""); !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("an empty refresh token = %v, want ErrUnauthorized", err)
+	}
+}
+
+func TestIsRefused(t *testing.T) {
+	refused := &oauth2.RetrieveError{ErrorCode: "invalid_grant"}
+	if !isRefused(refused) {
+		t.Error("invalid_grant must be a refusal")
+	}
+
+	serverErr := &oauth2.RetrieveError{
+		Response:  &http.Response{StatusCode: http.StatusInternalServerError},
+		ErrorCode: "server_error",
+	}
+	if isRefused(serverErr) {
+		t.Error("a 500 from the token endpoint is transient, not a refusal")
+	}
+
+	forbidden := &oauth2.RetrieveError{Response: &http.Response{StatusCode: http.StatusForbidden}}
+	if !isRefused(forbidden) {
+		t.Error("a 403 must be a refusal")
+	}
+
+	if isRefused(errors.New("connection reset")) {
+		t.Error("a network error is not a refusal")
 	}
 }

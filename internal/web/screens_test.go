@@ -55,8 +55,14 @@ func screens(lang i18n.Lang) map[string]page {
 	guide := base
 	guide.Screen = "takeout"
 	guide.GoogleConnected, guide.ImmichConnected, guide.CanTakeout = true, true, true
+	guide.TakeoutFits, guide.GoogleFreeKnown = true, true
 	guide.Drive = trackView{Track: core.TrackDrive, State: "not_started", Pill: i18n.T(lang, "pill.idle"), PillClass: "pill--idle"}
 	guide.Photos = trackView{Track: core.TrackPhotos, State: "takeout_guide", Pill: i18n.T(lang, "pill.waitYou"), PillClass: "pill--you"}
+
+	// The same screen on a full Google account, where "Add to Drive" cannot
+	// work and the upload route is the only one.
+	full := guide
+	full.TakeoutFits, full.GoogleFreeKnown = false, true
 
 	send := guide
 	send.Screen = "upload"
@@ -81,7 +87,8 @@ func screens(lang i18n.Lang) map[string]page {
 
 	return map[string]page{
 		"01-entry": entry, "02-tracks": tracks, "03-takeout": guide,
-		"04-upload": send, "05-done": done, "06-error": stopped,
+		"03b-takeout-full": full,
+		"04-upload":        send, "05-done": done, "06-error": stopped,
 	}
 }
 

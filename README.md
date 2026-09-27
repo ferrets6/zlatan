@@ -32,7 +32,11 @@ Two independent tracks, `drive` and `photos`: a person may run one, the other, o
 
 ## How the Photos half collects a Takeout
 
-Google cannot be asked for a Takeout by a program, so the person asks for it once, choosing **"Add to Drive"**. That puts the export in their own Drive, under a folder Google names `Takeout`. Zlatan already holds a `drive.readonly` token for that account from the Drive half, so a watcher simply looks for the folder: when it appears, and only once every part Google listed is present and non-empty, it downloads the parts and imports them with `immich-go`.
+Google cannot be asked for a Takeout by a program, so the person asks for it once. There are two routes, and the wizard picks the one that can work: **"Add to Drive"** writes the export into the person's own Drive, which needs Google's own free space, so on a full account the wizard says so and offers the upload instead. That is not an edge case: the person whose Drive is full of the photos they are moving is exactly the one who needs the upload.
+
+**Add to Drive.** The export lands in their own Drive, under a folder Google names `Takeout`. Zlatan already holds a `drive.readonly` token for that account from the Drive half, so a watcher simply looks for the folder: when it appears, and only once every part Google listed is present and non-empty, it downloads the parts and imports them with `immich-go`.
+
+**Upload.** The person downloads the export and sends it in chunks from the browser. The upload resumes: the file's SHA-256 is announced first, so the server recognises the same content even when Google renames a re-downloaded archive, sends back what is still missing, and the browser sends only that. A chunk that drops is retried with a timeout and a backoff rather than freezing the page, and a chunk that arrived short is treated as missing rather than counted.
 
 Nothing is shared with anybody: there is no central Google account and no folder-sharing step. The Drive copy excludes the `Takeout` folder, so the archive does not also land in Nextcloud as files: the photos belong in Immich and the archive is disposable. A wait that outlives `ZLATAN_TAKEOUT_MAX_WAIT` ends with a pointer to the upload route, rather than a screen that never moves.
 
@@ -79,10 +83,10 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - [x] Per-person Google OAuth (`drive.readonly`), tokens sealed in the store.
 - [x] A `Runner` that drives `rclone` for Drive → Nextcloud, with progress.
 - [x] A `Runner` that drives `immich-go` for the Takeout → Immich.
-- [x] Resumable Takeout upload (route B).
+- [x] Resumable Takeout upload (route B), keyed by the file's SHA-256: the same content resumes under a different name, different content under the same name is refused, a truncated chunk counts as missing, and the assembled file is checked against the announced hash before it is imported.
 - [x] Import into Nextcloud: rclone copies Drive straight to WebDAV, with a per-person app password from the Nextcloud Login Flow v2.
 - [x] The "Add to Drive" route: a watcher looks for the Takeout folder in the person's own Drive (with the token it already holds), waits until every part is complete, downloads it and imports it. No folder to share and no central account.
-- [x] Verification: the whole tree by size, plus a random sample compared byte for byte (Drive exposes MD5, Nextcloud SHA1, so no shared hash exists and the sample is downloaded). Photos are checked through `immich-go`'s own report, which hashes each asset against the server.
+- [x] Verification: the whole tree by size, plus a random sample compared byte for byte (Drive exposes MD5, Nextcloud SHA1, so no shared hash exists and the sample is downloaded). Native Google documents are excluded from the byte sample and compared by size only: rclone *exports* them on the fly and that export is not reproducible, so a byte comparison would report a difference that is not there and stop an intact migration. Photos are checked through `immich-go`'s own report, which hashes each asset against the server.
 - [x] Staging purge: a finished migration's staging is removed after the configured retention, swept from the database so a directory nobody owns is never touched.
 - [x] Notifications over ntfy on completion and on failure.
 - [x] Quotas: the warning (source size + current Nextcloud usage against the budget) is implemented.

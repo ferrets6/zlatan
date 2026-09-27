@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -82,9 +83,12 @@ func (f *fakeState) SetPhotosState(_ context.Context, user string, state core.Ph
 
 // fakeRunner records what was started.
 type fakeRunner struct {
-	started   []string
-	err       error
-	immichKey string
+	started      []string
+	err          error
+	immichKey    string
+	archiveReady bool
+	takeoutFits  bool
+	freeKnown    bool
 }
 
 func (f *fakeRunner) StartDrive(_ context.Context, user string) error {
@@ -95,12 +99,28 @@ func (f *fakeRunner) StartDrive(_ context.Context, user string) error {
 	return nil
 }
 
-func (f *fakeRunner) StartPhotosUpload(_ context.Context, user string) error {
+func (f *fakeRunner) BeginPhotosUpload(_ context.Context, user string) error {
 	if f.err != nil {
 		return f.err
 	}
 	f.started = append(f.started, "upload:"+user)
 	return nil
+}
+
+func (f *fakeRunner) StartPhotosImport(_ context.Context, user string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.started = append(f.started, "import:"+user)
+	return nil
+}
+
+func (f *fakeRunner) PhotosArchiveReady(_ context.Context, _ string) (bool, error) {
+	return f.archiveReady, nil
+}
+
+func (f *fakeRunner) TakeoutFits(_ context.Context, _ string) (bool, bool, error) {
+	return f.takeoutFits, f.freeKnown, nil
 }
 
 func (f *fakeRunner) StartPhotosTakeout(_ context.Context, user string) error {
@@ -339,6 +359,79 @@ func TestStartDriveReportsFailure(t *testing.T) {
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("code = %d, want 409", rec.Code)
+	}
+}
+
+// A refused credential must not leave the person on a generic failure page:
+// the runner has already cleared it and moved the track back, so the wizard
+// now offers to connect it again. The handler sends them there.
+func TestStartDriveSendsARefusedCredentialBackToReconnect(t *testing.T) {
+	runner := &fakeRunner{err: fmt.Errorf("connect Google again: %w", core.ErrCredentialRefused)}
+	opts := testOptions(runner)
+	handler := Routes(opts)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, request("POST", "/drive/start", "marco"))
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("code = %d, want 303 to the wizard", rec.Code)
+	}
+	if got := rec.Header().Get("Location"); got != "/" {
+		t.Errorf("Location = %q, want /", got)
+	}
+}
+
+func TestStartPhotosSendsARefusedCredentialBackToReconnect(t *testing.T) {
+	runner := &fakeRunner{err: fmt.Errorf("connect Immich again: %w", core.ErrCredentialRefused)}
+	opts := testOptions(runner)
+	handler := Routes(opts)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, request("POST", "/photos/upload/start", "marco"))
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("code = %d, want 303 to the wizard", rec.Code)
+	}
+	if got := rec.Header().Get("Location"); got != "/" {
+		t.Errorf("Location = %q, want /", got)
+	}
+}
+
+// "Send the file myself" must move the track to the upload screen and queue no
+// import: the file has not been sent yet. Before, this route started the import
+// directly, which found no archive and failed, leaving the upload screen
+// unreachable.
+func TestStartPhotosUploadMovesToTheUploadScreen(t *testing.T) {
+	runner := &fakeRunner{}
+	opts := testOptions(runner)
+	handler := Routes(opts)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, request("POST", "/photos/upload/start", "marco"))
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("code = %d, want 303 to the wizard", rec.Code)
+	}
+	if len(runner.started) != 1 || runner.started[0] != "upload:marco" {
+		t.Fatalf("BeginPhotosUpload was not called: %v", runner.started)
+	}
+}
+
+// The failed screen offers "import again" when the archive is already here,
+// rather than sending the person back to Google for an export they have.
+func TestPhotosRetryImportsWhenTheArchiveIsAlreadyHere(t *testing.T) {
+	runner := &fakeRunner{archiveReady: true}
+	opts := testOptions(runner)
+	handler := Routes(opts)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, request("POST", "/photos/import/start", "marco"))
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("code = %d, want 303", rec.Code)
+	}
+	if len(runner.started) != 1 || runner.started[0] != "import:marco" {
+		t.Fatalf("StartPhotosImport was not called: %v", runner.started)
 	}
 }
 

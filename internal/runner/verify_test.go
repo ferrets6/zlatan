@@ -3,9 +3,14 @@
 package runner
 
 import (
+	"context"
+	"os"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/marcodellemarche/zlatan/internal/nextcloud"
+	"github.com/marcodellemarche/zlatan/internal/oauth"
 )
 
 func TestParseCombined(t *testing.T) {
@@ -84,5 +89,64 @@ func TestPickMoreThanAvailable(t *testing.T) {
 	got := pick(files, 5)
 	if len(got) != 2 {
 		t.Errorf("pick should return everything when n exceeds the list, got %d", len(got))
+	}
+}
+
+// A native Google document is exported, not copied, and its export is not
+// reproducible: a byte comparison would report a difference that is not there
+// and stop a migration whose data is intact. It must be kept out of the sample,
+// while still being counted in the size pass.
+func TestNativeGoogleDocsAreExcludedFromTheByteSample(t *testing.T) {
+	store := newFakeStore()
+	// The byte pass answers by file name, not with a fixed line: a document
+	// would differ if it were sampled, and a photo would not. That is what
+	// makes the test prove the exclusion rather than the fake's fixed output.
+	var sampled []string
+	exec := &fakeExecutor{
+		byCommand: map[string]scripted{
+			// The size pass: both files match by size.
+			"check": {lines: []string{"= report.docx", "= photo.jpg"}},
+			// The source listing marks report.docx as a native Google Doc.
+			"lsjson": {lines: []string{
+				`[{"Path":"report.docx","MimeType":"application/vnd.google-apps.document"},` +
+					`{"Path":"photo.jpg","MimeType":"image/jpeg"}]`,
+			}},
+		},
+		hasDownload: true,
+		onRun: func(args []string) {
+			// The --files-from list is a temp file; read it while it exists.
+			for i, a := range args {
+				if a == "--files-from" && i+1 < len(args) {
+					raw, err := os.ReadFile(args[i+1])
+					if err == nil {
+						sampled = strings.Fields(string(raw))
+					}
+				}
+			}
+		},
+	}
+	r := newRunner(t, store, exec)
+
+	v, err := r.VerifyDrive(context.Background(), "marco",
+		oauth.Tokens{AccessToken: "a", RefreshToken: "r"}, nextcloud.Credentials{LoginName: "marco"})
+	if err != nil {
+		t.Fatalf("VerifyDrive: %v", err)
+	}
+
+	// The native document must not have been handed to the byte pass.
+	if slices.Contains(sampled, "report.docx") {
+		t.Errorf("a native Google document must not be byte-compared, sampled=%v", sampled)
+	}
+	if !slices.Contains(sampled, "photo.jpg") {
+		t.Errorf("an ordinary file should still be byte-compared, sampled=%v", sampled)
+	}
+	if v.Mismatch != 0 {
+		t.Errorf("a native Google document must not count as a mismatch, got %+v", v)
+	}
+	if !strings.Contains(v.Detail, "Google documents compared by size only") {
+		t.Errorf("the detail should say the native documents were not byte-compared, got %q", v.Detail)
+	}
+	if v.Checked < 2 {
+		t.Errorf("both files should still be size-checked, got Checked=%d", v.Checked)
 	}
 }

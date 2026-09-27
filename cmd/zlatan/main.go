@@ -213,6 +213,9 @@ func serve(ctx context.Context, a *app) int {
 			return exitConfig
 		}
 		googleFlow = provider
+		// The runner probes the refresh token before a copy, so a revoked
+		// credential is caught before a long copy starts rather than hours in.
+		engine = engine.WithGoogle(provider)
 	}
 
 	srv := &http.Server{

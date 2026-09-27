@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="it">
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Move your things off Google · zlatan</title>
+	<title>Porta i tuoi dati fuori da Google · zlatan</title>
 	<link rel="icon" href="../../../internal/web/static/favicon.svg">
 	<link rel="stylesheet" href="../../../internal/web/static/style.css">
 </head>
@@ -27,29 +27,29 @@
 		</a>
 		<p class="whoami">
 			<b>marco</b>
-			<span class="langs"><b aria-current="true">en</b><a href="?lang=it" hreflang="it" title="Italiano">it</a>
+			<span class="langs"><a href="?lang=en" hreflang="en" title="English">en</a><b aria-current="true">it</b>
 			</span>
 		</p>
 	</header>
 
 
 	<div class="prose">
-		<h1>Done</h1>
+		<h1>Porta i tuoi dati fuori da Google</h1>
 	</div>
 
 	<main class="tracks">
 		
-<section class="track" data-track="drive" data-state="done" aria-labelledby="drive-h">
+<section class="track" data-track="drive" data-state="not_started" aria-labelledby="drive-h">
 	<div class="track__head">
 		<div class="track__titles">
-			<h2 id="drive-h">Files and folders</h2>
-			<span class="pill pill--done">Done</span>
+			<h2 id="drive-h">File e cartelle</h2>
+			<span class="pill pill--idle">Non iniziato</span>
 		</div>
 		<p class="track__route">Google Drive → nextcloud.example.org</p>
 	</div>
 
 	<div class="state" aria-live="polite">
-		<p class="facts">32,900 files · 108.0 GiB</p>
+		
 		
 		
 	</div>
@@ -57,44 +57,67 @@
 	
 
 	
-		<p class="fine">Checked 500 files against the originals. All matched.</p>
-		
 		<div class="actions">
-			<a class="btn btn--primary" href="https://nextcloud.example.org">Open Nextcloud</a>
+			<form method="post" action="/nextcloud/start">
+				<button class="btn btn--primary" type="submit">Collega Nextcloud</button>
+			</form>
 		</div>
-		
+		<p class="fine">Una conferma, nessuna password.</p>
 	
 </section>
 
 		
-<section class="track" data-track="photos" data-state="done" aria-labelledby="photos-h">
+<section class="track" data-track="photos" data-state="takeout_guide" aria-labelledby="photos-h">
 	<div class="track__head">
 		<div class="track__titles">
-			<h2 id="photos-h">Photos and videos</h2>
-			<span class="pill pill--done">Done</span>
+			<h2 id="photos-h">Foto e video</h2>
+			<span class="pill pill--you">Serve te</span>
 		</div>
-		<p class="track__route">Google Photos → immich.example.org</p>
+		<p class="track__route">Google Foto → immich.example.org</p>
 	</div>
 
 	<div class="state" aria-live="polite">
-		<p class="facts">42,552 photos</p>
+		
 		
 	</div>
 
 	
-		<p class="fine">The copy and the import finished without errors.</p>
 		
-		<div class="actions">
-			<a class="btn btn--primary" href="https://immich.example.org" data-app-scheme="immich://">Open Immich</a>
-		</div>
-		<p class="fine">Opens the app if it is installed.</p>
+		<ol class="steps">
+			
+			<li class="step" data-state="done">
+				<div class="step__label"><span class="step__n">1</span>Collega Immich</div>
+				
+			</li>
+
+			<li class="step" data-state="done">
+				<div class="step__label"><span class="step__n">2</span>Collega Google</div>
+				
+			</li>
+
+			<li class="step" data-state="now">
+				<div class="step__label"><span class="step__n">3</span>Chiedi a Google una copia</div>
+				
+				<div class="step__body">
+					
+					
+						<p class="fine">Il tuo spazio Google è pieno, quindi l&#39;esportazione non può essere messa nel tuo Drive. Mandaci tu il file: il pulsante è qui sotto.</p>
+					
+				</div>
+				
+			</li>
+		</ol>
+		
+		<form method="post" action="/photos/upload/start">
+			<button class="btn btn--quiet" type="submit">Mando io il file</button>
+		</form>
 		
 	
 </section>
 
 	</main>
 
-	<p class="fine">Nothing was removed from Google.</p>
+	<p class="fine">Il lavoro continua anche se chiudi questa scheda.</p>
 
 
 	<footer class="foot">

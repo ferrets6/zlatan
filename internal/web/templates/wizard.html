@@ -86,12 +86,16 @@ in internal/i18n, through .T, already in their language.
 
 	<div class="state" aria-live="polite">
 		{{ with .DriveFacts }}<p class="facts">{{ . }}</p>{{ end }}
-		{{ with .Drive.Progress }}<p class="now-doing" title="{{ . }}">{{ . }}</p>{{ end }}
+		{{/* A failed track's Progress holds the raw runner sentence; it is shown
+		     translated and untruncated in the notice below, not here where the
+		     one-line ellipsis would cut it. */}}
+		{{ if not .Drive.Failed }}{{ with .Drive.Progress }}<p class="now-doing" title="{{ . }}">{{ . }}</p>{{ end }}{{ end }}
 	</div>
 
 	{{ if .QuotaOver }}<p class="fine">{{ .T "quota.over" (.B .QuotaProjected) (.B .QuotaBudget) }}</p>{{ end }}
 
 	{{ if .Drive.Failed }}
+		{{ with .LastError }}<p class="notice notice--reason" role="status">{{ $.Why . }}</p>{{ end }}
 		<div class="notice" role="status">
 			<p>
 				{{- if .DriveFiles }}{{ .T "error.resume" (.N .DriveFiles) }}
@@ -108,7 +112,7 @@ in internal/i18n, through .T, already in their language.
 		{{ with .LastError }}
 		<details class="why">
 			<summary>{{ $.T "btn.details" }}</summary>
-			<div><p class="mono">{{ . }}</p></div>
+			<div><p class="mono">{{ $.Why . }}</p></div>
 		</details>
 		{{ end }}
 	{{ else if .Drive.Done }}
@@ -155,21 +159,30 @@ in internal/i18n, through .T, already in their language.
 
 	<div class="state" aria-live="polite">
 		{{ with .PhotosFacts }}<p class="facts">{{ . }}</p>{{ end }}
-		{{ with .Photos.Progress }}<p class="now-doing" title="{{ . }}">{{ . }}</p>{{ end }}
+		{{ if not .Photos.Failed }}{{ with .Photos.Progress }}<p class="now-doing" title="{{ . }}">{{ . }}</p>{{ end }}{{ end }}
 	</div>
 
 	{{ if .Photos.Failed }}
+		{{ with .LastError }}<p class="notice notice--reason" role="status">{{ $.Why . }}</p>{{ end }}
 		{{ if .CanStartPhotos }}
 		<div class="actions">
+			{{/* The archive is already here: retrying means importing it, not
+			     asking Google for a second export. */}}
+			{{ if .PhotosArchiveReady }}
+			<form method="post" action="/photos/import/start">
+				<button class="btn btn--primary" type="submit">{{ .T "btn.retryImport" }}</button>
+			</form>
+			{{ else }}
 			<form method="post" action="/photos/takeout/start">
 				<button class="btn btn--primary" type="submit">{{ .T "btn.retry" }}</button>
 			</form>
+			{{ end }}
 		</div>
 		{{ end }}
 		{{ with .LastError }}
 		<details class="why">
 			<summary>{{ $.T "btn.details" }}</summary>
-			<div><p class="mono">{{ . }}</p></div>
+			<div><p class="mono">{{ $.Why . }}</p></div>
 		</details>
 		{{ end }}
 	{{ else if .Photos.Done }}
@@ -232,7 +245,17 @@ in internal/i18n, through .T, already in their language.
 			<li class="step" data-state="{{ if and .ImmichConnected .CanTakeout }}now{{ else }}todo{{ end }}">
 				<div class="step__label"><span class="step__n">3</span>{{ .T "photos.s3" }}</div>
 				{{ if and .ImmichConnected .CanTakeout }}
-				<div class="step__body">{{ template "guide" . }}</div>
+				<div class="step__body">
+					{{/* The export goes into the person's own Drive, so it needs Google's
+					     own free space. On a full account that route cannot work, and the
+					     person whose Drive is full of the photos they are moving is
+					     exactly the one who needs the upload. */}}
+					{{ if and .GoogleFreeKnown (not .TakeoutFits) }}
+						<p class="fine">{{ .T "takeout.wontFitWhy" }}</p>
+					{{ else }}
+						{{ template "guide" . }}
+					{{ end }}
+				</div>
 				{{ end }}
 			</li>
 		</ol>

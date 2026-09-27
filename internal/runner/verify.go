@@ -4,6 +4,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
@@ -53,7 +54,25 @@ func (r *Runner) VerifyDrive(ctx context.Context, user string, tokens oauth.Toke
 	// the person may have put things there themselves.
 	sizeChecked, sizeBad, matched := r.checkTree(ctx, src, dst, env)
 
-	sampleChecked, sampleBad, err := r.checkSample(ctx, src, dst, env, matched)
+	// A Google Doc, Sheet or Slide is not copied: rclone *exports* it, on the
+	// fly, to a .docx/.xlsx/.pptx. That export is not reproducible — two
+	// downloads of the same document differ in the timestamps baked into the
+	// Office container — so comparing one byte for byte against the file that
+	// landed in Nextcloud reports a difference that is not there. It is a
+	// false alarm, and a loud one: it stops a migration whose data is intact.
+	//
+	// The export is still checked, by size, like everything else; only the
+	// byte comparison is skipped, and the detail says so rather than silently
+	// claiming a check it did not do.
+	nativeDocs := r.nativeDocPaths(ctx, env)
+	sampleable := make([]string, 0, len(matched))
+	for _, path := range matched {
+		if !nativeDocs[path] {
+			sampleable = append(sampleable, path)
+		}
+	}
+
+	sampleChecked, sampleBad, err := r.checkSample(ctx, src, dst, env, sampleable)
 	if err != nil {
 		// The sample is the stronger check but not the only one: if it cannot
 		// run, report what the size pass found rather than failing the whole
@@ -71,7 +90,49 @@ func (r *Runner) VerifyDrive(ctx context.Context, user string, tokens oauth.Toke
 	v.Detail = fmt.Sprintf(
 		"every file compared by size (%d), %d sampled and compared byte for byte",
 		sizeChecked, sampleChecked)
+	if skipped := len(matched) - len(sampleable); skipped > 0 {
+		v.Detail += fmt.Sprintf(
+			"; %d Google documents compared by size only, because their export is not reproducible",
+			skipped)
+	}
 	return v, nil
+}
+
+// nativeDocPaths returns the source paths that are native Google documents
+// (Docs, Sheets, Slides, Drawings). They are the ones rclone exports rather
+// than copies, so their bytes are not reproducible and a byte comparison
+// against them is meaningless. A failure to list is not fatal: the result is
+// an empty set, and the verification then behaves as it did before.
+func (r *Runner) nativeDocPaths(ctx context.Context, env []string) map[string]bool {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer cancel()
+
+	var out strings.Builder
+	if err := r.exec.Run(ctx, "rclone", []string{
+		"lsjson", "gdrive:", "--recursive", "--files-only", "--no-modtime",
+	}, env, func(line string) {
+		out.WriteString(line)
+		out.WriteByte('\n')
+	}); err != nil {
+		r.log.Warn("verify: listing the source for native documents", "error", err)
+		return nil
+	}
+
+	var entries []struct {
+		Path     string `json:"Path"`
+		MimeType string `json:"MimeType"`
+	}
+	if err := json.Unmarshal([]byte(out.String()), &entries); err != nil {
+		r.log.Warn("verify: reading the source listing", "error", err)
+		return nil
+	}
+	paths := make(map[string]bool)
+	for _, e := range entries {
+		if strings.HasPrefix(e.MimeType, "application/vnd.google-apps.") {
+			paths[e.Path] = true
+		}
+	}
+	return paths
 }
 
 // checkTree compares the whole tree by size, one way. It returns how many

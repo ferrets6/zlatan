@@ -5,11 +5,18 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
 )
+
+// ErrCredentialRefused means a provider refused a stored credential (a 401 or
+// 403). The runner clears the credential and moves the track to a state where
+// the wizard offers to connect it again, so a caller can send the person back
+// to that screen instead of showing a generic failure.
+var ErrCredentialRefused = errors.New("the stored credential was refused")
 
 // Secret is a string that must never be printed. Formatting one yields a
 // placeholder, so a stray log statement cannot leak a token (NFR-14).

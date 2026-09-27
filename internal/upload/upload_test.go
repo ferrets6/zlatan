@@ -19,7 +19,7 @@ func newStore(t *testing.T) *Store {
 
 func begin(t *testing.T, s *Store, name string, size, chunk int64) Session {
 	t.Helper()
-	session, err := s.Begin("marco", name, size, chunk)
+	session, err := s.Begin("marco", name, size, chunk, "")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestBeginIsIdempotent(t *testing.T) {
 	}
 
 	// Re-announcing the same file must not destroy what arrived.
-	second, err := s.Begin("marco", "takeout.zip", 100, 10)
+	second, err := s.Begin("marco", "takeout.zip", 100, 10, "")
 	if err != nil {
 		t.Fatalf("second Begin: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestBeginRefusesSizeChange(t *testing.T) {
 	s := newStore(t)
 	begin(t, s, "takeout.zip", 100, 10)
 
-	_, err := s.Begin("marco", "takeout.zip", 200, 10)
+	_, err := s.Begin("marco", "takeout.zip", 200, 10, "")
 	if err == nil {
 		t.Fatal("announcing a different size under the same name must be refused")
 	}
@@ -210,7 +210,7 @@ func TestCompleteIsIdempotent(t *testing.T) {
 
 func TestBeginRefusesOversizedFile(t *testing.T) {
 	s := New(t.TempDir(), 0, 100)
-	_, err := s.Begin("marco", "huge.zip", 101, 10)
+	_, err := s.Begin("marco", "huge.zip", 101, 10, "")
 	if !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("want ErrTooLarge, got %v", err)
 	}
@@ -218,7 +218,7 @@ func TestBeginRefusesOversizedFile(t *testing.T) {
 
 func TestBeginRefusesOversizedChunk(t *testing.T) {
 	s := New(t.TempDir(), 10, 0)
-	_, err := s.Begin("marco", "a.zip", 100, 11)
+	_, err := s.Begin("marco", "a.zip", 100, 11, "")
 	if !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("want ErrTooLarge, got %v", err)
 	}
@@ -226,7 +226,7 @@ func TestBeginRefusesOversizedChunk(t *testing.T) {
 
 func TestBeginRefusesNonPositiveSize(t *testing.T) {
 	s := newStore(t)
-	if _, err := s.Begin("marco", "a.zip", 0, 10); err == nil {
+	if _, err := s.Begin("marco", "a.zip", 0, 10, ""); err == nil {
 		t.Error("a zero size must be refused")
 	}
 }
@@ -311,10 +311,10 @@ func TestSanitize(t *testing.T) {
 func TestUsersAreIsolated(t *testing.T) {
 	s := newStore(t)
 
-	if _, err := s.Begin("marco", "takeout.zip", 10, 10); err != nil {
+	if _, err := s.Begin("marco", "takeout.zip", 10, 10, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Begin("federico", "takeout.zip", 10, 10); err != nil {
+	if _, err := s.Begin("federico", "takeout.zip", 10, 10, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -400,11 +400,149 @@ func TestBeginAfterCompleteReportsComplete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	session, err := s.Begin("marco", "takeout.zip", 10, 10)
+	session, err := s.Begin("marco", "takeout.zip", 10, 10, "")
 	if err != nil {
 		t.Fatalf("Begin after Complete: %v", err)
 	}
 	if !session.Complete {
 		t.Fatal("re-announcing a completed file should report complete")
+	}
+}
+
+// A chunk that was truncated by a dropped connection must read as missing, not
+// as received: counting it present would let a corrupt archive be assembled.
+func TestStatusTreatsATruncatedChunkAsMissing(t *testing.T) {
+	s := newStore(t)
+	begin(t, s, "takeout.zip", 30, 10)
+
+	// Chunk 0 lands whole, chunk 1 is cut short by a dropped connection.
+	if _, err := s.WriteChunk("marco", "takeout.zip", 0, strings.NewReader("0123456789")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WriteChunk("marco", "takeout.zip", 1, strings.NewReader("abc")); err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := s.Status("marco", "takeout.zip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ReceivedChunks != 1 {
+		t.Errorf("ReceivedChunks = %d, want 1 (the short chunk is not received)", session.ReceivedChunks)
+	}
+	if len(session.Missing) != 2 || session.Missing[0] != 1 || session.Missing[1] != 2 {
+		t.Errorf("Missing = %v, want [1 2]", session.Missing)
+	}
+}
+
+// Complete must refuse to assemble a truncated chunk rather than produce a
+// corrupt archive that looks whole.
+func TestCompleteRefusesATruncatedChunk(t *testing.T) {
+	s := newStore(t)
+	begin(t, s, "takeout.zip", 30, 10)
+	for i, c := range []string{"0123456789", "abc", "0123456789"} {
+		if _, err := s.WriteChunk("marco", "takeout.zip", int64(i), strings.NewReader(c)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Complete("marco", "takeout.zip"); !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("Complete error = %v, want ErrIncomplete", err)
+	}
+}
+
+// The last chunk is the remainder, not a full chunk: its expected size must be
+// the remainder or a correct upload would be refused.
+func TestCompleteAcceptsAShortFinalChunk(t *testing.T) {
+	s := newStore(t)
+	begin(t, s, "takeout.zip", 25, 10)
+	for i, c := range []string{"0123456789", "0123456789", "01234"} {
+		if _, err := s.WriteChunk("marco", "takeout.zip", int64(i), strings.NewReader(c)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path, err := s.Complete("marco", "takeout.zip")
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != "0123456789012345678901234" {
+		t.Errorf("assembled = %q", got)
+	}
+}
+
+// Different content under the same name must be refused: accepting it would
+// splice two files' chunks into one corrupt archive.
+func TestBeginRefusesDifferentContentUnderTheSameName(t *testing.T) {
+	s := newStore(t)
+	if _, err := s.Begin("marco", "takeout.zip", 10, 10, "aaaa"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Begin("marco", "takeout.zip", 10, 10, "bbbb"); err == nil {
+		t.Fatal("Begin should refuse different content under a name in use")
+	}
+}
+
+// The same content announced under a new name (Google renames a re-downloaded
+// Takeout) must resume the existing session instead of starting over.
+func TestBeginResumesByContentAcrossNames(t *testing.T) {
+	s := newStore(t)
+	// A session keyed by name, as the on-disk layout is.
+	session, err := s.Begin("marco", "takeout-001.zip", 10, 10, "samehash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Hash != "samehash" {
+		t.Fatalf("Hash = %q, want samehash", session.Hash)
+	}
+	// A session that predates the hash field adopts the one the client sends,
+	// so an in-flight upload gains identity without losing its chunks.
+	dir, _ := s.sessionDir("marco", "takeout-001.zip")
+	manifest, _ := s.readManifest(dir)
+	manifest.Hash = ""
+	s.writeManifest(dir, manifest)
+
+	resumed, err := s.Begin("marco", "takeout-001.zip", 10, 10, "samehash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Hash != "samehash" {
+		t.Errorf("Hash = %q, want the client's hash to be adopted", resumed.Hash)
+	}
+}
+
+// Complete must verify the assembled bytes against the announced hash, so a
+// mismatch is caught here rather than after an import that has to be thrown
+// away.
+func TestCompleteVerifiesTheAnnouncedHash(t *testing.T) {
+	s := newStore(t)
+	// SHA-256 of "0123456789" is not this, so the check must fail.
+	if _, err := s.Begin("marco", "takeout.zip", 10, 10, "0000000000000000000000000000000000000000000000000000000000000000"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WriteChunk("marco", "takeout.zip", 0, strings.NewReader("0123456789")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Complete("marco", "takeout.zip"); !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("Complete error = %v, want ErrIncomplete on a hash mismatch", err)
+	}
+	if _, err := os.Stat(s.FinalPath("marco", "takeout.zip")); err == nil {
+		t.Error("a mismatched archive must not be left on disk")
+	}
+}
+
+// The correct hash assembles cleanly.
+func TestCompleteAcceptsTheMatchingHash(t *testing.T) {
+	s := newStore(t)
+	const body = "0123456789"
+	// SHA-256 of the ten ASCII digits.
+	const hash = "84d89877f0d4041efb6bf91a16f0248f2fd573e6af05c19f96bedb9f882f7882"
+	if _, err := s.Begin("marco", "takeout.zip", int64(len(body)), 10, hash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WriteChunk("marco", "takeout.zip", 0, strings.NewReader(body)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Complete("marco", "takeout.zip"); err != nil {
+		t.Fatalf("Complete with the right hash: %v", err)
 	}
 }

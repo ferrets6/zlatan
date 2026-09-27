@@ -4,6 +4,7 @@ package immich
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -49,8 +50,47 @@ func TestValidateRejectsABadKey(t *testing.T) {
 	defer srv.Close()
 
 	c, _ := New(srv.URL, 0)
-	if _, err := c.Validate(context.Background(), "wrong"); err == nil {
+	_, err := c.Validate(context.Background(), "wrong")
+	if err == nil {
 		t.Error("Validate should reject a key Immich refuses")
+	}
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("a 401 must be testable as ErrUnauthorized, got %v", err)
+	}
+}
+
+// A 403 is the same dead credential as a 401, and a 5xx is not: the caller
+// must be able to tell them apart so a transient failure never stops a copy.
+func TestValidateReportsARefusedCredential(t *testing.T) {
+	for _, code := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(code)
+			}))
+			defer srv.Close()
+
+			c, _ := New(srv.URL, 0)
+			_, err := c.Validate(context.Background(), "wrong")
+			if !errors.Is(err, ErrUnauthorized) {
+				t.Errorf("Validate error = %v, want ErrUnauthorized", err)
+			}
+		})
+	}
+}
+
+func TestValidateDoesNotTreatAServerErrorAsARefusal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	c, _ := New(srv.URL, 0)
+	_, err := c.Validate(context.Background(), "a-key")
+	if err == nil {
+		t.Fatal("a 503 should still be an error")
+	}
+	if errors.Is(err, ErrUnauthorized) {
+		t.Errorf("a 503 must not be read as a dead credential, got %v", err)
 	}
 }
 

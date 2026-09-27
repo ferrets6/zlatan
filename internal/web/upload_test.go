@@ -73,7 +73,7 @@ func TestUploadFullFlow(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("complete: code = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if len(runner.started) != 1 || runner.started[0] != "upload:marco" {
+	if len(runner.started) != 1 || runner.started[0] != "import:marco" {
 		t.Fatalf("the import was not queued: %v", runner.started)
 	}
 }

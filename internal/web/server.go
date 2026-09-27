@@ -58,7 +58,7 @@ type Sealer interface {
 
 // UploadStore holds a Takeout archive being uploaded in chunks.
 type UploadStore interface {
-	Begin(user, name string, size, chunkSize int64) (upload.Session, error)
+	Begin(user, name string, size, chunkSize int64, hash string) (upload.Session, error)
 	WriteChunk(user, name string, index int64, r io.Reader) (upload.Session, error)
 	Status(user, name string) (upload.Session, error)
 	Complete(user, name string) (string, error)
@@ -95,7 +95,29 @@ type Options struct {
 // through the store.
 type Runner interface {
 	StartDrive(ctx context.Context, user string) error
-	StartPhotosUpload(ctx context.Context, user string) error
+
+	// BeginPhotosUpload moves the Photos track to the upload screen, where the
+	// person sends their archive in chunks. It starts no work: the import is
+	// queued later, once the archive is actually on disk.
+	BeginPhotosUpload(ctx context.Context, user string) error
+
+	// StartPhotosImport imports an archive that is already in staging. It is
+	// what the upload completion calls, and what a retry after a failed import
+	// calls; it is not the entry point for "send the file myself".
+	StartPhotosImport(ctx context.Context, user string) error
+
+	// TakeoutFits reports whether Google's own free space can hold the export,
+	// which decides whether the "Add to Drive" route is offered at all. known
+	// is false when the free space could not be read, which must not be read as
+	// "does not fit".
+	TakeoutFits(ctx context.Context, user string) (fits, known bool, err error)
+
+	// PhotosArchiveReady reports whether a Takeout archive is already in the
+	// person's staging area. The failed screen uses it to offer "try the import
+	// again" when there is something to import, instead of sending the person
+	// back to Google for an export they already have.
+	PhotosArchiveReady(ctx context.Context, user string) (bool, error)
+
 	StartPhotosTakeout(ctx context.Context, user string) error
 
 	// StartNextcloud begins the Nextcloud Login Flow and returns the URL the
@@ -139,6 +161,7 @@ func Routes(opts Options) http.Handler {
 	mux.Handle("POST /immich/connect", gate(opts.connectImmich))
 	mux.Handle("POST /drive/start", gate(opts.startDrive))
 	mux.Handle("POST /photos/upload/start", gate(opts.startPhotosUpload))
+	mux.Handle("POST /photos/import/start", gate(opts.startPhotosImport))
 	mux.Handle("POST /photos/takeout/start", gate(opts.startPhotosTakeout))
 
 	// Resumable Takeout upload. Each request is authenticated and scoped to the

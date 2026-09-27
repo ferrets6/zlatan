@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/marcodellemarche/zlatan/internal/core"
@@ -82,14 +83,19 @@ func (p *Provider) Exchange(ctx context.Context, code string) (Tokens, error) {
 	return fromOAuth2(tok), nil
 }
 
-// Refresh exchanges the refresh token for a fresh access token.
+// Refresh exchanges the refresh token for a fresh access token. A refused
+// refresh token (Google answers invalid_grant) is a dead credential and comes
+// back as ErrUnauthorized; anything else is transient.
 func (p *Provider) Refresh(ctx context.Context, refresh string) (Tokens, error) {
 	if refresh == "" {
-		return Tokens{}, errors.New("no refresh token to use")
+		return Tokens{}, fmt.Errorf("no refresh token to use: %w", ErrUnauthorized)
 	}
 	source := p.oauth.TokenSource(ctx, &oauth2.Token{RefreshToken: refresh})
 	tok, err := source.Token()
 	if err != nil {
+		if isRefused(err) {
+			return Tokens{}, fmt.Errorf("refreshing the access token: %w", ErrUnauthorized)
+		}
 		return Tokens{}, fmt.Errorf("refreshing the access token: %w", err)
 	}
 	// Google does not return the refresh token on refresh; keep the one we
@@ -99,6 +105,39 @@ func (p *Provider) Refresh(ctx context.Context, refresh string) (Tokens, error) 
 		out.RefreshToken = refresh
 	}
 	return out, nil
+}
+
+// ErrUnauthorized means Google refused the refresh token. Only a refusal is a
+// dead credential: a timeout or a 5xx is transient and must not stop work the
+// person asked for.
+var ErrUnauthorized = errors.New("Google refused the credential")
+
+// Probe checks that the refresh token still works, without keeping the result.
+// It is the preflight a copy runs so a revoked credential is caught before a
+// long copy starts, rather than hours in.
+func (p *Provider) Probe(ctx context.Context, refresh string) error {
+	_, err := p.Refresh(ctx, refresh)
+	return err
+}
+
+// isRefused reports whether an error from the token endpoint means the
+// credential itself was rejected, rather than a transient failure. Google
+// answers invalid_grant for a revoked or expired refresh token, and 401/403
+// for a token the client may not use.
+func isRefused(err error) bool {
+	var re *oauth2.RetrieveError
+	if errors.As(err, &re) {
+		if re.ErrorCode == "invalid_grant" || re.ErrorCode == "invalid_client" {
+			return true
+		}
+		if re.Response != nil {
+			switch re.Response.StatusCode {
+			case http.StatusUnauthorized, http.StatusForbidden:
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Sealer is the part of core.Sealer this package needs. Keeping it an

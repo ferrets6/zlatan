@@ -49,6 +49,11 @@ type Me struct {
 	IsAdmin bool   `json:"isAdmin"`
 }
 
+// ErrUnauthorized means Immich refused the API key. Only a refusal (401 or
+// 403) is a dead credential: a timeout or a 5xx is transient and must not stop
+// work the person asked for.
+var ErrUnauthorized = errors.New("Immich refused the API key")
+
 // Client is an Immich instance reached over the internal Docker network.
 type Client struct {
 	base string
@@ -94,12 +99,13 @@ func (c *Client) Validate(ctx context.Context, apiKey string) (Me, error) {
 	}
 	defer drain(resp.Body)
 
-	// 401 is the honest answer for a wrong key; anything else non-200 is a
-	// server problem, not the person's mistake, and says so.
+	// 401 and 403 are the honest answer for a wrong or revoked key; anything
+	// else non-200 is a server problem, not the person's mistake, and must not
+	// be read as a dead credential.
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return Me{}, errors.New("Immich did not accept that API key")
+		return Me{}, fmt.Errorf("Immich did not accept that API key: %w", ErrUnauthorized)
 	default:
 		return Me{}, fmt.Errorf("checking the Immich API key: unexpected status %d", resp.StatusCode)
 	}

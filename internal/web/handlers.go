@@ -78,6 +78,22 @@ type page struct {
 	CanTakeout      bool
 	CanUpload       bool
 
+	// PhotosArchiveReady is true when a Takeout archive is already in the
+	// person's staging area. The failed screen uses it to offer "import again"
+	// rather than sending the person back to Google for an export they already
+	// have.
+	PhotosArchiveReady bool
+
+	// TakeoutFits is false when Google's own free space cannot hold the export,
+	// so "Add to Drive" cannot work and the upload route is the only one. It is
+	// true when the space is enough, and also when it could not be read: an
+	// unreadable quota must not take away a route.
+	TakeoutFits bool
+
+	// GoogleFreeKnown is false when the free space could not be read, so the
+	// wizard does not claim the Drive is full on a guess.
+	GoogleFreeKnown bool
+
 	CanStartDrive  bool
 	CanStartPhotos bool
 
@@ -128,6 +144,21 @@ func (p page) Check(v *core.Verify) string {
 		return p.T("check.mismatch", p.N(int64(v.Checked)), p.N(int64(v.Mismatch)))
 	}
 	return p.T("check.ok", p.N(int64(v.Checked)))
+}
+
+// Why renders the reason a track stopped in the reader's language. The runner
+// stores a fixed English sentence, because that is what a log wants; the
+// wizard shows the same sentence translated. An unknown sentence is shown as
+// it is rather than hidden, so a reason the catalogue has not caught up with
+// is still visible, just not translated.
+func (p page) Why(message string) string {
+	if message == "" {
+		return ""
+	}
+	if key, args := whyKey(message); key != "" {
+		return p.T(key, args...)
+	}
+	return message
 }
 
 // Every states the real poll interval from configuration.
@@ -277,6 +308,28 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 	// start a wait that could never look anywhere.
 	p.CanTakeout = p.CanTakeoutRoute && p.GoogleConnected
 
+	// Whether there is already something to import decides what "try again"
+	// means on the stopped screen: importing what is here, or going back to
+	// Google for an export that never arrived.
+	if opts.Runner != nil {
+		if ready, err := opts.Runner.PhotosArchiveReady(r.Context(), user); err == nil {
+			p.PhotosArchiveReady = ready
+		}
+	}
+
+	// "Add to Drive" writes the export into the person's own Drive, so it needs
+	// Google's own free space. On a full account it cannot work, and the person
+	// whose Drive is full of the photos they are moving is exactly the one who
+	// needs the upload route. Default to "it fits" so an unreadable quota never
+	// removes a route.
+	p.TakeoutFits = true
+	if opts.Runner != nil && p.CanTakeout {
+		if fits, known, err := opts.Runner.TakeoutFits(r.Context(), user); err == nil {
+			p.TakeoutFits = fits
+			p.GoogleFreeKnown = known
+		}
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Vary", "Accept-Language, Cookie")
@@ -375,6 +428,14 @@ func (opts Options) startDrive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := opts.Runner.StartDrive(r.Context(), user); err != nil {
+		// A refused credential is not a failure the person cannot act on: the
+		// runner cleared it and moved the track back, so the wizard now offers
+		// to connect it again. Send them there rather than to an error page.
+		if errors.Is(err, core.ErrCredentialRefused) {
+			opts.Log.Warn("startDrive: a credential needs renewing", "user", user, "error", err)
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
 		opts.Log.Error("startDrive: queue", "user", user, "error", err)
 		http.Error(w, "could not start the Drive migration", http.StatusConflict)
 		return
@@ -460,7 +521,39 @@ func (opts Options) connectImmich(w http.ResponseWriter, r *http.Request) {
 }
 
 func (opts Options) startPhotosUpload(w http.ResponseWriter, r *http.Request) {
-	opts.startPhotos(w, r, "upload")
+	// "Send the file myself" does not start an import: it moves the track to
+	// the upload screen, where the file is sent in chunks. Starting an import
+	// here found no archive and failed with "no Takeout archive found", which
+	// is how this route was unreachable in practice.
+	user, email, err := identityFrom(r, opts.Config.TrustedProxy)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if opts.Runner == nil {
+		http.Error(w, "the Photos route is not available on this instance", http.StatusServiceUnavailable)
+		return
+	}
+	if _, err := opts.State.EnsureMigration(r.Context(), user, email); err != nil {
+		opts.Log.Error("startPhotosUpload: ensure migration", "user", user, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := opts.Runner.BeginPhotosUpload(r.Context(), user); err != nil {
+		if errors.Is(err, core.ErrCredentialRefused) {
+			opts.Log.Warn("startPhotosUpload: a credential needs renewing", "user", user, "error", err)
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
+		opts.Log.Error("startPhotosUpload: begin", "user", user, "error", err)
+		http.Error(w, "could not start the upload", http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (opts Options) startPhotosImport(w http.ResponseWriter, r *http.Request) {
+	opts.startPhotos(w, r, "import")
 }
 
 func (opts Options) startPhotosTakeout(w http.ResponseWriter, r *http.Request) {
@@ -488,9 +581,15 @@ func (opts Options) startPhotos(w http.ResponseWriter, r *http.Request, route st
 	case "takeout":
 		startErr = opts.Runner.StartPhotosTakeout(r.Context(), user)
 	default:
-		startErr = opts.Runner.StartPhotosUpload(r.Context(), user)
+		// "import" and the legacy default both mean: import what is on disk.
+		startErr = opts.Runner.StartPhotosImport(r.Context(), user)
 	}
 	if startErr != nil {
+		if errors.Is(startErr, core.ErrCredentialRefused) {
+			opts.Log.Warn("startPhotos: a credential needs renewing", "user", user, "route", route, "error", startErr)
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
 		opts.Log.Error("startPhotos: queue", "user", user, "route", route, "error", startErr)
 		http.Error(w, "could not start the Photos migration", http.StatusConflict)
 		return
@@ -501,4 +600,51 @@ func (opts Options) startPhotos(w http.ResponseWriter, r *http.Request, route st
 // staticHandler serves the embedded assets.
 func staticHandler() http.Handler {
 	return http.FileServer(http.FS(staticRoot))
+}
+
+// whyKey maps a runner message onto a catalogue key. The runner writes fixed
+// sentences, so the match is exact: a message that changes shape simply falls
+// through untranslated rather than being mistranslated.
+//
+// The two messages that carry numbers are matched by prefix, because the
+// numbers are part of the sentence and differ per migration.
+func whyKey(message string) (string, []any) {
+	if strings.HasPrefix(message, "the check found ") {
+		// "the check found 3 files that did not match: <detail>"
+		rest := strings.TrimPrefix(message, "the check found ")
+		n, _, ok := strings.Cut(rest, " ")
+		if ok {
+			return "why.mismatch", []any{n}
+		}
+	}
+	if strings.HasPrefix(message, "the import finished with ") {
+		// "the import finished with 2 errors and 5 assets pending"
+		fields := strings.Fields(message)
+		if len(fields) >= 9 {
+			return "why.importErrors", []any{fields[4], fields[8]}
+		}
+	}
+	if key, ok := whyKeys[message]; ok {
+		return key, nil
+	}
+	return "", nil
+}
+
+// whyKeys is the exact-match table for the runner's fixed failure sentences.
+var whyKeys = map[string]string{
+	"Nextcloud is not configured":                                        "why.nextcloudMissing",
+	"the copy could not be prepared":                                     "why.copyPrepare",
+	"the copy from Google Drive did not finish":                          "why.copyUnfinished",
+	"the copy finished but could not be checked":                         "why.copyUnchecked",
+	"the export did not arrive in time: upload the Takeout file instead": "why.takeoutLate",
+	"the staging area could not be prepared":                             "why.stagingPrepare",
+	"the staging area could not be read":                                 "why.stagingRead",
+	"the export could not be downloaded from your Drive":                 "why.downloadFailed",
+	"no Takeout archive found: upload one first":                         "why.noArchive",
+	"the archive did not contain any photos or videos to import":         "why.archiveEmpty",
+	"the archive could not be read":                                      "why.archiveUnreadable",
+	"the archive could not be opened":                                    "why.archiveUnreadable",
+	"the archive is not a valid zip":                                     "why.archiveUnreadable",
+	"Immich is not connected: add your API key before importing":         "why.immichMissing",
+	"the import into Immich did not finish":                              "why.importUnfinished",
 }

@@ -17,6 +17,12 @@ type uploadBeginRequest struct {
 	Name      string `json:"name"`
 	Size      int64  `json:"size"`
 	ChunkSize int64  `json:"chunkSize"`
+	// Hash is the SHA-256 of the whole file, lowercase hex, computed in the
+	// browser. It is what makes a resume recognise the same file even when its
+	// name changed, and what refuses different content under a name already in
+	// use. Optional: a client that omits it still works, without those
+	// guarantees.
+	Hash string `json:"hash"`
 }
 
 // uploadBegin starts or resumes a session. It is idempotent, so a page reload
@@ -42,7 +48,7 @@ func (opts Options) uploadBegin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := opts.Uploads.Begin(user, req.Name, req.Size, req.ChunkSize)
+	session, err := opts.Uploads.Begin(user, req.Name, req.Size, req.ChunkSize, req.Hash)
 	if err != nil {
 		if errors.Is(err, upload.ErrTooLarge) {
 			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
@@ -160,7 +166,7 @@ func (opts Options) uploadComplete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if opts.Runner != nil {
-		if err := opts.Runner.StartPhotosUpload(r.Context(), user); err != nil {
+		if err := opts.Runner.StartPhotosImport(r.Context(), user); err != nil {
 			// The archive is safely on disk; the import can be started again.
 			opts.Log.Error("uploadComplete: queue import", "user", user, "error", err)
 			http.Error(w, "the file was uploaded but the import could not be started", http.StatusConflict)

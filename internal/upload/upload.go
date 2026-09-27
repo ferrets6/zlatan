@@ -10,6 +10,8 @@
 package upload
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,6 +52,15 @@ type Session struct {
 	ChunkSize int64     `json:"chunkSize"`
 	CreatedAt time.Time `json:"createdAt"`
 
+	// Hash is the SHA-256 of the whole file, lowercase hex, as the browser
+	// computed it. It is the identity of the upload: a session is keyed by
+	// (user, name) on disk, but this is what lets a re-announced file be
+	// recognised as the same content even when its name changed, and what lets
+	// a re-upload of a *different* file under the same name be refused rather
+	// than silently mixing two files' chunks. Empty for a session created
+	// before this field existed, or by a client that did not send one.
+	Hash string `json:"hash,omitempty"`
+
 	// derived, not persisted
 	TotalChunks    int   `json:"totalChunks"`
 	ReceivedChunks int   `json:"receivedChunks"`
@@ -76,10 +87,21 @@ func New(root string, maxChunk, maxFile int64) *Store {
 	return &Store{root: root, maxChunk: maxChunk, maxFile: maxFile, now: time.Now}
 }
 
-// Begin starts a session, or returns the existing one if the name is already
-// known. It is idempotent so a browser that reloads and re-announces the same
-// file does not destroy the chunks already uploaded.
-func (s *Store) Begin(user, name string, size, chunkSize int64) (Session, error) {
+// Begin starts a session, or returns the existing one if the same file is
+// already known. It is idempotent so a browser that reloads and re-announces
+// the same file does not destroy the chunks already uploaded.
+//
+// hash, when non-empty, is the SHA-256 of the file as the browser computed it.
+// It is what makes "the same file" a fact rather than a guess:
+//
+//   - same hash, any name: the content is already here, so a re-announced file
+//     whose name Google changed (a re-downloaded Takeout gets a new suffix)
+//     resumes instead of starting over.
+//   - same name, different hash: the caller is announcing different content
+//     under a name in use. Refusing is the only safe answer; accepting would
+//     splice two files' chunks into one corrupt archive.
+func (s *Store) Begin(user, name string, size, chunkSize int64, hash string) (Session, error) {
+	hash = strings.ToLower(strings.TrimSpace(hash))
 	if size <= 0 {
 		return Session{}, errors.New("the declared size must be positive")
 	}
@@ -92,11 +114,18 @@ func (s *Store) Begin(user, name string, size, chunkSize int64) (Session, error)
 
 	// Already assembled: report it complete rather than reopening a session,
 	// which would let a reloaded page re-upload a file the server already has.
+	// A hash that disagrees means the assembled file is not this content, so
+	// the stale one is discarded rather than reported as the answer.
 	if info, err := os.Stat(s.finalPath(user, name)); err == nil {
-		return Session{
-			User: user, Name: name, Size: info.Size(),
-			Complete: true, TotalChunks: 1, ReceivedChunks: 1,
-		}, nil
+		if hash == "" || s.assembledMatches(user, name, hash) {
+			return Session{
+				User: user, Name: name, Size: info.Size(), Hash: hash,
+				Complete: true, TotalChunks: 1, ReceivedChunks: 1,
+			}, nil
+		}
+		if err := os.Remove(s.finalPath(user, name)); err != nil {
+			return Session{}, fmt.Errorf("replace the stale archive: %w", err)
+		}
 	}
 
 	dir, err := s.sessionDir(user, name)
@@ -104,11 +133,22 @@ func (s *Store) Begin(user, name string, size, chunkSize int64) (Session, error)
 		return Session{}, err
 	}
 	if existing, err := s.readManifest(dir); err == nil {
-		// Same name, same size: resume. Different size: the caller is
-		// announcing a different file under a name already in use, which is
-		// an error rather than a silent overwrite.
+		// Same name, same size, same hash (or no hash on either side): resume.
+		// A different size or hash is a different file under a name already in
+		// use, which is an error rather than a silent overwrite.
 		if existing.Size != size {
 			return Session{}, fmt.Errorf("an upload named %q already exists with a different size", name)
+		}
+		if hash != "" && existing.Hash != "" && existing.Hash != hash {
+			return Session{}, fmt.Errorf("an upload named %q already exists with different content", name)
+		}
+		// Adopt the hash the client just supplied if the session predates the
+		// field, so a resume started before this existed still gains identity.
+		if existing.Hash == "" && hash != "" {
+			existing.Hash = hash
+			if err := s.writeManifest(dir, existing); err != nil {
+				return Session{}, err
+			}
 		}
 		return s.Status(user, name)
 	}
@@ -116,15 +156,23 @@ func (s *Store) Begin(user, name string, size, chunkSize int64) (Session, error)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return Session{}, fmt.Errorf("create the upload directory: %w", err)
 	}
-	manifest := Session{User: user, Name: name, Size: size, ChunkSize: chunkSize, CreatedAt: s.now().UTC()}
-	raw, err := json.Marshal(manifest)
-	if err != nil {
+	manifest := Session{User: user, Name: name, Size: size, ChunkSize: chunkSize, Hash: hash, CreatedAt: s.now().UTC()}
+	if err := s.writeManifest(dir, manifest); err != nil {
 		return Session{}, err
 	}
-	if err := os.WriteFile(filepath.Join(dir, manifestName), raw, 0o600); err != nil {
-		return Session{}, fmt.Errorf("write the manifest: %w", err)
-	}
 	return s.Status(user, name)
+}
+
+// writeManifest persists a session's manifest.
+func (s *Store) writeManifest(dir string, manifest Session) error {
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, manifestName), raw, 0o600); err != nil {
+		return fmt.Errorf("write the manifest: %w", err)
+	}
+	return nil
 }
 
 // WriteChunk stores one chunk. Writing a chunk twice is harmless: it is
@@ -163,7 +211,10 @@ func (s *Store) WriteChunk(user, name string, index int64, r io.Reader) (Session
 	return s.Status(user, name)
 }
 
-// Status reports what is present and what is missing.
+// Status reports what is present and what is missing. A chunk counts as
+// received only when its size is what it should be: a connection that dropped
+// mid-chunk leaves a short file behind, and counting it would let a truncated
+// archive be assembled and imported as if it were whole.
 func (s *Store) Status(user, name string) (Session, error) {
 	manifest, dir, err := s.load(user, name)
 	if err != nil {
@@ -184,7 +235,7 @@ func (s *Store) Status(user, name string) (Session, error) {
 	manifest.TotalChunks = total
 
 	for i := 0; i < total; i++ {
-		if _, err := os.Stat(filepath.Join(dir, chunkFile(int64(i)))); err == nil {
+		if s.chunkIsWhole(dir, int64(i), manifest) {
 			manifest.ReceivedChunks++
 		} else {
 			manifest.Missing = append(manifest.Missing, i)
@@ -198,6 +249,32 @@ func (s *Store) Status(user, name string) (Session, error) {
 		manifest.Missing = nil
 	}
 	return manifest, nil
+}
+
+// expectedChunkSize is how large chunk i must be. Every chunk is the full
+// chunk size except the last, which holds the remainder; for a file smaller
+// than one chunk that remainder is the whole file.
+func expectedChunkSize(manifest Session, index int64) int64 {
+	total := int64(chunkCount(manifest.Size, manifest.ChunkSize))
+	if index < total-1 {
+		return manifest.ChunkSize
+	}
+	if rem := manifest.Size % manifest.ChunkSize; rem != 0 {
+		return rem
+	}
+	return manifest.ChunkSize
+}
+
+// chunkIsWhole reports whether a chunk file exists and is exactly the size it
+// should be. Size, not presence: a truncated write is the shape a dropped
+// connection leaves behind, and it must read as missing so the browser sends
+// it again.
+func (s *Store) chunkIsWhole(dir string, index int64, manifest Session) bool {
+	info, err := os.Stat(filepath.Join(dir, chunkFile(index)))
+	if err != nil {
+		return false
+	}
+	return info.Size() == expectedChunkSize(manifest, index)
 }
 
 // Complete assembles the chunks into the final file and removes the parts. It
@@ -214,16 +291,14 @@ func (s *Store) Complete(user, name string) (string, error) {
 	}
 	total := chunkCount(manifest.Size, manifest.ChunkSize)
 
-	// Refuse to assemble a hole: a missing chunk would produce a truncated
-	// archive that looks complete, which is the failure mode this whole
-	// package exists to prevent.
+	// Refuse to assemble a hole: a missing or short chunk would produce a
+	// truncated archive that looks complete, which is the failure mode this
+	// whole package exists to prevent. Size is checked, not presence, so a
+	// chunk a dropped connection truncated is refused here rather than
+	// imported as if it were whole.
 	for i := 0; i < total; i++ {
-		info, err := os.Stat(filepath.Join(dir, chunkFile(int64(i))))
-		if err != nil {
-			return "", fmt.Errorf("%w: chunk %d is missing", ErrIncomplete, i)
-		}
-		if info.Size() == 0 && manifest.Size > 0 && i < total-1 {
-			return "", fmt.Errorf("%w: chunk %d is empty", ErrIncomplete, i)
+		if !s.chunkIsWhole(dir, int64(i), manifest) {
+			return "", fmt.Errorf("%w: chunk %d is missing or short", ErrIncomplete, i)
 		}
 	}
 
@@ -257,6 +332,22 @@ func (s *Store) Complete(user, name string) (string, error) {
 		return "", err
 	}
 
+	// Prove the assembled file is the content the client announced. Without
+	// this the hash is a convention; with it, a re-announced file is genuinely
+	// the same file, and a mismatch is caught here rather than by immich-go
+	// after an import that would have to be thrown away.
+	if manifest.Hash != "" {
+		sum, err := hashFile(final)
+		if err != nil {
+			os.Remove(final)
+			return "", fmt.Errorf("hashing the assembled archive: %w", err)
+		}
+		if sum != manifest.Hash {
+			os.Remove(final)
+			return "", fmt.Errorf("%w: the assembled file does not match the announced hash", ErrIncomplete)
+		}
+	}
+
 	// Only now is the parts directory redundant.
 	if err := os.RemoveAll(dir); err != nil {
 		return final, fmt.Errorf("assembled %s but could not remove the parts: %w", final, err)
@@ -277,6 +368,29 @@ func (s *Store) Abort(user, name string) error {
 // exists.
 func (s *Store) FinalPath(user, name string) string {
 	return s.finalPath(user, name)
+}
+
+// assembledMatches reports whether the archive already on disk hashes to the
+// announced content, so a re-announced file is only reported complete when it
+// really is that file.
+func (s *Store) assembledMatches(user, name, hash string) bool {
+	sum, err := hashFile(s.finalPath(user, name))
+	return err == nil && sum == hash
+}
+
+// hashFile returns the lowercase hex SHA-256 of a file, read in a stream so a
+// 50 GB archive never lands in memory.
+func hashFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func (s *Store) load(user, name string) (Session, string, error) {

@@ -105,7 +105,13 @@ func (u Usage) Total() int64 {
 //
 // A missing property means the server did not report a quota; that is not an
 // error, it is "unknown", and the caller decides what to show.
-func (c *Client) Quota(ctx context.Context, loginName string) (Usage, error) {
+//
+// It takes the credentials, not just the login name: the PROPFIND must be
+// authenticated with the person's app password, and without it Nextcloud
+// answers 401 every time, which reads as "your credential is dead" when in
+// fact none was sent. That is exactly the false alarm this signature exists to
+// prevent.
+func (c *Client) Quota(ctx context.Context, creds Credentials) (Usage, error) {
 	body := `<?xml version="1.0"?>
 <d:propfind xmlns:d="DAV:">
   <d:prop>
@@ -114,10 +120,11 @@ func (c *Client) Quota(ctx context.Context, loginName string) (Usage, error) {
   </d:prop>
 </d:propfind>`
 
-	req, err := http.NewRequestWithContext(ctx, "PROPFIND", c.DAVURL(loginName), strings.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "PROPFIND", c.DAVURL(creds.LoginName), strings.NewReader(body))
 	if err != nil {
 		return Usage{}, err
 	}
+	req.SetBasicAuth(creds.LoginName, creds.AppPassword)
 	req.Header.Set("Depth", "0")
 	req.Header.Set("Content-Type", "application/xml; charset=utf-8")
 
@@ -127,14 +134,24 @@ func (c *Client) Quota(ctx context.Context, loginName string) (Usage, error) {
 	}
 	defer drain(resp.Body)
 
-	// 207 is the WebDAV success for a PROPFIND. Anything else is a real
-	// failure, including 401 for an app password that has been revoked.
+	// 207 is the WebDAV success for a PROPFIND. A 401 or 403 means the app
+	// password is dead and the person must connect Nextcloud again; anything
+	// else is a real but transient failure, which the caller must not treat as
+	// a dead credential.
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return Usage{}, fmt.Errorf("reading the Nextcloud quota: %w", ErrUnauthorized)
+	}
 	if resp.StatusCode != 207 {
 		return Usage{}, fmt.Errorf("reading the Nextcloud quota: unexpected status %d", resp.StatusCode)
 	}
 
 	return parseQuota(resp.Body)
 }
+
+// ErrUnauthorized means Nextcloud refused the app password. Only a refusal
+// (401 or 403) is a dead credential: a timeout or a 5xx is transient and must
+// not stop work the person asked for.
+var ErrUnauthorized = errors.New("Nextcloud refused the credential")
 
 // parseQuota pulls the two quota properties out of a WebDAV multistatus. It is
 // namespace-tolerant: the properties may be in the DAV: or the Nextcloud

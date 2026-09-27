@@ -4,6 +4,8 @@ package nextcloud
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -207,5 +209,76 @@ func TestParseQuotaWithoutTheProperty(t *testing.T) {
 
 	if _, err := parseQuota(strings.NewReader(body)); err != ErrNoQuota {
 		t.Errorf("parseQuota error = %v, want ErrNoQuota", err)
+	}
+}
+
+// A revoked app password (401) and a refusal (403) are a dead credential the
+// caller can test for. Anything else, including a 5xx, is transient and must
+// not be read as a dead credential: a network blip must never stop a copy the
+// person asked for.
+func TestQuotaReportsARefusedCredential(t *testing.T) {
+	for _, code := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(code)
+			}))
+			defer srv.Close()
+
+			c, _ := New(srv.URL, 0)
+			_, err := c.Quota(context.Background(), Credentials{LoginName: "marco-uid", AppPassword: "pw"})
+			if !errors.Is(err, ErrUnauthorized) {
+				t.Errorf("Quota error = %v, want ErrUnauthorized", err)
+			}
+		})
+	}
+}
+
+func TestQuotaDoesNotTreatAServerErrorAsARefusal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	c, _ := New(srv.URL, 0)
+	_, err := c.Quota(context.Background(), Credentials{LoginName: "marco-uid", AppPassword: "pw"})
+	if err == nil {
+		t.Fatal("a 503 should still be an error")
+	}
+	if errors.Is(err, ErrUnauthorized) {
+		t.Errorf("a 503 must not be read as a dead credential, got %v", err)
+	}
+}
+
+// The quota read must authenticate with the person's own app password. Without
+// it Nextcloud answers 401, which the caller reads as "your credential is
+// dead" when in fact no credential was ever sent: the warning was silently
+// broken and the person was told to reconnect for nothing.
+func TestQuotaAuthenticatesWithTheAppPassword(t *testing.T) {
+	var gotUser, gotPass string
+	var hadAuth bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser, gotPass, hadAuth = r.BasicAuth()
+		w.WriteHeader(207)
+		io.WriteString(w, `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:"><d:response><d:propstat><d:prop>
+<d:quota-used-bytes>1024</d:quota-used-bytes>
+<d:quota-available-bytes>2048</d:quota-available-bytes>
+</d:prop></d:propstat></d:response></d:multistatus>`)
+	}))
+	defer srv.Close()
+
+	c, _ := New(srv.URL, 0)
+	usage, err := c.Quota(context.Background(), Credentials{LoginName: "marco-uid", AppPassword: "app-pw"})
+	if err != nil {
+		t.Fatalf("Quota: %v", err)
+	}
+	if !hadAuth {
+		t.Fatal("the quota read sent no authentication")
+	}
+	if gotUser != "marco-uid" || gotPass != "app-pw" {
+		t.Errorf("auth = %q/%q, want the person's own credentials", gotUser, gotPass)
+	}
+	if usage.Used != 1024 || usage.Available != 2048 {
+		t.Errorf("usage = %+v", usage)
 	}
 }

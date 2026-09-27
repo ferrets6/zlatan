@@ -3,8 +3,10 @@
 package runner
 
 import (
+	"archive/zip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -41,6 +43,11 @@ type fakeExecutor struct {
 	// pass find a problem the byte pass does not see.
 	byDownload  scripted
 	hasDownload bool
+	// onRun, when set, is called with the command's args before the scripted
+	// lines are emitted. It lets a test observe something rclone would have
+	// read, such as the --files-from list, which is deleted when the call
+	// returns.
+	onRun func(args []string)
 }
 
 type scripted struct {
@@ -57,6 +64,13 @@ type command struct {
 func (f *fakeExecutor) Run(_ context.Context, name string, args []string, env []string, onLine func(string)) error {
 	f.mu.Lock()
 	f.commands = append(f.commands, command{name: name, args: args, env: env})
+	onRun := f.onRun
+	f.mu.Unlock()
+	if onRun != nil {
+		onRun(args)
+	}
+
+	f.mu.Lock()
 	lines := append([]string(nil), f.lines...)
 	err := f.err
 	if len(args) > 0 && f.byCommand != nil {
@@ -299,6 +313,45 @@ func newRunner(t *testing.T, store Store, exec Executor) *Runner {
 	return r.WithExecutor(exec)
 }
 
+// writeTakeout writes a minimal but valid Takeout archive into a person's
+// staging directory: a real zip holding one photo, which is what the import's
+// archive check requires. A file that is merely named ".zip" is exactly the
+// placeholder the check exists to refuse, so a test that wants the import to
+// proceed must write a real one.
+func writeTakeout(t *testing.T, staging string, names ...string) []string {
+	t.Helper()
+	if err := os.MkdirAll(staging, 0o750); err != nil {
+		t.Fatalf("staging: %v", err)
+	}
+	if len(names) == 0 {
+		names = []string{"takeout-1.zip"}
+	}
+	var out []string
+	for i, name := range names {
+		path := filepath.Join(staging, name)
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatalf("create archive: %v", err)
+		}
+		zw := zip.NewWriter(f)
+		entry, err := zw.Create(fmt.Sprintf("Takeout/Google Photos/photo-%d.jpg", i))
+		if err != nil {
+			t.Fatalf("zip entry: %v", err)
+		}
+		if _, err := entry.Write([]byte("jpeg bytes")); err != nil {
+			t.Fatalf("zip write: %v", err)
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatalf("zip close: %v", err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatalf("close archive: %v", err)
+		}
+		out = append(out, path)
+	}
+	return out
+}
+
 func seedToken(t *testing.T, store *fakeStore, sealer oauth.Sealer) {
 	t.Helper()
 	sealed, err := oauth.SealJSON(sealer, oauth.Tokens{
@@ -386,11 +439,22 @@ func (f *fakeNextcloud) DAVURL(loginName string) string {
 	return "http://nextcloud/remote.php/dav/files/" + loginName
 }
 
-func (f *fakeNextcloud) Quota(context.Context, string) (nextcloud.Usage, error) {
+func (f *fakeNextcloud) Quota(context.Context, nextcloud.Credentials) (nextcloud.Usage, error) {
 	if f.quotaErr != nil {
 		return nextcloud.Usage{}, f.quotaErr
 	}
 	return f.usage, nil
+}
+
+// fakeGoogle is a Google prober a test drives by hand.
+type fakeGoogle struct {
+	err       error
+	probeCall int
+}
+
+func (f *fakeGoogle) Probe(context.Context, string) error {
+	f.probeCall++
+	return f.err
 }
 
 // sealerOf reaches into the runner for the sealer it was built with, so a
@@ -699,23 +763,65 @@ func TestVerifySampleExcludesKnownBadFiles(t *testing.T) {
 
 func TestRunPhotosImportEndsOnDone(t *testing.T) {
 	store := newFakeStore()
-	r := newRunner(t, store, &fakeExecutor{})
+	// immich-go's end-of-run report, which is the only honest record of what
+	// the import did. Without a report the run is treated as importing nothing,
+	// so a happy-path test must supply one.
+	exec := &fakeExecutor{lines: []string{
+		"Asset Tracking Report:",
+		"  Processed:        12  (1.2 GiB)",
+		"  Discarded:         2  (0.1 GiB)",
+		"  Errors:            0  (0 B)",
+		"  Pending:           0  (0 B)",
+	}}
+	r := newRunner(t, store, exec)
 	seedImmich(t, store, sealerOf(t, r))
 
 	// A real Takeout archive in the person's staging directory, so the import
-	// has something to find and gets past the empty check.
-	staging := filepath.Join(r.cfg.StagingDir, core.SafeName("marco"))
-	if err := os.MkdirAll(staging, 0o750); err != nil {
-		t.Fatalf("staging: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(staging, "takeout-1.zip"), []byte("zip"), 0o600); err != nil {
-		t.Fatalf("write archive: %v", err)
-	}
+	// has something to find and gets past the archive check.
+	writeTakeout(t, filepath.Join(r.cfg.StagingDir, core.SafeName("marco")))
 
 	r.runPhotosImport(context.Background(), "marco")
 
 	if got := store.state().PhotosState; got != core.PhotosDone {
 		t.Fatalf("photos state = %q, want done", got)
+	}
+}
+
+// An archive that holds no photos is refused before immich-go runs: the
+// placeholder Google writes first is a valid zip, and importing it would mark
+// the migration done having copied nothing.
+func TestRunPhotosImportRefusesAnArchiveWithNoPhotos(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{}
+	r := newRunner(t, store, exec)
+	seedImmich(t, store, sealerOf(t, r))
+
+	staging := filepath.Join(r.cfg.StagingDir, core.SafeName("marco"))
+	if err := os.MkdirAll(staging, 0o750); err != nil {
+		t.Fatalf("staging: %v", err)
+	}
+	// Google's placeholder: a real zip, but holding only its own browser page.
+	path := filepath.Join(staging, "takeout-1.zip")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	zw := zip.NewWriter(f)
+	entry, _ := zw.Create("Takeout/archive_browser.html")
+	entry.Write([]byte("<html></html>"))
+	zw.Close()
+	f.Close()
+
+	r.runPhotosImport(context.Background(), "marco")
+
+	if got := store.state().PhotosState; got != core.PhotosFailed {
+		t.Fatalf("photos state = %q, want failed", got)
+	}
+	if !strings.Contains(store.state().LastError, "photos or videos") {
+		t.Errorf("the error should say the archive had no media, got %q", store.state().LastError)
+	}
+	if _, ok := exec.first("upload"); ok {
+		t.Error("immich-go must not run on an archive with no photos")
 	}
 }
 
@@ -1095,13 +1201,7 @@ func TestRunPhotosImportUsesThePersonsOwnKey(t *testing.T) {
 	r := newRunner(t, store, exec)
 	seedImmich(t, store, sealerOf(t, r))
 
-	staging := filepath.Join(r.cfg.StagingDir, core.SafeName("marco"))
-	if err := os.MkdirAll(staging, 0o750); err != nil {
-		t.Fatalf("staging: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(staging, "takeout-1.zip"), []byte("zip"), 0o600); err != nil {
-		t.Fatalf("write archive: %v", err)
-	}
+	writeTakeout(t, filepath.Join(r.cfg.StagingDir, core.SafeName("marco")))
 
 	r.runPhotosImport(context.Background(), "marco")
 
@@ -1122,13 +1222,7 @@ func TestRunPhotosImportFailsWithoutAPersonalKey(t *testing.T) {
 	exec := &fakeExecutor{}
 	r := newRunner(t, store, exec)
 
-	staging := filepath.Join(r.cfg.StagingDir, core.SafeName("marco"))
-	if err := os.MkdirAll(staging, 0o750); err != nil {
-		t.Fatalf("staging: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(staging, "takeout-1.zip"), []byte("zip"), 0o600); err != nil {
-		t.Fatalf("write archive: %v", err)
-	}
+	writeTakeout(t, filepath.Join(r.cfg.StagingDir, core.SafeName("marco")))
 
 	r.runPhotosImport(context.Background(), "marco")
 
@@ -1142,17 +1236,17 @@ func TestRunPhotosImportFailsWithoutAPersonalKey(t *testing.T) {
 	}
 }
 
-func TestStartPhotosUploadRequiresThePersonalKey(t *testing.T) {
+func TestStartPhotosImportRequiresThePersonalKey(t *testing.T) {
 	store := newFakeStore()
 	r := newRunner(t, store, &fakeExecutor{})
 
-	if err := r.StartPhotosUpload(context.Background(), "marco"); err == nil {
-		t.Error("StartPhotosUpload should refuse without the person's Immich key")
+	if err := r.StartPhotosImport(context.Background(), "marco"); err == nil {
+		t.Error("StartPhotosImport should refuse without the person's Immich key")
 	}
 
 	seedImmich(t, store, sealerOf(t, r))
-	if err := r.StartPhotosUpload(context.Background(), "marco"); err != nil {
-		t.Errorf("StartPhotosUpload with a key: %v", err)
+	if err := r.StartPhotosImport(context.Background(), "marco"); err != nil {
+		t.Errorf("StartPhotosImport with a key: %v", err)
 	}
 }
 
@@ -1200,5 +1294,272 @@ func TestRecoverInterruptedLeavesRestingRowsAlone(t *testing.T) {
 	}
 	if got := store.state().DriveProgress; got != "ready" {
 		t.Errorf("progress = %q, want it untouched", got)
+	}
+}
+
+// A Google refresh token Google no longer accepts must be cleared and the
+// person sent back to connect Google again, rather than starting a copy that
+// dies hours in. The error must be testable, so the handler can route to the
+// reconnect screen instead of a generic failure.
+func TestStartDriveClearsADeadGoogleCredential(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+	r = r.WithGoogle(&fakeGoogle{err: fmt.Errorf("probe: %w", oauth.ErrUnauthorized)})
+	r = r.WithNextcloud(&fakeNextcloud{})
+
+	err := r.StartDrive(context.Background(), "marco")
+	if !errors.Is(err, core.ErrCredentialRefused) {
+		t.Fatalf("StartDrive error = %v, want ErrCredentialRefused", err)
+	}
+	// The dead credential must be gone, or the wizard would still read it as
+	// connected and show a start button that loops.
+	if _, err := store.GetToken(context.Background(), "marco", "google"); err == nil {
+		t.Error("the dead Google token should have been cleared")
+	}
+	// And the track must land somewhere the person can act on.
+	if got := store.state().DriveState; got != core.DriveSelecting {
+		t.Errorf("drive state = %q, want selecting", got)
+	}
+}
+
+// A 503, a timeout or a network blip must not block a copy the person asked
+// for: the probe is logged and the copy still starts. This is the case most
+// likely to regress into a hard gate.
+func TestStartDriveProceedsOnATransientGoogleFailure(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{}
+	r := newRunner(t, store, exec)
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+	r = r.WithGoogle(&fakeGoogle{err: errors.New("dial tcp: connection refused")})
+	r = r.WithNextcloud(&fakeNextcloud{})
+
+	if err := r.StartDrive(context.Background(), "marco"); err != nil {
+		t.Fatalf("a transient probe failure must not block the copy: %v", err)
+	}
+	// The credential must survive a transient failure: clearing it would make
+	// the person reconnect for nothing.
+	if _, err := store.GetToken(context.Background(), "marco", "google"); err != nil {
+		t.Error("a transient failure must not clear the credential")
+	}
+}
+
+// A Nextcloud app password the server refuses is the same dead end as a dead
+// Google token, and must route the same way.
+func TestStartDriveClearsADeadNextcloudCredential(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+	r = r.WithNextcloud(&fakeNextcloud{quotaErr: fmt.Errorf("quota: %w", nextcloud.ErrUnauthorized)})
+
+	err := r.StartDrive(context.Background(), "marco")
+	if !errors.Is(err, core.ErrCredentialRefused) {
+		t.Fatalf("StartDrive error = %v, want ErrCredentialRefused", err)
+	}
+	if _, err := store.GetToken(context.Background(), "marco", nextcloud.Provider); err == nil {
+		t.Error("the dead Nextcloud credential should have been cleared")
+	}
+	if got := store.state().DriveState; got != core.DriveSelecting {
+		t.Errorf("drive state = %q, want selecting", got)
+	}
+}
+
+// A transient Nextcloud failure must not stop the copy either.
+func TestStartDriveProceedsOnATransientNextcloudFailure(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+	r = r.WithNextcloud(&fakeNextcloud{quotaErr: errors.New("quota: connection refused")})
+
+	if err := r.StartDrive(context.Background(), "marco"); err != nil {
+		t.Fatalf("a transient probe failure must not block the copy: %v", err)
+	}
+	if _, err := store.GetToken(context.Background(), "marco", nextcloud.Provider); err != nil {
+		t.Error("a transient failure must not clear the credential")
+	}
+}
+
+// recordQuota must separate a refused credential from a computation failure:
+// the first is the person's to fix, the second stays the warning it is today.
+func TestRecordQuotaSeparatesAuthFromComputation(t *testing.T) {
+	t.Run("a refused credential is returned", func(t *testing.T) {
+		store := newFakeStore()
+		r := newRunner(t, store, &fakeExecutor{})
+		r = r.WithNextcloud(&fakeNextcloud{quotaErr: fmt.Errorf("quota: %w", nextcloud.ErrUnauthorized)})
+
+		err := r.recordQuota(context.Background(), "marco", oauth.Tokens{}, nextcloud.Credentials{LoginName: "marco-uid"}, nil)
+		if !errors.Is(err, core.ErrCredentialRefused) {
+			t.Errorf("recordQuota error = %v, want ErrCredentialRefused", err)
+		}
+		if _, err := store.GetToken(context.Background(), "marco", nextcloud.Provider); err == nil {
+			t.Error("the dead credential should have been cleared")
+		}
+	})
+
+	t.Run("a computation failure is only a warning", func(t *testing.T) {
+		store := newFakeStore()
+		r := newRunner(t, store, &fakeExecutor{})
+		r = r.WithNextcloud(&fakeNextcloud{quotaErr: errors.New("quota: connection refused")})
+
+		err := r.recordQuota(context.Background(), "marco", oauth.Tokens{}, nextcloud.Credentials{LoginName: "marco-uid"}, nil)
+		if err != nil {
+			t.Errorf("a computation failure must not be returned: %v", err)
+		}
+	})
+}
+
+// An auth failure during the copy, not only at start, must route to the same
+// reconnect state rather than a generic failure. The copy has a 24h window and
+// a credential can be revoked inside it.
+func TestRunDriveRoutesAMidCopyAuthFailureToReconnect(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{
+		lines: []string{"Failed to copy: googleapi: Error 401: Invalid Credentials, authError"},
+		err:   errors.New("rclone exited 1"),
+	}
+	r := newRunner(t, store, exec)
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+
+	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
+
+	if got := store.state().DriveState; got != core.DriveSelecting {
+		t.Fatalf("drive state = %q, want selecting so the person can reconnect", got)
+	}
+	if _, err := store.GetToken(context.Background(), "marco", "google"); err == nil {
+		t.Error("the dead Google token should have been cleared")
+	}
+}
+
+// A transient mid-copy failure must stay a failure, not be mistaken for a dead
+// credential: clearing a working credential would make the person reconnect
+// for nothing.
+func TestRunDriveDoesNotClearACredentialOnATransientFailure(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{
+		lines: []string{"Failed to copy: 503 Service Unavailable"},
+		err:   errors.New("rclone exited 1"),
+	}
+	r := newRunner(t, store, exec)
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+
+	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
+
+	if got := store.state().DriveState; got != core.DriveFailed {
+		t.Fatalf("drive state = %q, want failed", got)
+	}
+	if _, err := store.GetToken(context.Background(), "marco", "google"); err != nil {
+		t.Error("a transient failure must not clear the credential")
+	}
+}
+
+func TestAuthFailureProvider(t *testing.T) {
+	cases := []struct {
+		name string
+		out  string
+		want authProvider
+	}{
+		{"google 401", "googleapi: Error 401: Invalid Credentials", providerGoogle},
+		{"nextcloud 403", "nc: 403 Forbidden", providerNextcloud},
+		{"both", "gdrive: 401 and nc: 403", providerBoth},
+		{"a 503 is not a refusal", "gdrive: 503 Service Unavailable", providerNone},
+		{"a timeout is not a refusal", "dial tcp: i/o timeout", providerNone},
+		{"a byte count is not a status", "gdrive: transferred 1401 bytes", providerNone},
+		{"a refusal with no remote named is ambiguous", "401 Unauthorized", providerNone},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := authFailureProvider(c.out); got != c.want {
+				t.Errorf("authFailureProvider(%q) = %v, want %v", c.out, got, c.want)
+			}
+		})
+	}
+}
+
+// A revoked Immich key must be caught before an import starts, and route to
+// the reconnect state.
+func TestStartPhotosImportClearsADeadImmichKey(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+	seedImmich(t, store, sealerOf(t, r))
+	r = r.WithImmich(&fakeImmich{err: fmt.Errorf("validate: %w", immich.ErrUnauthorized)})
+	err := r.StartPhotosImport(context.Background(), "marco")
+	if !errors.Is(err, core.ErrCredentialRefused) {
+		t.Fatalf("StartPhotosImport error = %v, want ErrCredentialRefused", err)
+	}
+	if _, err := store.GetToken(context.Background(), "marco", immich.Provider); err == nil {
+		t.Error("the dead Immich key should have been cleared")
+	}
+	if got := store.state().PhotosState; got != core.PhotosNotStarted {
+		t.Errorf("photos state = %q, want not_started", got)
+	}
+}
+
+// A transient Immich failure must not block the import the person asked for.
+func TestStartPhotosImportProceedsOnATransientImmichFailure(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+	seedImmich(t, store, sealerOf(t, r))
+	r = r.WithImmich(&fakeImmich{err: errors.New("dial tcp: connection refused")})
+	if err := r.StartPhotosImport(context.Background(), "marco"); err != nil {
+		t.Fatalf("a transient probe failure must not block the import: %v", err)
+	}
+	if _, err := store.GetToken(context.Background(), "marco", immich.Provider); err != nil {
+		t.Error("a transient failure must not clear the key")
+	}
+}
+
+// The Photos route the wizard offers must depend on whether Google's own free
+// space can hold the export. "Add to Drive" writes it into the person's Drive,
+// so on a full account it cannot work, and the person whose Drive is full of
+// the photos they are moving is exactly the one who needs the upload.
+func TestTakeoutFitsReadsTheGoogleFreeSpace(t *testing.T) {
+	cases := []struct {
+		name  string
+		about string
+		fits  bool
+		known bool
+	}{
+		{"plenty of room", `{"total":1000,"used":100,"free":900000000}`, true, true},
+		{"a few megabytes left", `{"total":1000,"used":100,"free":1048576}`, false, true},
+		{"no free key reported", `{"total":1000,"used":100}`, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			store := newFakeStore()
+			exec := &fakeExecutor{byCommand: map[string]scripted{"about": {lines: []string{c.about}}}}
+			r := newRunner(t, store, exec)
+			seedToken(t, store, sealerOf(t, r))
+
+			fits, known, err := r.TakeoutFits(context.Background(), "marco")
+			if err != nil {
+				t.Fatalf("TakeoutFits: %v", err)
+			}
+			if fits != c.fits || known != c.known {
+				t.Errorf("TakeoutFits = %v/%v, want %v/%v", fits, known, c.fits, c.known)
+			}
+		})
+	}
+}
+
+// An unreadable quota is not a full one: it must come back as unknown, so the
+// wizard does not remove the only route some people can use on a guess.
+func TestTakeoutFitsIsUnknownWhenTheReadFails(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{byCommand: map[string]scripted{"about": {err: errors.New("boom")}}}
+	r := newRunner(t, store, exec)
+	seedToken(t, store, sealerOf(t, r))
+
+	fits, known, err := r.TakeoutFits(context.Background(), "marco")
+	if err == nil {
+		t.Fatal("a failed read should be reported")
+	}
+	if fits || known {
+		t.Errorf("a failed read must not read as 'fits' or 'known': %v/%v", fits, known)
 	}
 }

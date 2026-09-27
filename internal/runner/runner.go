@@ -13,6 +13,7 @@
 package runner
 
 import (
+	"archive/zip"
 	"bufio"
 	"context"
 	"encoding/json"
@@ -90,7 +91,16 @@ type NextcloudFlow interface {
 	Poll(ctx context.Context, token string) (nextcloud.Credentials, bool, error)
 	DAVURL(loginName string) string
 	// Quota reads the person's current usage, used for the pre-copy warning.
-	Quota(ctx context.Context, loginName string) (nextcloud.Usage, error)
+	// It takes the credentials because the read must be authenticated with the
+	// person's own app password.
+	Quota(ctx context.Context, creds nextcloud.Credentials) (nextcloud.Usage, error)
+}
+
+// GoogleProber checks that a Google refresh token still works. It is a
+// preflight, so a revoked credential is caught before a long copy starts
+// rather than hours in.
+type GoogleProber interface {
+	Probe(ctx context.Context, refresh string) error
 }
 
 // Executor runs a command and streams its output. It is an interface so the
@@ -108,6 +118,7 @@ type Runner struct {
 	exec    Executor
 	nc      NextcloudFlow
 	immich  ImmichAPI
+	google  GoogleProber
 	notify  notify.Notifier
 	limiter chan struct{}
 }
@@ -163,6 +174,12 @@ func (r *Runner) WithExecutor(e Executor) *Runner {
 // WithNextcloud replaces the Login Flow client. Used by tests.
 func (r *Runner) WithNextcloud(nc NextcloudFlow) *Runner {
 	r.nc = nc
+	return r
+}
+
+// WithGoogle replaces the Google prober. Used by tests.
+func (r *Runner) WithGoogle(g GoogleProber) *Runner {
+	r.google = g
 	return r
 }
 
@@ -350,6 +367,13 @@ func (r *Runner) ImmichKey(ctx context.Context, user string) (immich.Credentials
 // StartDrive queues the Drive migration and returns immediately: the copy runs
 // in the background and reports through the store, so closing the browser does
 // not stop it.
+//
+// Before it queues, it proves both credentials still work. A credential the
+// provider refuses (a 401 or 403) is cleared and the track goes back to the
+// point where the wizard offers to connect it again, so the person repairs it
+// in one click instead of starting a copy that dies hours in. A transient
+// failure (a 503, a timeout, a network blip) is logged and ignored: it must
+// never block a copy the person asked for.
 func (r *Runner) StartDrive(ctx context.Context, user string) error {
 	if !r.cfg.Google.Configured() {
 		return errors.New("the Google OAuth client is not configured")
@@ -361,13 +385,133 @@ func (r *Runner) StartDrive(ctx context.Context, user string) error {
 	if err != nil {
 		return fmt.Errorf("%w: connect Google before starting the Drive copy", err)
 	}
-	if _, err := r.store.GetToken(ctx, user, nextcloud.Provider); err != nil {
+	tokens, err := r.openTokens(tok)
+	if err != nil {
+		r.log.Warn("StartDrive: open Google token", "user", user, "error", err)
+		_ = r.store.DeleteToken(ctx, user, "google")
+		r.reconnectDrive(ctx, user, "Google is not connected: connect it before copying")
+		return fmt.Errorf("%w: connect Google before starting the Drive copy", core.ErrCredentialRefused)
+	}
+	ncTok, err := r.store.GetToken(ctx, user, nextcloud.Provider)
+	if err != nil {
 		return fmt.Errorf("%w: connect Nextcloud before starting the Drive copy", err)
+	}
+	creds, err := nextcloud.OpenCredentials(r.sealer, ncTok.Sealed)
+	if err != nil {
+		r.log.Warn("StartDrive: open Nextcloud credential", "user", user, "error", err)
+		_ = r.store.DeleteToken(ctx, user, nextcloud.Provider)
+		r.reconnectDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
+		return fmt.Errorf("%w: connect Nextcloud before starting the Drive copy", core.ErrCredentialRefused)
+	}
+
+	if err := r.preflightGoogle(ctx, user, tokens); err != nil {
+		r.reconnectDrive(ctx, user, "Google is not connected: connect it before copying")
+		return err
+	}
+	if err := r.preflightNextcloud(ctx, user, creds); err != nil {
+		r.reconnectDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
+		return err
 	}
 
 	// Detach from the request context: the work outlives the HTTP request.
 	go r.runDrive(context.WithoutCancel(ctx), user, tok)
 	return nil
+}
+
+// preflightGoogle proves a Google refresh token still works. A refusal clears
+// the dead credential and returns ErrCredentialRefused; anything else is
+// transient and logged, so a network blip never blocks the copy.
+func (r *Runner) preflightGoogle(ctx context.Context, user string, tokens oauth.Tokens) error {
+	if r.google == nil {
+		return nil
+	}
+	err := r.google.Probe(ctx, tokens.RefreshToken)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, oauth.ErrUnauthorized) {
+		r.log.Warn("preflight: Google refused the credential", "user", user)
+		_ = r.store.DeleteToken(ctx, user, "google")
+		return fmt.Errorf("connect Google again: %w", core.ErrCredentialRefused)
+	}
+	r.log.Warn("preflight: Google probe failed, continuing", "user", user, "error", err)
+	return nil
+}
+
+// preflightNextcloud proves the app password still works with a cheap quota
+// read. A refusal clears it and returns ErrCredentialRefused; anything else is
+// transient and logged.
+func (r *Runner) preflightNextcloud(ctx context.Context, user string, creds nextcloud.Credentials) error {
+	if r.nc == nil {
+		return nil
+	}
+	_, err := r.nc.Quota(ctx, creds)
+	if err == nil || errors.Is(err, nextcloud.ErrNoQuota) {
+		return nil
+	}
+	if errors.Is(err, nextcloud.ErrUnauthorized) {
+		r.log.Warn("preflight: Nextcloud refused the credential", "user", user)
+		_ = r.store.DeleteToken(ctx, user, nextcloud.Provider)
+		return fmt.Errorf("connect Nextcloud again: %w", core.ErrCredentialRefused)
+	}
+	r.log.Warn("preflight: Nextcloud probe failed, continuing", "user", user, "error", err)
+	return nil
+}
+
+// preflightImmich proves the API key still works. A refusal clears it and
+// returns ErrCredentialRefused; anything else is transient and logged.
+func (r *Runner) preflightImmich(ctx context.Context, user string, creds immich.Credentials) error {
+	if r.immich == nil {
+		return nil
+	}
+	_, err := r.immich.Validate(ctx, creds.APIKey)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, immich.ErrUnauthorized) {
+		r.log.Warn("preflight: Immich refused the credential", "user", user)
+		_ = r.store.DeleteToken(ctx, user, immich.Provider)
+		return fmt.Errorf("connect Immich again: %w", core.ErrCredentialRefused)
+	}
+	r.log.Warn("preflight: Immich probe failed, continuing", "user", user, "error", err)
+	return nil
+}
+
+// reconnectDrive puts the Drive track back where the wizard offers to connect
+// the missing credential again, and tells the person why. The credential
+// itself is cleared by the preflight or the caller; without that the wizard
+// would still read it as connected and show a start button that loops.
+func (r *Runner) reconnectDrive(ctx context.Context, user, message string) {
+	if _, err := r.store.SetDriveState(ctx, user, core.DriveSelecting, message); err != nil {
+		r.log.Error("reconnectDrive: set state", "user", user, "error", err)
+	}
+	if err := r.store.SetError(ctx, user, message); err != nil {
+		r.log.Error("reconnectDrive: set error", "user", user, "error", err)
+	}
+	r.notifyBestEffort(ctx, notify.Message{
+		Title:    "zlatan: a connection needs renewing",
+		Body:     message + "\n\nNothing was lost. Connect it again and the copy picks up where it stopped.",
+		Priority: 4,
+		Tags:     []string{"warning"},
+	})
+}
+
+// reconnectPhotos is reconnectDrive for the Photos half: it clears the dead
+// credential and moves the track back to the start, where the wizard asks for
+// the Immich key again.
+func (r *Runner) reconnectPhotos(ctx context.Context, user, message string) {
+	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosNotStarted, message); err != nil {
+		r.log.Error("reconnectPhotos: set state", "user", user, "error", err)
+	}
+	if err := r.store.SetError(ctx, user, message); err != nil {
+		r.log.Error("reconnectPhotos: set error", "user", user, "error", err)
+	}
+	r.notifyBestEffort(ctx, notify.Message{
+		Title:    "zlatan: a connection needs renewing",
+		Body:     message + "\n\nNothing was lost. Connect it again and the import picks up where it stopped.",
+		Priority: 4,
+		Tags:     []string{"warning"},
+	})
 }
 
 func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
@@ -384,19 +528,23 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 
 	tokens, err := r.openTokens(tok)
 	if err != nil {
-		r.failDrive(ctx, user, "the access token cannot be read: reconnect Google")
+		r.log.Warn("runDrive: open Google token", "user", user, "error", err)
+		_ = r.store.DeleteToken(ctx, user, "google")
+		r.reconnectDrive(ctx, user, "Google is not connected: connect it before copying")
 		return
 	}
 
 	// The Nextcloud app password the person granted through the Login Flow.
 	ncTok, err := r.store.GetToken(ctx, user, nextcloud.Provider)
 	if err != nil {
-		r.failDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
+		r.reconnectDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
 		return
 	}
 	creds, err := nextcloud.OpenCredentials(r.sealer, ncTok.Sealed)
 	if err != nil {
-		r.failDrive(ctx, user, "the Nextcloud credential cannot be read: reconnect Nextcloud")
+		r.log.Warn("runDrive: open Nextcloud credential", "user", user, "error", err)
+		_ = r.store.DeleteToken(ctx, user, nextcloud.Provider)
+		r.reconnectDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
 		return
 	}
 	if r.nc == nil {
@@ -437,8 +585,18 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	// Learn how big the source is and how full Nextcloud already is, and record
 	// both. This is a warning, never a gate: the copy runs either way. It runs
 	// before the copy so the number reflects the source, not the copy in
-	// progress.
-	r.recordQuota(ctx, user, tokens, creds, env)
+	// progress. The one exception is a dead credential: that is the person's to
+	// fix, and it stops the track so the wizard offers to connect it again
+	// rather than copying for hours against a password that no longer works.
+	if err := r.recordQuota(ctx, user, tokens, creds, env); err != nil {
+		if errors.Is(err, core.ErrCredentialRefused) {
+			r.reconnectDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
+			return
+		}
+		r.failDrive(ctx, user, "the copy could not be prepared")
+		r.log.Error("runDrive: record quota", "user", user, "error", err)
+		return
+	}
 
 	// rclone's stats are cumulative totals, not deltas, so the counters are
 	// advanced by the difference from the previous line. Summing the totals
@@ -447,8 +605,19 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		lastProgress  string
 		reportedBytes int64
 		reportedFiles int64
+		// authLog keeps the tail of the output, so a copy that dies because a
+		// credential was revoked mid-way can be told apart from one that hit a
+		// transient error. A revoked credential must send the person back to
+		// reconnect, not to a generic failure.
+		authLog     strings.Builder
+		authLogSize int
 	)
 	onLine := func(line string) {
+		if authLogSize < 64*1024 {
+			authLog.WriteString(line)
+			authLog.WriteByte('\n')
+			authLogSize += len(line) + 1
+		}
 		bytes, files, ok := parseRcloneStats(line)
 		if !ok {
 			return
@@ -474,6 +643,26 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	}
 
 	if err := r.exec.Run(ctx, "rclone", args, env, onLine); err != nil {
+		// A credential revoked during the 24h window must land the person on
+		// the reconnect screen, not on a generic failure they cannot act on.
+		switch authFailureProvider(authLog.String()) {
+		case providerGoogle:
+			r.log.Warn("runDrive: Google refused the credential mid-copy", "user", user)
+			_ = r.store.DeleteToken(ctx, user, "google")
+			r.reconnectDrive(ctx, user, "Google is not connected: connect it before copying")
+			return
+		case providerNextcloud:
+			r.log.Warn("runDrive: Nextcloud refused the credential mid-copy", "user", user)
+			_ = r.store.DeleteToken(ctx, user, nextcloud.Provider)
+			r.reconnectDrive(ctx, user, "Nextcloud is not connected: connect it before copying")
+			return
+		case providerBoth:
+			r.log.Warn("runDrive: both credentials were refused mid-copy", "user", user)
+			_ = r.store.DeleteToken(ctx, user, "google")
+			_ = r.store.DeleteToken(ctx, user, nextcloud.Provider)
+			r.reconnectDrive(ctx, user, "Google and Nextcloud are not connected: connect them before copying")
+			return
+		}
 		r.failDrive(ctx, user, "the copy from Google Drive did not finish")
 		r.log.Error("runDrive: rclone", "user", user, "error", err)
 		return
@@ -525,20 +714,59 @@ func (r *Runner) failDrive(ctx context.Context, user, message string) {
 	})
 }
 
-// StartPhotosUpload queues the import of an already-uploaded Takeout. The
+// BeginPhotosUpload moves the Photos track to the upload screen. It queues no
+// work: the person still has to choose a file, and the import is only started
+// once the archive is actually on disk. Without this the upload screen existed
+// but nothing ever reached it, so "send the file myself" ran an import that
+// found no archive and failed.
+func (r *Runner) BeginPhotosUpload(ctx context.Context, user string) error {
+	if !r.cfg.Immich.Configured() {
+		return errors.New("Immich is not configured")
+	}
+	// The key is needed for the import that will follow, so it is asked for
+	// now rather than after a multi-gigabyte upload.
+	if _, err := r.ImmichKey(ctx, user); err != nil {
+		return fmt.Errorf("%w: connect Immich before uploading", err)
+	}
+	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosAwaitingUpload,
+		"waiting for you to send the export"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// StartPhotosImport queues the import of an already-uploaded Takeout. The
 // upload itself is handled elsewhere; this is the immich-go step.
-func (r *Runner) StartPhotosUpload(ctx context.Context, user string) error {
+func (r *Runner) StartPhotosImport(ctx context.Context, user string) error {
 	if !r.cfg.Immich.Configured() {
 		return errors.New("Immich is not configured")
 	}
 	// Without the person's own key there is nothing to import as: Immich files
 	// every asset under the key's owner. Say so now rather than importing into
 	// the wrong account.
-	if _, err := r.ImmichKey(ctx, user); err != nil {
+	creds, err := r.ImmichKey(ctx, user)
+	if err != nil {
 		return fmt.Errorf("%w: connect Immich before importing", err)
+	}
+	if err := r.preflightImmich(ctx, user, creds); err != nil {
+		r.reconnectPhotos(ctx, user, "Immich is not connected: add your API key before importing")
+		return err
 	}
 	go r.runPhotosImport(context.WithoutCancel(ctx), user)
 	return nil
+}
+
+// PhotosArchiveReady reports whether a Takeout archive is already in the
+// person's staging area. It is what lets the failed screen say "try the import
+// again" when the file is already here, rather than sending the person back to
+// Google for an export they already downloaded.
+func (r *Runner) PhotosArchiveReady(ctx context.Context, user string) (bool, error) {
+	staging := filepath.Join(r.cfg.StagingDir, core.SafeName(user))
+	archives, err := filepath.Glob(filepath.Join(staging, "*.zip"))
+	if err != nil {
+		return false, err
+	}
+	return len(archives) > 0, nil
 }
 
 // StartPhotosTakeout records that the person has asked Google for the export
@@ -555,15 +783,33 @@ func (r *Runner) StartPhotosTakeout(ctx context.Context, user string) error {
 	}
 	// The export will be imported as this person, so their own Immich key must
 	// exist before the wait starts; otherwise the wait would end in an import
-	// that cannot run.
-	if _, err := r.ImmichKey(ctx, user); err != nil {
+	// that cannot run. The key is also proven still good now, so a revoked one
+	// is caught before a wait that could last days.
+	immichCreds, err := r.ImmichKey(ctx, user)
+	if err != nil {
 		return fmt.Errorf("%w: connect Immich before asking for the export", err)
+	}
+	if err := r.preflightImmich(ctx, user, immichCreds); err != nil {
+		r.reconnectPhotos(ctx, user, "Immich is not connected: add your API key before asking for the export")
+		return err
 	}
 	// Without the Drive token there is nothing to watch the Drive with: the
 	// person must connect Google first. Say so now rather than leaving them on
-	// a screen that can never move.
-	if _, err := r.store.GetToken(ctx, user, "google"); err != nil {
+	// a screen that can never move. The token is proven still good too.
+	tok, err := r.store.GetToken(ctx, user, "google")
+	if err != nil {
 		return fmt.Errorf("%w: connect Google before asking for the export", err)
+	}
+	tokens, err := r.openTokens(tok)
+	if err != nil {
+		r.log.Warn("StartPhotosTakeout: open Google token", "user", user, "error", err)
+		_ = r.store.DeleteToken(ctx, user, "google")
+		r.reconnectPhotos(ctx, user, "Google is not connected: connect it before asking for the export")
+		return fmt.Errorf("%w: connect Google before asking for the export", core.ErrCredentialRefused)
+	}
+	if err := r.preflightGoogle(ctx, user, tokens); err != nil {
+		r.reconnectPhotos(ctx, user, "Google is not connected: connect it before asking for the export")
+		return err
 	}
 	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosAwaitingTakeout,
 		"waiting for Google to put the export in your Drive"); err != nil {
@@ -643,6 +889,12 @@ func (r *Runner) checkTakeout(ctx context.Context, w core.TakeoutWait) error {
 
 	found, err := r.takeoutReady(ctx, tokens)
 	if err != nil {
+		if errors.Is(err, core.ErrCredentialRefused) {
+			r.log.Warn("takeout watcher: Google refused the credential", "user", user)
+			_ = r.store.DeleteToken(ctx, user, "google")
+			r.reconnectPhotos(ctx, user, "Google is not connected: connect it before asking for the export")
+			return nil
+		}
 		return err
 	}
 	if !found {
@@ -688,6 +940,12 @@ func (r *Runner) takeoutReady(ctx context.Context, tokens oauth.Tokens) (bool, e
 	if err := r.exec.Run(ctx, "rclone", args, r.driveEnv(tokens), func(line string) {
 		out.WriteString(line)
 	}); err != nil {
+		// A revoked Google token must not spin forever on a screen that can
+		// never move: report it so the caller can send the person back to
+		// connect Google again.
+		if authFailureProvider(out.String()) != providerNone {
+			return false, fmt.Errorf("listing the Takeout folder: %w", core.ErrCredentialRefused)
+		}
 		// rclone exits non-zero when the path does not exist. Distinguish that
 		// from a real failure by checking whether anything was listed.
 		if out.Len() == 0 {
@@ -760,19 +1018,40 @@ func (r *Runner) runTakeoutDownload(ctx context.Context, user string, tokens oau
 		"--stats", "10s",
 		"--stats-one-line",
 	}
-	if err := r.exec.Run(ctx, "rclone", args, r.driveEnv(tokens), nil); err != nil {
+	var out strings.Builder
+	if err := r.exec.Run(ctx, "rclone", args, r.driveEnv(tokens), func(line string) {
+		out.WriteString(line)
+		out.WriteByte('\n')
+	}); err != nil {
+		if authFailureProvider(out.String()) != providerNone {
+			r.log.Warn("runTakeoutDownload: Google refused the credential", "user", user)
+			_ = r.store.DeleteToken(ctx, user, "google")
+			r.reconnectPhotos(ctx, user, "Google is not connected: connect it before asking for the export")
+			return
+		}
 		r.failPhotos(ctx, user, "the export could not be downloaded from your Drive")
 		r.log.Error("runTakeoutDownload: rclone", "user", user, "error", err)
 		return
 	}
 
-	r.runPhotosImport(ctx, user)
+	// The download holds the heavy slot for the whole download+import, so the
+	// import must not take it again: see runPhotosImportHeld.
+	r.runPhotosImportHeld(ctx, user)
 }
 
+// runPhotosImport is the entry point for a caller that is not already holding
+// the heavy slot. It takes the slot, then does the work.
 func (r *Runner) runPhotosImport(ctx context.Context, user string) {
 	r.acquire()
 	defer r.release()
+	r.runPhotosImportHeld(ctx, user)
+}
 
+// runPhotosImportHeld does the import without taking the heavy slot. The
+// Takeout download already holds it for the whole download+import, and taking
+// it twice in the same goroutine deadlocks a one-slot limiter: the second
+// acquire waits for a release that can only happen after it returns.
+func (r *Runner) runPhotosImportHeld(ctx context.Context, user string) {
 	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
 	defer cancel()
 
@@ -792,6 +1071,17 @@ func (r *Runner) runPhotosImport(ctx context.Context, user string) {
 	}
 	if len(archives) == 0 {
 		r.failPhotos(ctx, user, "no Takeout archive found: upload one first")
+		return
+	}
+
+	// A Takeout archive that holds no photos is not a Takeout. Google writes a
+	// small zip holding only its archive_browser.html before the real parts are
+	// ready, and importing it would mark the migration done having copied
+	// nothing. Refuse it here, where the reason can be said, rather than after
+	// an import that found zero assets.
+	if err := r.validateArchives(ctx, archives); err != nil {
+		r.failPhotos(ctx, user, err.Error())
+		r.log.Error("runPhotosImport: archive validation", "user", user, "archives", archives, "error", err)
 		return
 	}
 
@@ -815,6 +1105,11 @@ func (r *Runner) runPhotosImport(ctx context.Context, user string) {
 		"--people-tag=false",
 		"--on-errors", "continue",
 		"--no-ui",
+		// Pausing Immich's background jobs needs an admin key, and every person
+		// brings their own non-admin key on purpose: their photos must land in
+		// their own account. Left on, immich-go exits 403 before importing a
+		// single asset. Pausing is an optimisation, not a requirement.
+		"--pause-immich-jobs=FALSE",
 	}
 	args = append(args, archives...)
 
@@ -828,12 +1123,28 @@ func (r *Runner) runPhotosImport(ctx context.Context, user string) {
 		report.WriteString(line)
 		report.WriteByte('\n')
 	}); err != nil {
+		// An API key revoked during the 24h window must land the person on the
+		// reconnect screen, not on a generic failure they cannot act on.
+		if looksRefused(report.String()) {
+			r.log.Warn("runPhotosImport: Immich refused the credential", "user", user)
+			_ = r.store.DeleteToken(ctx, user, immich.Provider)
+			r.reconnectPhotos(ctx, user, "Immich is not connected: add your API key before importing")
+			return
+		}
 		r.failPhotos(ctx, user, "the import into Immich did not finish")
 		r.log.Error("runPhotosImport: immich-go", "user", user, "error", err)
 		return
 	}
 
 	processed, discarded, errs, pending := parseImmichReport(report.String())
+	// A run that processed nothing, discarded nothing and failed on nothing did
+	// not import: it found no assets at all. Reporting that as done would claim
+	// a migration that never happened, so it is a failure with a plain reason.
+	if processed == 0 && discarded == 0 && errs == 0 && pending == 0 {
+		r.failPhotos(ctx, user, "the archive did not contain any photos or videos to import")
+		r.log.Warn("runPhotosImport: nothing to import", "user", user)
+		return
+	}
 	if processed > 0 {
 		if err := r.store.SetPhotosAssets(ctx, user, int64(processed)); err != nil {
 			r.log.Error("runPhotosImport: set assets", "user", user, "error", err)
@@ -866,6 +1177,68 @@ func (r *Runner) runPhotosImport(ctx context.Context, user string) {
 	})
 }
 
+// validateArchives refuses a staging archive that is not a real Takeout.
+//
+// The failure it exists for: Google writes a small zip containing only
+// archive_browser.html into the Takeout folder first, and the real parts
+// arrive later. That placeholder is a valid zip and a valid "Takeout", so
+// nothing downstream would question it, and the import would find no photos
+// and mark the migration done. The check is therefore on content, not on the
+// file being a zip: a zip with no image or video inside is refused.
+func (r *Runner) validateArchives(ctx context.Context, archives []string) error {
+	for _, archive := range archives {
+		if err := r.archiveHasPhotos(ctx, archive); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// mediaExtensions are the file types a Takeout holding photos must contain.
+// A zip with none of them is not the export the person asked for.
+var mediaExtensions = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true,
+	".heic": true, ".heif": true, ".bmp": true, ".tif": true, ".tiff": true,
+	".mp4": true, ".mov": true, ".avi": true, ".mkv": true, ".webm": true,
+	".3gp": true, ".m4v": true, ".mpg": true, ".mpeg": true, ".wmv": true,
+	".flv": true, ".mts": true, ".m2ts": true,
+}
+
+// archiveHasPhotos reports whether the archive holds any photo or video. It
+// reads the zip central directory only, never decompressing a member, so a
+// 50 GB archive costs a few kilobytes of I/O. Pure Go on purpose: the runtime
+// image is distroless and has no unzip to shell out to.
+//
+// The messages it returns are fixed sentences, not sentences with a file name
+// spliced in: they are shown to the person and must be translatable, and a
+// name is already in the log.
+func (r *Runner) archiveHasPhotos(ctx context.Context, archive string) error {
+	f, err := os.Open(archive)
+	if err != nil {
+		return errors.New("the archive could not be opened")
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return errors.New("the archive could not be read")
+	}
+	zr, err := zip.NewReader(f, info.Size())
+	if err != nil {
+		return errors.New("the archive is not a valid zip")
+	}
+
+	for _, entry := range zr.File {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if mediaExtensions[strings.ToLower(filepath.Ext(entry.Name))] {
+			return nil
+		}
+	}
+	return errors.New("the archive did not contain any photos or videos to import")
+}
+
 func (r *Runner) failPhotos(ctx context.Context, user, message string) {
 	if err := r.store.SetError(ctx, user, message); err != nil {
 		r.log.Error("failPhotos: set error", "user", user, "error", err)
@@ -886,12 +1259,19 @@ func (r *Runner) openTokens(tok core.Token) (oauth.Tokens, error) {
 }
 
 // recordQuota reads the source Drive size and the person's current Nextcloud
-// usage and stores both. Every failure is logged and dropped: a warning Zlatan
-// could not compute must never stop a copy the person asked for.
-func (r *Runner) recordQuota(ctx context.Context, user string, tokens oauth.Tokens, creds nextcloud.Credentials, env []string) {
+// usage and stores both. A computation failure is logged and dropped: a
+// warning Zlatan could not compute must never stop a copy the person asked
+// for. A credential the server refuses is different, and is returned so the
+// caller can send the person back to reconnect.
+func (r *Runner) recordQuota(ctx context.Context, user string, tokens oauth.Tokens, creds nextcloud.Credentials, env []string) error {
 	// The Nextcloud side is one cheap PROPFIND with the person's own password.
 	var used, total int64 = 0, 0
-	if usage, err := r.nc.Quota(ctx, creds.LoginName); err != nil {
+	if usage, err := r.nc.Quota(ctx, creds); err != nil {
+		if errors.Is(err, nextcloud.ErrUnauthorized) {
+			r.log.Warn("quota: Nextcloud refused the credential", "user", user)
+			_ = r.store.DeleteToken(ctx, user, nextcloud.Provider)
+			return fmt.Errorf("reading the Nextcloud quota: %w", core.ErrCredentialRefused)
+		}
 		r.log.Warn("quota: read Nextcloud usage", "user", user, "error", err)
 	} else {
 		used, total = usage.Used, usage.Total()
@@ -913,6 +1293,60 @@ func (r *Runner) recordQuota(ctx context.Context, user string, tokens oauth.Toke
 		r.log.Info("quota: the copy will exceed the budget", "user", user,
 			"projected", core.FormatBytes(projected), "budget", core.FormatBytes(budget))
 	}
+	return nil
+}
+
+// TakeoutFits reports whether Google's own free space can hold the Takeout
+// archive.
+//
+// It decides which Photos route the wizard offers. "Add to Drive" writes the
+// export into the person's own Drive, so on a full account it cannot work, and
+// the person who most needs the upload route is exactly the one whose Drive is
+// full of the photos they are trying to move. The design has always said the
+// service detects this from the OAuth quota; this is that detection.
+//
+// The second return value is false when the free space could not be read. The
+// caller must then not treat it as "does not fit": an unreadable quota is not
+// a full one, and blocking the route on a transient read failure would take
+// away the only route some people can use.
+func (r *Runner) TakeoutFits(ctx context.Context, user string) (fits, known bool, err error) {
+	tok, err := r.store.GetToken(ctx, user, "google")
+	if err != nil {
+		return false, false, err
+	}
+	tokens, err := r.openTokens(tok)
+	if err != nil {
+		return false, false, err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	var out strings.Builder
+	if err := r.exec.Run(ctx, "rclone", []string{"about", "gdrive:", "--json"}, r.driveEnv(tokens), func(line string) {
+		out.WriteString(line)
+		out.WriteByte('\n')
+	}); err != nil {
+		return false, false, fmt.Errorf("reading the Google free space: %w", err)
+	}
+
+	var about struct {
+		Free *int64 `json:"free"`
+	}
+	if err := json.Unmarshal([]byte(out.String()), &about); err != nil {
+		return false, false, fmt.Errorf("reading the Google free space: %w", err)
+	}
+	if about.Free == nil {
+		return false, false, nil
+	}
+
+	// A Takeout is at least as large as the photos it holds, and Google will
+	// not start one it cannot fit. The margin is not decoration: an account
+	// with a few megabytes free is full for this purpose, and a false "it
+	// fits" is what leaves a person waiting on an export that will never
+	// arrive.
+	const margin = 64 << 20 // 64 MiB
+	return *about.Free > margin, true, nil
 }
 
 // driveSize runs `rclone size` on the source Drive and parses the total bytes.
@@ -995,6 +1429,57 @@ func (r *Runner) driveEnv(tokens oauth.Tokens) []string {
 // acquire blocks until a heavy slot is free.
 func (r *Runner) acquire() { r.limiter <- struct{}{} }
 func (r *Runner) release() { <-r.limiter }
+
+// authProvider names the remote whose credential an error message points at.
+// It is used to tell a revoked credential apart from a transient failure in
+// rclone's output, which rclone reports only as a non-zero exit.
+type authProvider int
+
+const (
+	providerNone authProvider = iota
+	providerGoogle
+	providerNextcloud
+	providerBoth
+)
+
+// looksRefused reports whether output carries the marks of a credential the
+// server refused. It is deliberately conservative: an ambiguous failure is not
+// a refusal, so a transient error is never mistaken for a dead credential. The
+// status match is bounded by non-digits so a byte count that happens to
+// contain 401 or 403 is not read as a refusal.
+func looksRefused(output string) bool {
+	lower := strings.ToLower(output)
+	return authStatus.MatchString(output) ||
+		strings.Contains(lower, "unauthorized") || strings.Contains(lower, "forbidden") ||
+		strings.Contains(lower, "invalid_grant") || strings.Contains(lower, "invalid credentials")
+}
+
+var authStatus = regexp.MustCompile(`(?:^|[^0-9])(401|403)(?:[^0-9]|$)`)
+
+// authFailureProvider looks through the tail of a failed rclone command's
+// output for the marks of a refused credential. rclone answers 401/403 on the
+// remote that was refused, so a 401 mentioning gdrive is Google and one
+// mentioning nc is Nextcloud. Anything ambiguous returns providerNone, so a
+// transient failure is never mistaken for a dead credential and a copy the
+// person asked for is never blocked by a bad guess.
+func authFailureProvider(output string) authProvider {
+	if !looksRefused(output) {
+		return providerNone
+	}
+	lower := strings.ToLower(output)
+	google := strings.Contains(lower, "gdrive") || strings.Contains(lower, "google")
+	nextcloud := strings.Contains(lower, "nc:") || strings.Contains(lower, "nextcloud") ||
+		strings.Contains(lower, "webdav")
+	switch {
+	case google && nextcloud:
+		return providerBoth
+	case google:
+		return providerGoogle
+	case nextcloud:
+		return providerNextcloud
+	}
+	return providerNone
+}
 
 // rcloneStats matches the one-line stats rclone prints with
 // --stats-one-line, e.g. "1.234 GiB / 5.678 GiB, 21%, ...".

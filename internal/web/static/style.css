@@ -390,6 +390,15 @@ code, .mono {
 
 .notice h3 { color: var(--attention); font-size: 1rem; }
 
+/* The reason a track stopped. Unlike .now-doing it is never truncated: a
+   sentence cut mid-word with an ellipsis is not a reason anybody can act on. */
+.notice--reason {
+	font-size: 0.9375rem;
+	line-height: 1.45;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
 .why { font-size: 0.9375rem; }
 
 .why > summary {

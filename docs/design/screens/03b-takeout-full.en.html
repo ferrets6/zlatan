@@ -58,60 +58,52 @@
 
 	
 		<div class="actions">
-			<a class="btn btn--primary" href="/oauth/google/start">Connect Google</a>
+			<form method="post" action="/nextcloud/start">
+				<button class="btn btn--primary" type="submit">Connect Nextcloud</button>
+			</form>
 		</div>
-		<p class="fine">Read-only.</p>
+		<p class="fine">One confirmation, no password.</p>
 	
 </section>
 
 		
-<section class="track" data-track="photos" data-state="not_started" aria-labelledby="photos-h">
+<section class="track" data-track="photos" data-state="takeout_guide" aria-labelledby="photos-h">
 	<div class="track__head">
 		<div class="track__titles">
 			<h2 id="photos-h">Photos and videos</h2>
-			<span class="pill pill--idle">Not started</span>
+			<span class="pill pill--you">Needs you</span>
 		</div>
 		<p class="track__route">Google Photos → immich.example.org</p>
 	</div>
 
 	<div class="state" aria-live="polite">
 		
-		<p class="now-doing" title="interrupted by a restart: it will pick up where it left off">interrupted by a restart: it will pick up where it left off</p>
+		
 	</div>
 
 	
 		
 		<ol class="steps">
 			
-			<li class="step" data-state="now">
+			<li class="step" data-state="done">
 				<div class="step__label"><span class="step__n">1</span>Connect Immich</div>
-				
-				<div class="step__body">
-					<p class="fine">Your own key, so the import lands in your account.</p>
-					<p class="fine">In Immich: profile menu → User settings → API Keys → Create, tick Select all, then paste the key below.</p>
-					
-					<a class="btn btn--quiet" href="https://immich.example.org/user-settings?openSetting=api-keys" target="_blank" rel="noopener">Open Immich</a>
-					
-					<form method="post" action="/immich/connect">
-						<label class="field">
-							<span>Immich API key</span>
-							<input type="password" name="api_key" autocomplete="off" spellcheck="false" required>
-						</label>
-						<div class="actions">
-							<button class="btn btn--primary" type="submit">Save the key</button>
-						</div>
-					</form>
-				</div>
 				
 			</li>
 
-			<li class="step" data-state="todo">
+			<li class="step" data-state="done">
 				<div class="step__label"><span class="step__n">2</span>Connect Google</div>
 				
 			</li>
 
-			<li class="step" data-state="todo">
+			<li class="step" data-state="now">
 				<div class="step__label"><span class="step__n">3</span>Ask Google for a copy</div>
+				
+				<div class="step__body">
+					
+					
+						<p class="fine">Your Google storage is full, so the export cannot be put in your Drive. Send us the file instead: the button is below.</p>
+					
+				</div>
 				
 			</li>
 		</ol>
@@ -125,7 +117,7 @@
 
 	</main>
 
-	<p class="fine">Nothing is deleted from Google.</p>
+	<p class="fine">The work continues if you close this tab.</p>
 
 
 	<footer class="foot">
