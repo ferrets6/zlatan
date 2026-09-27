@@ -1,0 +1,30 @@
+{{- /* SPDX-License-Identifier: AGPL-3.0-or-later
+
+What an unauthenticated visitor sees at the root. Google's OAuth review reads
+this page: a home page that is only a sign in screen fails, and it has to
+describe the app and link to the policy.
+*/ -}}
+<!doctype html>
+<html lang="{{ .Lang }}">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>zlatan</title>
+	<link rel="icon" href="/static/favicon.svg">
+	<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="page">
+	{{ template "public-masthead" . }}
+
+	<div class="doc">
+		<h1>zlatan</h1>
+		<p>{{ .T "landing.what" }}</p>
+		<p>{{ .T "landing.private" }}</p>
+		<p class="fine">{{ .T "landing.signin" }}</p>
+	</div>
+
+	{{ template "public-foot" . }}
+</div>
+</body>
+</html>

@@ -18,6 +18,7 @@ import (
 	"github.com/marcodellemarche/zlatan/internal/config"
 	"github.com/marcodellemarche/zlatan/internal/core"
 	"github.com/marcodellemarche/zlatan/internal/immich"
+	"github.com/marcodellemarche/zlatan/internal/oauth"
 	"github.com/marcodellemarche/zlatan/internal/store"
 )
 
@@ -197,15 +198,27 @@ func TestWizardRendersForAuthenticatedUser(t *testing.T) {
 	}
 }
 
-func TestWizardRefusesUnauthenticated(t *testing.T) {
+// Without an identity the root is a public description of the service, not a
+// migration and not a bare 401: Google's OAuth review rejects a home page that
+// is only a sign in screen. It must still show nobody's data.
+func TestUnauthenticatedRootIsThePublicPage(t *testing.T) {
 	opts := testOptions(&fakeRunner{})
 	handler := Routes(opts)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, request("GET", "/", ""))
 
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("code = %d, want 401", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, leak := range []string{"data-track=", "/oauth/google/start", "/drive/start", "/immich/connect"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("the public page exposes %q", leak)
+		}
+	}
+	if !strings.Contains(body, "/privacy") || !strings.Contains(body, "/terms") {
+		t.Error("the home page must link to the privacy policy and the terms")
 	}
 }
 
@@ -560,5 +573,53 @@ func TestInterruptedStateIsRestartableFromThePage(t *testing.T) {
 	}
 	if !strings.Contains(body, `action="/photos/upload/start"`) {
 		t.Error("a recovered Photos track must offer a way to import")
+	}
+}
+
+// The privacy policy and the terms are read by Google's reviewers before any
+// human uses the service, so they must render without an identity, in both
+// languages, and the policy must name the exact scope the code asks for.
+func TestLegalPagesArePublicAndStateTheScope(t *testing.T) {
+	opts := testOptions(&fakeRunner{})
+	opts.Config.ContactEmail = "marco@example.org"
+	opts.Config.PublicURL = "https://zlatan.example.org"
+	handler := Routes(opts)
+
+	for _, path := range []string{"/privacy", "/terms"} {
+		for _, lang := range []string{"en", "it"} {
+			r := request("GET", path, "")
+			r.Header.Set("Accept-Language", lang)
+
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, r)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s in %s: code = %d, want 200", path, lang, rec.Code)
+			}
+			body := rec.Body.String()
+			if !strings.Contains(body, `lang="`+lang+`"`) {
+				t.Errorf("%s did not render in %s", path, lang)
+			}
+			if !strings.Contains(body, "marco@example.org") {
+				t.Errorf("%s in %s does not say who to contact", path, lang)
+			}
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, request("GET", "/privacy", ""))
+	body := rec.Body.String()
+
+	// If the scope ever widens, the policy says so by construction: it renders
+	// the same constant the OAuth client asks with.
+	if !strings.Contains(body, oauth.DriveScope) {
+		t.Errorf("the privacy policy must name the scope %q", oauth.DriveScope)
+	}
+	// Google requires this sentence verbatim for restricted scopes.
+	if !strings.Contains(body, "Limited Use") {
+		t.Error("the privacy policy must state that it follows the Limited Use requirements")
+	}
+	if !strings.Contains(body, "14 days") {
+		t.Error("the privacy policy must state the real staging retention")
 	}
 }

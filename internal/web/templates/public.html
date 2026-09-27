@@ -1,0 +1,33 @@
+{{- /* SPDX-License-Identifier: AGPL-3.0-or-later
+Chrome shared by the public pages. */ -}}
+{{ define "public-masthead" }}
+<header class="masthead">
+	<a class="brand" href="/" aria-label="zlatan">
+		<svg class="mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+			<path d="M6.5 7.2 A12.72 12.72 0 0 1 17.5 7.2 L6.5 17.2 H17.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+		</svg>
+		<span class="word">zlatan</span>
+	</a>
+	<p class="whoami">
+		<span class="langs">
+			{{- range .Langs }}
+			{{- if .Current }}<b aria-current="true">{{ .Lang }}</b>
+			{{- else }}<a href="?lang={{ .Lang }}" hreflang="{{ .Lang }}" title="{{ .Name }}">{{ .Lang }}</a>{{ end }}
+			{{- end }}
+		</span>
+	</p>
+</header>
+{{ end }}
+
+{{ define "public-foot" }}
+<footer class="foot">
+	<p>
+		<a href="/privacy">{{ .T "legal.privacy" }}</a>
+		·
+		<a href="/terms">{{ .T "legal.terms" }}</a>
+		·
+		<a href="https://github.com/marcodellemarche/zlatan">{{ .T "legal.source" }}</a>
+	</p>
+	<p>zlatan {{ .Version }}</p>
+</footer>
+{{ end }}

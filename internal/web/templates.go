@@ -36,6 +36,13 @@ var wizardTemplate = template.Must(
 	template.New("wizard.html").ParseFS(templateFS, "templates/wizard.html"),
 )
 
+// publicTemplate renders what anyone can read without signing in: the landing
+// page, the privacy policy and the terms.
+var publicTemplate = template.Must(
+	template.New("public").ParseFS(templateFS,
+		"templates/public.html", "templates/landing.html", "templates/legal.html"),
+)
+
 // pillClass maps a track state onto the pill modifier the design uses. The
 // names are the states in internal/core, so there is no translation table.
 func pillClass(state string) string {

@@ -13,6 +13,16 @@ var catalog = map[Lang]map[string]string{
 		"lang.name":   "English",
 		"lang.switch": "Language",
 
+		"legal.privacy": "Privacy policy",
+		"legal.terms":   "Terms of service",
+		"legal.updated": "Last updated %s",
+		"legal.back":    "Back to zlatan",
+		"legal.source":  "Source code",
+
+		"landing.what":    "zlatan moves one household's own data out of Google: files from Drive into Nextcloud, photos and videos from Google Photos into Immich.",
+		"landing.private": "It runs on a home server and serves that household only. There is no public sign up, and no account can be created here.",
+		"landing.signin":  "Members of the household reach it through the household sign on.",
+
 		"page.title":      "Move your things off Google",
 		"nothing.deleted": "Nothing is deleted from Google.",
 		"tab.close":       "The work continues if you close this tab.",
@@ -120,6 +130,16 @@ var catalog = map[Lang]map[string]string{
 	IT: {
 		"lang.name":   "Italiano",
 		"lang.switch": "Lingua",
+
+		"legal.privacy": "Informativa sulla privacy",
+		"legal.terms":   "Termini di servizio",
+		"legal.updated": "Ultimo aggiornamento %s",
+		"legal.back":    "Torna a zlatan",
+		"legal.source":  "Codice sorgente",
+
+		"landing.what":    "zlatan sposta i dati di una famiglia fuori da Google: i file da Drive a Nextcloud, le foto e i video da Google Foto a Immich.",
+		"landing.private": "Gira su un server di casa e serve solo quella famiglia. Non esiste una registrazione pubblica e qui non si può creare un account.",
+		"landing.signin":  "Chi fa parte della famiglia entra con l'accesso unico di casa.",
 
 		"page.title":      "Porta i tuoi dati fuori da Google",
 		"nothing.deleted": "Da Google non viene cancellato niente.",

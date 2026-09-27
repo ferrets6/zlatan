@@ -103,6 +103,16 @@ type Config struct {
 	// stored token unreadable, so the running migrations must be re-authorised.
 	TokenKey core.Secret
 
+	// PublicURL is the address a browser reaches the wizard at. Google's OAuth
+	// verification wants the home page, the privacy policy and the terms on one
+	// verified domain, so the legal pages state it rather than guessing from a
+	// request.
+	PublicURL string
+
+	// ContactEmail is the address the privacy policy tells people to write to.
+	// Google requires a way to reach whoever runs the app.
+	ContactEmail string
+
 	Google    Google
 	Nextcloud Nextcloud
 	Immich    Immich
@@ -278,6 +288,8 @@ func Load(env map[string]string) (*Config, error) {
 			RedirectURL:   get("ZLATAN_GOOGLE_REDIRECT_URL"),
 			TakeoutFolder: or(get("ZLATAN_TAKEOUT_FOLDER"), DefaultTakeoutFolder),
 		},
+		PublicURL:    strings.TrimRight(strings.TrimSpace(get("ZLATAN_PUBLIC_URL")), "/"),
+		ContactEmail: strings.TrimSpace(get("ZLATAN_CONTACT_EMAIL")),
 		Nextcloud: Nextcloud{
 			URL:       get("ZLATAN_NEXTCLOUD_URL"),
 			PublicURL: get("ZLATAN_NEXTCLOUD_PUBLIC_URL"),
@@ -382,6 +394,12 @@ func (c *Config) Warnings() []string {
 	}
 	if !c.Nextcloud.Configured() {
 		w = append(w, "ZLATAN_NEXTCLOUD_URL is not set, so the Drive route cannot import anything")
+	}
+	if c.ContactEmail == "" {
+		w = append(w, "ZLATAN_CONTACT_EMAIL is not set, so the privacy policy cannot tell anyone who to write to, and Google's OAuth verification asks for it")
+	}
+	if c.PublicURL == "" {
+		w = append(w, "ZLATAN_PUBLIC_URL is not set, so the legal pages cannot state the address the service is published at")
 	}
 	if !c.Immich.Configured() {
 		w = append(w, "Immich is not configured, so the Photos route cannot import anything")

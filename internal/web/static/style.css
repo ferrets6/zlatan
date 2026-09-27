@@ -121,6 +121,12 @@ code, .mono {
 	gap: 2rem;
 }
 
+/* Long form: the policy and the terms. */
+.doc { max-width: 38rem; display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.doc h2 { margin-top: 0.75rem; }
+.doc ul { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.doc a { color: inherit; text-underline-offset: 3px; }
+
 .prose { max-width: 38rem; display: flex; flex-direction: column; gap: 0.75rem; }
 .fine { font-size: 0.875rem; color: var(--muted); }
 

@@ -123,6 +123,14 @@ func Routes(opts Options) http.Handler {
 	}
 
 	mux.Handle("GET /{$}", gate(opts.wizard))
+
+	// Readable without an identity. Google's OAuth verification requires the
+	// home page, the privacy policy and the terms to be reachable without
+	// signing in, and rejects a home page that is only a login screen. They
+	// still sit behind the proxy gate, so another container cannot reach them
+	// directly, which means Caddy must skip forward-auth for these paths.
+	mux.Handle("GET /privacy", gate(opts.legalPageFor("privacy")))
+	mux.Handle("GET /terms", gate(opts.legalPageFor("terms")))
 	mux.Handle("GET /status", gate(opts.status))
 	mux.Handle("GET /oauth/google/start", gate(opts.oauthStart))
 	mux.Handle("GET /oauth/google/callback", gate(opts.oauthCallback))

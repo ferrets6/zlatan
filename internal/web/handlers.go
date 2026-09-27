@@ -175,23 +175,21 @@ func viewOf(lang i18n.Lang, t core.TrackSummary) trackView {
 // proxy header, never from the request, so a person can only ever see their
 // own migration.
 func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
-	user, email, err := identityFrom(r, opts.Config.TrustedProxy)
-	if err != nil {
-		http.Error(w, "sign in through the portal to migrate your data", http.StatusUnauthorized)
-		return
-	}
-
 	// An explicit language choice is remembered and the parameter dropped, so
 	// the address bar stays clean and a bookmark does not pin a language
 	// forever. It works without JavaScript because it is a plain link.
-	if choice := r.URL.Query().Get(i18n.Param); choice != "" {
-		if l, ok := i18n.Parse(choice); ok {
-			i18n.SetCookie(w, l)
-		}
-		http.Redirect(w, r, r.URL.Path, http.StatusSeeOther)
+	lang, done := chooseLang(w, r)
+	if done {
 		return
 	}
-	lang := i18n.FromRequest(r)
+
+	// Nobody signed in: show what the service is and how to get in, rather
+	// than a bare 401. This is also the page Google's OAuth review reads.
+	user, email, err := identityFrom(r, opts.Config.TrustedProxy)
+	if err != nil {
+		opts.renderPublic(w, "landing.html", "", lang)
+		return
+	}
 
 	m, err := opts.State.EnsureMigration(r.Context(), user, email)
 	if err != nil {
