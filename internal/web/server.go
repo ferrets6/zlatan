@@ -129,6 +129,7 @@ func Routes(opts Options) http.Handler {
 	// signing in, and rejects a home page that is only a login screen. They
 	// still sit behind the proxy gate, so another container cannot reach them
 	// directly, which means Caddy must skip forward-auth for these paths.
+	mux.Handle("GET /about", gate(opts.landing))
 	mux.Handle("GET /privacy", gate(opts.legalPageFor("privacy")))
 	mux.Handle("GET /terms", gate(opts.legalPageFor("terms")))
 	mux.Handle("GET /status", gate(opts.status))

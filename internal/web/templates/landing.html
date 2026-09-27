@@ -22,6 +22,9 @@ describe the app and link to the policy.
 		<p>{{ .T "landing.what" }}</p>
 		<p>{{ .T "landing.private" }}</p>
 		<p class="fine">{{ .T "landing.signin" }}</p>
+		<div class="actions">
+			<a class="btn btn--primary" href="/">{{ .T "landing.enter" }}</a>
+		</div>
 	</div>
 
 	{{ template "public-foot" . }}
