@@ -28,11 +28,14 @@ var catalog = map[Lang]map[string]string{
 		"nothing.deleted": "Nothing is deleted from Google.",
 		"tab.close":       "The work continues if you close this tab.",
 
-		"drive.title":  "Files and folders",
-		"photos.title": "Photos and videos",
-		"src.drive":    "Google Drive",
-		"src.photos":   "Google Photos",
-		"route":        "%s → %s",
+		"drive.title": "Files and folders",
+		// What rclone copy of "gdrive:" leaves out: files owned by others,
+		// shared drives (a separate remote), and the types Google cannot export.
+		"drive.notCopied": "Not copied: files others shared with you, shared drives, and Google Forms, Sites and My Maps, which Google does not export.",
+		"photos.title":    "Photos and videos",
+		"src.drive":       "Google Drive",
+		"src.photos":      "Google Photos",
+		"route":           "%s → %s",
 
 		"photos.s1":        "Connect Immich",
 		"photos.s2":        "Connect Google",
@@ -174,11 +177,12 @@ var catalog = map[Lang]map[string]string{
 		"nothing.deleted": "Da Google non viene cancellato niente.",
 		"tab.close":       "Il lavoro continua anche se chiudi questa scheda.",
 
-		"drive.title":  "File e cartelle",
-		"photos.title": "Foto e video",
-		"src.drive":    "Google Drive",
-		"src.photos":   "Google Foto",
-		"route":        "%s → %s",
+		"drive.title":     "File e cartelle",
+		"drive.notCopied": "Non vengono copiati: i file che altri hanno condiviso con te, i Drive condivisi, e Moduli, Sites e My Maps di Google, che Google non esporta.",
+		"photos.title":    "Foto e video",
+		"src.drive":       "Google Drive",
+		"src.photos":      "Google Foto",
+		"route":           "%s → %s",
 
 		"photos.s1":        "Collega Immich",
 		"photos.s2":        "Collega Google",

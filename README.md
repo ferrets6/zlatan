@@ -60,6 +60,14 @@ The service **holds the Google OAuth refresh token of every person who uses it**
 
 See `.env.example`. The required variables are `ZLATAN_TRUSTED_PROXY`, `ZLATAN_TOKEN_KEY` and, if the bind is public, `ZLATAN_PROXY_SECRET`.
 
+### The Google OAuth client's publishing status
+
+`drive.readonly` is a *restricted* scope, and the publishing status of the OAuth consent screen decides how long a person's token lives:
+
+- **Testing**: only the test users listed in the console can sign in, and Google expires their refresh tokens after 7 days. A Takeout wait (`ZLATAN_TAKEOUT_MAX_WAIT` is 7 days by default) or a large copy can outlive the token, and the person is sent back to connect Google again.
+- **In production, unverified**: anyone can sign in, behind a "Google hasn't verified this app" warning, up to 100 users, and the tokens do not expire on a clock. For one household this is the practical choice.
+- **Verified**: no warning, but a restricted scope needs a third-party security assessment (CASA) on top of the public pages and the review, renewed every year.
+
 ## Commands
 
 ```sh
