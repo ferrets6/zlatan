@@ -99,7 +99,7 @@ var catalog = map[Lang]map[string]string{
 		"takeout.zip":        ".zip",
 		"takeout.gb":         "50 GB",
 		"takeout.wontFit":    "Will not fit in your Google storage?",
-		"takeout.wontFitWhy": "Your Google storage is full, so the export cannot be put in your Drive. Send us the file instead: the button is below.",
+		"takeout.wontFitWhy": "Your Google storage does not have room for the export, so it cannot be put in your Drive. Send us the file instead: the button is below.",
 
 		"upload.title":    "Send us the file",
 		"upload.how":      "Download the export from Google, then add the files here.",
@@ -241,7 +241,7 @@ var catalog = map[Lang]map[string]string{
 		"takeout.zip":        ".zip",
 		"takeout.gb":         "50 GB",
 		"takeout.wontFit":    "Non ci sta nel tuo spazio Google?",
-		"takeout.wontFitWhy": "Il tuo spazio Google è pieno, quindi l'esportazione non può essere messa nel tuo Drive. Mandaci tu il file: il pulsante è qui sotto.",
+		"takeout.wontFitWhy": "Nel tuo spazio Google non c'è posto per l'esportazione, quindi non può essere messa nel tuo Drive. Mandaci tu il file: il pulsante è qui sotto.",
 
 		"upload.title":    "Mandaci il file",
 		"upload.how":      "Scarica l'esportazione da Google, poi aggiungi qui i file.",

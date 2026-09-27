@@ -1721,8 +1721,10 @@ func TestTakeoutFitsReadsTheGoogleFreeSpace(t *testing.T) {
 		fits  bool
 		known bool
 	}{
-		{"plenty of room", `{"total":1000,"used":100,"free":900000000}`, true, true},
+		{"plenty of room", `{"total":20000000000,"used":100,"other":1000000000,"free":9000000000}`, true, true},
 		{"a few megabytes left", `{"total":1000,"used":100,"free":1048576}`, false, true},
+		// 5 GB free is not room for 30 GB of photos, however far from full.
+		{"not room for the photos", `{"total":100000000000,"used":65000000000,"other":30000000000,"free":5000000000}`, false, true},
 		{"no free key reported", `{"total":1000,"used":100}`, false, false},
 	}
 	for _, c := range cases {

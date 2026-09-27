@@ -32,7 +32,7 @@ Two independent tracks, `drive` and `photos`: a person may run one, the other, o
 
 ## How the Photos half collects a Takeout
 
-Google cannot be asked for a Takeout by a program, so the person asks for it once. There are two routes, and the wizard picks the one that can work: **"Add to Drive"** writes the export into the person's own Drive, which needs Google's own free space, so on a full account the wizard says so and offers the upload instead. That is not an edge case: the person whose Drive is full of the photos they are moving is exactly the one who needs the upload.
+Google cannot be asked for a Takeout by a program, so the person asks for it once. There are two routes, and the wizard picks the one that can work: **"Add to Drive"** writes the export into the person's own Drive, which needs room in Google's own storage for the whole export. Google does not say how large Photos is, so the wizard measures the free space against everything outside Drive (Photos plus Gmail), and when it does not fit it says so and offers the upload instead. That is not an edge case: the person whose Drive is full of the photos they are moving is exactly the one who needs the upload.
 
 **Add to Drive.** The export lands in their own Drive, under a folder Google names `Takeout`. Zlatan already holds a `drive.readonly` token for that account from the Drive half, so a watcher simply looks for the folder: when it appears, and only once every part Google listed is present and non-empty, it downloads the parts and imports them with `immich-go`.
 

@@ -1327,8 +1327,12 @@ func (r *Runner) TakeoutFits(ctx context.Context, user string) (fits, known bool
 		return false, false, fmt.Errorf("reading the Google free space: %w", err)
 	}
 
+	// For Drive, rclone reports "other" as the account's usage outside Drive:
+	// Gmail plus Photos. Google does not say how much of it is Photos, so it
+	// is the upper bound the export is measured against.
 	var about struct {
-		Free *int64 `json:"free"`
+		Free  *int64 `json:"free"`
+		Other *int64 `json:"other"`
 	}
 	if err := json.Unmarshal([]byte(out.String()), &about); err != nil {
 		return false, false, fmt.Errorf("reading the Google free space: %w", err)
@@ -1337,13 +1341,19 @@ func (r *Runner) TakeoutFits(ctx context.Context, user string) (fits, known bool
 		return false, false, nil
 	}
 
-	// A Takeout is at least as large as the photos it holds, and Google will
-	// not start one it cannot fit. The margin is not decoration: an account
-	// with a few megabytes free is full for this purpose, and a false "it
-	// fits" is what leaves a person waiting on an export that will never
-	// arrive.
-	const margin = 64 << 20 // 64 MiB
-	return *about.Free > margin, true, nil
+	// A Takeout is at least as large as the photos it holds, and Google does
+	// not write one it cannot fit. So the free space must hold the photos, not
+	// merely be non-zero: a false "it fits" is what leaves a person waiting a
+	// week for an export that will never arrive, while a false "it does not"
+	// only sends them to the upload, which always works. The margin keeps the
+	// account from being filled to the last byte, which would also stop Gmail
+	// from receiving mail.
+	const margin = 1 << 30 // 1 GiB
+	var photos int64
+	if about.Other != nil {
+		photos = *about.Other
+	}
+	return *about.Free > photos+margin, true, nil
 }
 
 // driveSize runs `rclone size` on the source Drive and parses the total bytes.
