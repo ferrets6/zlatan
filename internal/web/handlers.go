@@ -63,6 +63,14 @@ type page struct {
 	QuotaProjected int64
 	QuotaBudget    int64
 
+	// GoogleSpaceDrive and GoogleSpacePhotos state how much space the person's
+	// data takes up at Google, one per card, so the size of what is being moved
+	// is visible. Drive is exact; Photos is only an upper bound, because Google
+	// reports it inside "other" (Gmail plus Photos) and never on its own. Both
+	// are already rendered, and empty when nothing has been read yet.
+	GoogleSpaceDrive  string
+	GoogleSpacePhotos string
+
 	// Where the data is going. Read from configuration, never hardcoded: the
 	// person should be able to see which cloud is theirs.
 	NextcloudURL  string
@@ -132,6 +140,7 @@ type trackView struct {
 func (p page) T(key string, args ...any) string { return i18n.T(p.Lang, key, args...) }
 func (p page) N(n int64) string                 { return i18n.Count(p.Lang, n) }
 func (p page) B(n int64) string                 { return i18n.Bytes(p.Lang, n) }
+func (p page) Files(n int64) string             { return i18n.Files(p.Lang, n) }
 
 // Check renders a recorded verification from its numbers, so the sentence is
 // in the reader's language rather than the runner's. It returns "" when no
@@ -141,9 +150,9 @@ func (p page) Check(v *core.Verify) string {
 		return ""
 	}
 	if v.Mismatch > 0 {
-		return p.T("check.mismatch", p.N(int64(v.Checked)), p.N(int64(v.Mismatch)))
+		return p.T("check.mismatch", i18n.Files(p.Lang, int64(v.Checked)), i18n.Files(p.Lang, int64(v.Mismatch)))
 	}
-	return p.T("check.ok", p.N(int64(v.Checked)))
+	return p.T("check.ok", i18n.Files(p.Lang, int64(v.Checked)))
 }
 
 // Why renders the reason a track stopped in the reader's language. The runner
@@ -256,6 +265,8 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 	}
 	p.DriveFacts = factsFor(lang, p.Drive, m)
 	p.PhotosFacts = factsFor(lang, p.Photos, m)
+	p.GoogleSpaceDrive = googleSpaceDrive(lang, m)
+	p.GoogleSpacePhotos = googleSpacePhotos(lang, m)
 
 	// The closing screen states what was actually compared. A missing row is
 	// not an error: the screen falls back to the plain sentence.

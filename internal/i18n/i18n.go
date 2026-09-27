@@ -149,12 +149,12 @@ func Progress(l Lang, p core.Progress) string {
 	}
 	switch p.Key {
 	case core.ProgressCopying:
-		// copied <size> in <n> files
-		return T(l, p.Key, Bytes(l, p.Args[0]), Count(l, p.Args[1]))
+		// copied <size> in <files>
+		return T(l, p.Key, Bytes(l, p.Args[0]), Files(l, p.Args[1]))
 	case core.FailMismatch:
-		return T(l, p.Key, Count(l, p.Args[0]))
+		return T(l, p.Key, Files(l, p.Args[0]))
 	case core.FailImportErrors:
-		return T(l, p.Key, Count(l, p.Args[0]), Count(l, p.Args[1]))
+		return T(l, p.Key, Files(l, p.Args[0]), Files(l, p.Args[1]))
 	default:
 		// A key with arguments this renderer does not know about: show the
 		// phrase with the numbers as plain integers rather than dropping it.
@@ -164,6 +164,28 @@ func Progress(l Lang, p core.Progress) string {
 		}
 		return T(l, p.Key, args...)
 	}
+}
+
+// Files renders a count with its noun, applying the language's plural.
+// English inflects ("1 file", "2 files"); Italian "file" is invariant but the
+// surrounding sentence is not, so the noun phrase is produced whole here and
+// no sentence ever has to carry the noun and get the singular wrong.
+func Files(l Lang, n int64) string {
+	return noun(l, n, "noun.file", "noun.files")
+}
+
+// Photos is Files for the Photos half.
+func Photos(l Lang, n int64) string {
+	return noun(l, n, "noun.photo", "noun.photos")
+}
+
+// noun joins a count to its noun, singular when the language inflects and the
+// count is one.
+func noun(l Lang, n int64, singular, plural string) string {
+	if n == 1 && l == EN {
+		return Count(l, n) + " " + T(l, singular)
+	}
+	return Count(l, n) + " " + T(l, plural)
 }
 
 // Count groups thousands the way the language does.

@@ -102,15 +102,36 @@ func factsFor(lang i18n.Lang, v trackView, m core.Migration) string {
 	var parts []string
 	if v.Track == core.TrackDrive {
 		if m.DriveFilesCopied > 0 {
-			parts = append(parts, i18n.T(lang, "fact.files", i18n.Count(lang, m.DriveFilesCopied)))
+			parts = append(parts, i18n.Files(lang, m.DriveFilesCopied))
 		}
 		if m.DriveBytesCopied > 0 {
 			parts = append(parts, i18n.Bytes(lang, m.DriveBytesCopied))
 		}
 	} else if m.PhotosAssetsAdded > 0 {
-		parts = append(parts, i18n.T(lang, "fact.photos", i18n.Count(lang, m.PhotosAssetsAdded)))
+		parts = append(parts, i18n.Photos(lang, m.PhotosAssetsAdded))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// googleSpaceDrive is the line under the Drive card stating how much space the
+// person's Drive takes up at Google. It is empty until the pre-copy scan has
+// run. The figure is exact: rclone size counts the Drive.
+func googleSpaceDrive(lang i18n.Lang, m core.Migration) string {
+	if m.DriveSourceBytes <= 0 {
+		return ""
+	}
+	return i18n.T(lang, "space.drive", i18n.Bytes(lang, m.DriveSourceBytes))
+}
+
+// googleSpacePhotos is the line under the Photos card. Google does not report
+// the Photos library on its own: rclone's "other" is Gmail plus Photos, so the
+// figure is an upper bound and the phrase says so rather than presenting a
+// number the service cannot back. Empty until the quota has been read.
+func googleSpacePhotos(lang i18n.Lang, m core.Migration) string {
+	if m.GoogleOtherBytes <= 0 {
+		return ""
+	}
+	return i18n.T(lang, "space.photos", i18n.Bytes(lang, m.GoogleOtherBytes))
 }
 
 // screenFor picks which of the design's screens the wizard renders. One page

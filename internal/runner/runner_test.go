@@ -229,7 +229,17 @@ func (f *fakeStore) PutVerification(_ context.Context, v core.Verify) error {
 func (f *fakeStore) SetQuotaEstimate(_ context.Context, _ string, driveSource, used, total int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.migration.DriveSourceBytes, f.migration.QuotaUsedBytes, f.migration.QuotaTotalBytes = driveSource, used, total
+	f.migration.DriveSourceBytes = driveSource
+	f.migration.QuotaUsedBytes = used
+	f.migration.QuotaTotalBytes = total
+	return nil
+}
+
+func (f *fakeStore) SetGoogleUsage(_ context.Context, _ string, other, total int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.migration.GoogleOtherBytes = other
+	f.migration.GoogleTotalBytes = total
 	return nil
 }
 

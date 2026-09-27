@@ -356,14 +356,18 @@ code, .mono {
 .facts { font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; font-size: 0.875rem; color: var(--muted); }
 .facts b { font-weight: 500; color: var(--fg); }
 
+/* The line saying what a track is doing now. It used to be a raw rclone
+   stats line, which could be arbitrarily long and was therefore cut with an
+   ellipsis. It is now a sentence from the catalogue, so it is allowed to wrap:
+   a phrase cut mid-word tells the person less than the same phrase on two
+   lines, and there is no hover on a phone to read the title. */
 .now-doing {
 	max-width: 100%;
 	font-size: 0.8125rem;
 	color: var(--muted);
 	font-family: var(--mono);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	white-space: normal;
+	overflow-wrap: anywhere;
 }
 
 /* Blocks */
@@ -390,8 +394,8 @@ code, .mono {
 
 .notice h3 { color: var(--attention); font-size: 1rem; }
 
-/* The reason a track stopped. Unlike .now-doing it is never truncated: a
-   sentence cut mid-word with an ellipsis is not a reason anybody can act on. */
+/* The reason a track stopped. It is never truncated: a sentence cut mid-word
+   with an ellipsis is not a reason anybody can act on. */
 .notice--reason {
 	font-size: 0.9375rem;
 	line-height: 1.45;

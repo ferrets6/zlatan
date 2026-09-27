@@ -82,8 +82,17 @@ var catalog = map[Lang]map[string]string{
 		"pill.done":        "Done",
 		"pill.stopped":     "Stopped",
 
-		"fact.files":  "%s files",
-		"fact.photos": "%s photos",
+		"fact.files":  "%s",
+		"fact.photos": "%s",
+
+		// The noun of a count, in both numbers. English inflects; Italian does
+		// not for these two nouns. Counts always travel through i18n.Files /
+		// i18n.Photos, never as a bare number next to a noun, so "1 files"
+		// cannot happen.
+		"noun.file":   "file",
+		"noun.files":  "files",
+		"noun.photo":  "photo",
+		"noun.photos": "photos",
 
 		"wait.watching": "Watching for the folder “%s” in your Drive.",
 		"wait.every":    "We look every %s.",
@@ -123,17 +132,17 @@ var catalog = map[Lang]map[string]string{
 		"done.google":         "Nothing was removed from Google.",
 		"done.plain":          "The copy and the import finished without errors.",
 		"done.takeoutCleanup": "If the export went to your Drive, delete the folder “%s” there: it still takes up your Google storage.",
-		"check.ok":            "Checked %s files against the originals. All matched.",
-		"check.mismatch":      "Checked %s files. %s did not match.",
+		"check.ok":            "The check compared %s against the originals. Nothing differed.",
+		"check.mismatch":      "The check compared %s. Differences: %s.",
 
-		"error.resume":  "%s files are already in Nextcloud. Starting again continues from there.",
+		"error.resume":  "Already in Nextcloud: %s. Starting again continues from there.",
 		"error.noFiles": "Nothing was copied yet.",
 
 		// Progress lines, shown on the card as "now doing". The runner stores
 		// only the key, and the numbers travel as arguments, so the sentence is
 		// chosen here in the reader's language and the decimal mark follows it.
 		"progress.preparing":       "Preparing the copy",
-		"progress.copying":         "Copied %s in %s files",
+		"progress.copying":         "Copied %s in %s",
 		"progress.checking":        "Checking the copy against your Drive",
 		"progress.interrupted":     "Interrupted by a restart: it will pick up where it left off",
 		"progress.nextcloudReady":  "Nextcloud is connected: ready to copy",
@@ -162,7 +171,7 @@ var catalog = map[Lang]map[string]string{
 		"why.copyPrepare":          "The copy could not be prepared.",
 		"why.copyUnfinished":       "The copy from Google Drive did not finish.",
 		"why.copyUnchecked":        "The copy finished but could not be checked.",
-		"why.mismatch":             "The check found %s files that did not match.",
+		"why.mismatch":             "The check found %s that did not match.",
 		"why.takeoutLate":          "The export did not arrive in time: send the Takeout file instead.",
 		"why.stagingPrepare":       "The staging area could not be prepared.",
 		"why.stagingRead":          "The staging area could not be read.",
@@ -176,6 +185,13 @@ var catalog = map[Lang]map[string]string{
 		"why.credentialUnreadable": "A saved connection could not be read. Ask whoever runs the server.",
 
 		"quota.over": "Over budget: %s of %s. The copy still runs.",
+
+		// How much space the data takes up at Google, shown so the size of what
+		// is being moved is visible. Drive is exact; Photos is an upper bound,
+		// because Google reports it only inside "other" (Gmail plus Photos) and
+		// the line says so rather than claiming a figure it cannot back.
+		"space.drive":  "Google Drive: %s",
+		"space.photos": "Google Photos: up to %s, Gmail included",
 
 		"time.sec":  "s",
 		"time.min":  "min",
@@ -254,8 +270,13 @@ var catalog = map[Lang]map[string]string{
 		"pill.done":        "Completato",
 		"pill.stopped":     "Fermo",
 
-		"fact.files":  "%s file",
-		"fact.photos": "%s foto",
+		"fact.files":  "%s",
+		"fact.photos": "%s",
+
+		"noun.file":   "file",
+		"noun.files":  "file",
+		"noun.photo":  "foto",
+		"noun.photos": "foto",
 
 		"wait.watching": "Aspettiamo la cartella «%s» nel tuo Drive.",
 		"wait.every":    "Guardiamo ogni %s.",
@@ -293,14 +314,14 @@ var catalog = map[Lang]map[string]string{
 		"done.google":         "Da Google non è stato tolto niente.",
 		"done.plain":          "La copia e l'importazione sono finite senza errori.",
 		"done.takeoutCleanup": "Se l'esportazione è finita nel tuo Drive, elimina lì la cartella “%s”: occupa ancora il tuo spazio Google.",
-		"check.ok":            "Controllati %s file con gli originali. Tutti uguali.",
-		"check.mismatch":      "Controllati %s file. %s non corrispondono.",
+		"check.ok":            "Il controllo ha confrontato %s con gli originali. Nessuna differenza.",
+		"check.mismatch":      "Il controllo ha confrontato %s. Differenze: %s.",
 
-		"error.resume":  "%s file sono già in Nextcloud. Ripartendo si continua da lì.",
+		"error.resume":  "Già in Nextcloud: %s. Ripartendo si continua da lì.",
 		"error.noFiles": "Non è stato ancora copiato niente.",
 
 		"progress.preparing":       "Preparo la copia",
-		"progress.copying":         "Copiati %s in %s file",
+		"progress.copying":         "Copiati %s in %s",
 		"progress.checking":        "Controllo la copia con il tuo Drive",
 		"progress.interrupted":     "Interrotta da un riavvio: riprende da dove era rimasta",
 		"progress.nextcloudReady":  "Nextcloud è collegato: pronti a copiare",
@@ -324,7 +345,7 @@ var catalog = map[Lang]map[string]string{
 		"why.copyPrepare":          "La copia non è potuta partire.",
 		"why.copyUnfinished":       "La copia da Google Drive non è finita.",
 		"why.copyUnchecked":        "La copia è finita ma non è stato possibile controllarla.",
-		"why.mismatch":             "Il controllo ha trovato %s file che non corrispondono.",
+		"why.mismatch":             "Il controllo ha trovato %s che non corrispondono.",
 		"why.takeoutLate":          "L'esportazione non è arrivata in tempo: manda il file del Takeout.",
 		"why.stagingPrepare":       "Non è stato possibile preparare l'area di lavoro.",
 		"why.stagingRead":          "Non è stato possibile leggere l'area di lavoro.",
@@ -338,6 +359,9 @@ var catalog = map[Lang]map[string]string{
 		"why.credentialUnreadable": "Non è stato possibile leggere un collegamento salvato. Chiedi a chi gestisce il server.",
 
 		"quota.over": "Oltre il budget: %s su %s. La copia parte lo stesso.",
+
+		"space.drive":  "Google Drive: %s",
+		"space.photos": "Google Foto: fino a %s, Gmail incluso",
 
 		"time.sec":  "s",
 		"time.min":  "min",

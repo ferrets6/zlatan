@@ -50,9 +50,13 @@ func (r *Runner) VerifyDrive(ctx context.Context, user string, tokens oauth.Toke
 	src := "gdrive:"
 	dst := "nc:" + DriveDestination
 
-	// One-way: files in Nextcloud that are not in Drive are not a failure:
-	// the person may have put things there themselves.
-	sizeChecked, sizeBad, matched := r.checkTree(ctx, src, dst, env)
+	// The check must exclude exactly what the copy excluded, or it reports the
+	// exclusion itself as a failure. The Takeout folder lives in the person's
+	// Drive on the "Add to Drive" route, is deliberately not copied into
+	// Nextcloud, and would otherwise appear as a file missing on the
+	// destination: a mismatch that no retry can clear, because every retry
+	// excludes it again.
+	sizeChecked, sizeBad, matched := r.checkTree(ctx, src, dst, env, r.excludeTakeout())
 
 	// A Google Doc, Sheet or Slide is not copied: rclone *exports* it, on the
 	// fly, to a .docx/.xlsx/.pptx. That export is not reproducible — two
@@ -139,7 +143,7 @@ func (r *Runner) nativeDocPaths(ctx context.Context, env []string) map[string]bo
 // files were compared, how many were missing or different, and the paths that
 // matched (the sample is drawn from those, so a file that already failed is
 // not reported a second time).
-func (r *Runner) checkTree(ctx context.Context, src, dst string, env []string) (checked, bad int, matched []string) {
+func (r *Runner) checkTree(ctx context.Context, src, dst string, env []string, excluded []string) (checked, bad int, matched []string) {
 	var combined strings.Builder
 	args := []string{
 		"check", src, dst,
@@ -147,6 +151,11 @@ func (r *Runner) checkTree(ctx context.Context, src, dst string, env []string) (
 		"--size-only", // no shared hash between Drive and Nextcloud
 		"--combined", "-",
 		"--checkers", "8",
+	}
+	// The same exclusions the copy used, or the check fails the migration over
+	// a folder that was never meant to arrive.
+	for _, e := range excluded {
+		args = append(args, "--exclude", e)
 	}
 	// rclone exits non-zero when it finds differences; that is data, not a
 	// failure of the check, so the exit code is ignored and the report parsed.

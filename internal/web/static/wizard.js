@@ -28,7 +28,11 @@ function render(state) {
 		// Every string below was rendered by the server in the reader's
 		// language. Nothing here formats a number or picks a word.
 		set(card, '.facts', track.Facts);
-		set(card, '.now-doing', track.Progress);
+		// A failed track's Progress holds the same reason as the notice below
+		// it, which shows it untruncated. Writing it here too would put the
+		// reason back on the card as a second, ellipsised copy on every poll,
+		// even though the server deliberately left it out of the markup.
+		set(card, '.now-doing', track.Failed ? '' : track.Progress);
 	}
 }
 

@@ -50,7 +50,9 @@ func screens(lang i18n.Lang) map[string]page {
 		Progress: i18n.Progress(lang, core.Progress{Key: core.ProgressCopying, Args: []int64{44_181_000_000, 12480}})}
 	tracks.Photos = trackView{Track: core.TrackPhotos, State: "awaiting_takeout", Pill: i18n.T(lang, "pill.waitGoogle"), PillClass: "pill--waiting"}
 	tracks.DriveFiles, tracks.DriveBytes = 12480, 44_181_000_000
-	tracks.DriveFacts = i18n.T(lang, "fact.files", i18n.Count(lang, 12480)) + " · " + i18n.Bytes(lang, 44_181_000_000)
+	tracks.GoogleSpaceDrive = googleSpaceDrive(lang, core.Migration{DriveSourceBytes: 44_181_000_000})
+	tracks.GoogleSpacePhotos = googleSpacePhotos(lang, core.Migration{GoogleOtherBytes: 12_000_000_000})
+	tracks.DriveFacts = i18n.Files(lang, 12480) + " · " + i18n.Bytes(lang, 44_181_000_000)
 
 	guide := base
 	guide.Screen = "takeout"
@@ -72,8 +74,8 @@ func screens(lang i18n.Lang) map[string]page {
 	done.Screen = "done"
 	done.Drive = trackView{Track: core.TrackDrive, State: "done", Pill: i18n.T(lang, "pill.done"), PillClass: "pill--done", Done: true}
 	done.Photos = trackView{Track: core.TrackPhotos, State: "done", Pill: i18n.T(lang, "pill.done"), PillClass: "pill--done", Done: true}
-	done.DriveFacts = i18n.T(lang, "fact.files", i18n.Count(lang, 32900)) + " · " + i18n.Bytes(lang, 116_000_000_000)
-	done.PhotosFacts = i18n.T(lang, "fact.photos", i18n.Count(lang, 42552))
+	done.DriveFacts = i18n.Files(lang, 32900) + " · " + i18n.Bytes(lang, 116_000_000_000)
+	done.PhotosFacts = i18n.Photos(lang, 42552)
 	done.DriveVerification = &core.Verify{Checked: 500, Matched: 500}
 	done.GoogleConnected = true
 
@@ -83,7 +85,7 @@ func screens(lang i18n.Lang) map[string]page {
 	stopped.Drive = trackView{Track: core.TrackDrive, State: "failed", Pill: i18n.T(lang, "pill.stopped"), PillClass: "pill--stopped", Failed: true}
 	stopped.Photos = trackView{Track: core.TrackPhotos, State: "importing", Pill: i18n.T(lang, "pill.importing"), PillClass: "pill--running"}
 	stopped.DriveFiles = 12480
-	stopped.DriveFacts = i18n.T(lang, "fact.files", i18n.Count(lang, 12480))
+	stopped.DriveFacts = i18n.Files(lang, 12480)
 	stopped.LastError = core.EncodeProgress(core.Progress{Key: core.FailMismatch, Args: []int64{3}})
 
 	return map[string]page{

@@ -37,7 +37,8 @@ func (db *DB) GetMigration(ctx context.Context, user string) (core.Migration, er
 		       drive_progress, photos_progress,
 		       drive_bytes_copied, drive_files_copied, photos_assets_added,
 		       last_error, created_at, updated_at,
-		       drive_source_bytes, quota_used_bytes, quota_total_bytes
+		       drive_source_bytes, quota_used_bytes, quota_total_bytes,
+		       google_other_bytes, google_total_bytes
 		FROM migrations WHERE user = ?`
 
 	var m core.Migration
@@ -48,6 +49,7 @@ func (db *DB) GetMigration(ctx context.Context, user string) (core.Migration, er
 		&m.DriveBytesCopied, &m.DriveFilesCopied, &m.PhotosAssetsAdded,
 		&m.LastError, &createdAt, &updatedAt,
 		&m.DriveSourceBytes, &m.QuotaUsedBytes, &m.QuotaTotalBytes,
+		&m.GoogleOtherBytes, &m.GoogleTotalBytes,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.Migration{}, ErrNoMigration
@@ -153,6 +155,21 @@ func (db *DB) SetQuotaEstimate(ctx context.Context, user string, driveSource, us
 			SET drive_source_bytes = ?, quota_used_bytes = ?, quota_total_bytes = ?, updated_at = ?
 			WHERE user = ?`,
 			driveSource, used, total, now(), user)
+		return err
+	})
+}
+
+// SetGoogleUsage records how much space the person's data takes up at Google,
+// read from the OAuth quota. It is separate from SetQuotaEstimate because it is
+// written by both halves: the Drive copy's pre-copy scan, and the Photos
+// watcher, which reads the same figure for someone moving only Photos.
+func (db *DB) SetGoogleUsage(ctx context.Context, user string, other, total int64) error {
+	return db.Tx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			UPDATE migrations
+			SET google_other_bytes = ?, google_total_bytes = ?, updated_at = ?
+			WHERE user = ?`,
+			other, total, now(), user)
 		return err
 	})
 }

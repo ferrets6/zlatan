@@ -140,6 +140,15 @@ type Migration struct {
 	DriveSourceBytes int64
 	QuotaUsedBytes   int64
 	QuotaTotalBytes  int64
+
+	// GoogleUsage is how much space the person's data takes up at Google, read
+	// from the OAuth quota. GoogleDriveBytes is exact; GoogleOtherBytes is
+	// everything outside Drive (Gmail plus Photos), so it is an upper bound for
+	// the Photos library rather than its size, because Google does not report
+	// Photos separately. GoogleTotalBytes is -1 for an account with no quota
+	// limit, and both are 0 until the quota has been read.
+	GoogleOtherBytes int64
+	GoogleTotalBytes int64
 }
 
 // QuotaOverrun reports the projected Nextcloud usage and the budget when the

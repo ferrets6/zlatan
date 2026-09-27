@@ -58,7 +58,7 @@ English and Italian, in `internal/i18n`. The order is: an explicit choice in a c
 
 The switcher is two links in the masthead. `?lang=it` sets the cookie and redirects, so it works without JavaScript.
 
-Everything a person reads is resolved on the server, including the phrases the upload script shows: the script reads them from `data-` attributes and fills in `{file}`, `{sent}` and `{total}`. There is no English in the JavaScript, and no plural rule anywhere: counts are always separated from their noun.
+Everything a person reads is resolved on the server, including the phrases the upload script shows: the script reads them from `data-` attributes and fills in `{file}`, `{sent}` and `{total}`. There is no English in the JavaScript. A count is never written next to its noun in a sentence: it travels through `i18n.Files` / `i18n.Photos`, which apply the language's plural, so the page cannot say "1 files".
 
 Two tests keep it honest: both catalogues must have exactly the same keys, and the same number of placeholders in every phrase.
 
@@ -67,5 +67,5 @@ Two tests keep it honest: both catalogues must have exactly the same keys, and t
 - Every action is a form POST or a link. With JS off the pages work and a reload is the truth.
 - The poller sends strings the server already rendered; the script sets three nodes and reloads when the state changes, because a different state means a different screen.
 - One animation: the waiting pill's dot, off under `prefers-reduced-motion`. Touch targets 44 px. Focus is a 2 px accent outline.
-- **Anything holding a `nowrap` or monospace line needs `min-width: 0`.** A grid or flex item defaults to `min-width: auto`, so one long unbreakable line (the runner's progress, an rclone error) makes the card as wide as the sentence and pushes the whole page sideways on a phone. `.track`, `.panel` and `.state` carry it; long tokens in `code` and `.mono` wrap with `overflow-wrap: anywhere`. The screens are checked at 360 px by loading them in an iframe of that width and comparing each element's `right` against `clientWidth`.
+- **A line says what it needs and then wraps.** The progress line used to be a raw rclone stats line, arbitrarily long, and was cut with an ellipsis; it is now a sentence from the catalogue, so it wraps rather than being truncated (a phone has no hover for the `title`). The stopped reason was always wrapped. Anything holding a `nowrap` or monospace line needs `min-width: 0`: a grid or flex item defaults to `min-width: auto`, so one long unbreakable line (an rclone error) makes the card as wide as the sentence and pushes the whole page sideways on a phone. `.track`, `.panel` and `.state` carry it; long tokens in `code` and `.mono` wrap with `overflow-wrap: anywhere`. The screens are checked at 360 px by loading them in an iframe of that width and comparing each element's `right` against `clientWidth`.
 - Pill classes map onto `core.DriveState` / `core.PhotosState`: `pill--idle · running · waiting · you · done · stopped`.

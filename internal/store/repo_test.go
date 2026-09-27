@@ -319,6 +319,9 @@ func TestSetQuotaEstimate(t *testing.T) {
 	if err := db.SetQuotaEstimate(ctx, "marco", 60, 50, 100); err != nil {
 		t.Fatalf("SetQuotaEstimate: %v", err)
 	}
+	if err := db.SetGoogleUsage(ctx, "marco", 30, 200); err != nil {
+		t.Fatalf("SetGoogleUsage: %v", err)
+	}
 	m, err := db.GetMigration(ctx, "marco")
 	if err != nil {
 		t.Fatalf("GetMigration: %v", err)
@@ -326,6 +329,10 @@ func TestSetQuotaEstimate(t *testing.T) {
 	if m.DriveSourceBytes != 60 || m.QuotaUsedBytes != 50 || m.QuotaTotalBytes != 100 {
 		t.Errorf("quota estimate = %d/%d/%d, want 60/50/100",
 			m.DriveSourceBytes, m.QuotaUsedBytes, m.QuotaTotalBytes)
+	}
+	if m.GoogleOtherBytes != 30 || m.GoogleTotalBytes != 200 {
+		t.Errorf("Google usage = %d/%d, want 30/200",
+			m.GoogleOtherBytes, m.GoogleTotalBytes)
 	}
 }
 

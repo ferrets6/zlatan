@@ -70,6 +70,7 @@ type Store interface {
 	ListFinished(ctx context.Context) ([]store.FinishedMigration, error)
 	StampFinished(ctx context.Context, user string) error
 	SetQuotaEstimate(ctx context.Context, user string, driveSource, used, total int64) error
+	SetGoogleUsage(ctx context.Context, user string, other, total int64) error
 	ListInterrupted(ctx context.Context) ([]store.InterruptedMigration, error)
 }
 
@@ -584,8 +585,11 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	// The Takeout folder is not the person's documents. When it lives in their
 	// Drive (the "Add to Drive" route), copying everything would drop tens of
 	// gigabytes of photo archive into Nextcloud as files. The photos belong in
-	// Immich, and the archive is disposable. Exclude it from the Drive copy.
-	args = append(args, "--exclude", "/"+r.takeoutFolder()+"/**")
+	// Immich, and the archive is disposable. Exclude it from the Drive copy,
+	// and from the check that follows: see excludeTakeout.
+	for _, e := range r.excludeTakeout() {
+		args = append(args, "--exclude", e)
+	}
 
 	env, err := r.rcloneEnv(tokens, creds)
 	if err != nil {
@@ -1298,6 +1302,14 @@ func (r *Runner) takeoutFolder() string {
 	return r.cfg.Google.TakeoutFolder
 }
 
+// excludeTakeout is the exclusion list the Drive copy and its verification
+// share. It is one function so the two can never drift: a folder the copy
+// deliberately leaves behind must not be reported by the check as missing, or
+// the migration stops on a mismatch that no retry can clear.
+func (r *Runner) excludeTakeout() []string {
+	return []string{"/" + r.takeoutFolder() + "/**"}
+}
+
 func (r *Runner) openTokens(tok core.Token) (oauth.Tokens, error) {
 	return oauth.OpenJSON(r.sealer, tok.Sealed)
 }
@@ -1326,8 +1338,28 @@ func (r *Runner) recordQuota(ctx context.Context, user string, tokens oauth.Toke
 	// warning treats as "unknown" rather than as "empty".
 	size := r.driveSize(ctx, env)
 
+	// Google's own account usage, for the wizard's "space at Google" line. A
+	// failure is not fatal: the line is simply not shown. Photos has no
+	// separate figure, so Other (Gmail plus Photos) is stored as its bound.
+	var googleOther, googleTotal int64
+	if u, err := r.readGoogleUsage(ctx, tokens); err != nil {
+		r.log.Warn("quota: read the Google usage", "user", user, "error", err)
+	} else {
+		if u.Other != nil {
+			googleOther = *u.Other
+		}
+		if u.Total != nil {
+			googleTotal = *u.Total
+		} else {
+			googleTotal = -1 // no quota limit
+		}
+	}
+
 	if err := r.store.SetQuotaEstimate(ctx, user, size, used, total); err != nil {
 		r.log.Warn("quota: store estimate", "user", user, "error", err)
+	}
+	if err := r.store.SetGoogleUsage(ctx, user, googleOther, googleTotal); err != nil {
+		r.log.Warn("quota: store the Google usage", "user", user, "error", err)
 	}
 	if projected, budget, over := (core.Migration{
 		DriveSourceBytes: size,
@@ -1338,6 +1370,38 @@ func (r *Runner) recordQuota(ctx context.Context, user string, tokens oauth.Toke
 			"projected", core.FormatBytes(projected), "budget", core.FormatBytes(budget))
 	}
 	return nil
+}
+
+// googleUsage is what `rclone about gdrive:` reports, in bytes. Free and
+// Other are pointers because rclone omits them: Free is absent on an account
+// with no quota limit, and Other is absent when everything is inside Drive.
+type googleUsage struct {
+	Drive *int64 `json:"used"`  // bytes in Drive
+	Other *int64 `json:"other"` // bytes outside Drive: Gmail plus Photos
+	Free  *int64 `json:"free"`  // bytes that can still be uploaded
+	Total *int64 `json:"total"` // the account's quota, absent when unlimited
+}
+
+// readGoogleUsage asks Google, through the OAuth token the person granted,
+// how much space their data takes up. It is one cheap API call and it is the
+// only source for the figure: Google reports Drive exactly and folds Photos
+// into "other", so Other is an upper bound for Photos rather than its size.
+func (r *Runner) readGoogleUsage(ctx context.Context, tokens oauth.Tokens) (googleUsage, error) {
+	sctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	var out strings.Builder
+	if err := r.exec.Run(sctx, "rclone", []string{"about", "gdrive:", "--json"}, r.driveEnv(tokens), func(line string) {
+		out.WriteString(line)
+		out.WriteByte('\n')
+	}); err != nil {
+		return googleUsage{}, fmt.Errorf("reading the Google usage: %w", err)
+	}
+	var u googleUsage
+	if err := json.Unmarshal([]byte(out.String()), &u); err != nil {
+		return googleUsage{}, fmt.Errorf("reading the Google usage: %w", err)
+	}
+	return u, nil
 }
 
 // TakeoutFits reports whether Google's own free space can hold the Takeout
@@ -1366,25 +1430,11 @@ func (r *Runner) TakeoutFits(ctx context.Context, user string) (fits, known bool
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	var out strings.Builder
-	if err := r.exec.Run(ctx, "rclone", []string{"about", "gdrive:", "--json"}, r.driveEnv(tokens), func(line string) {
-		out.WriteString(line)
-		out.WriteByte('\n')
-	}); err != nil {
-		return false, false, fmt.Errorf("reading the Google free space: %w", err)
+	u, err := r.readGoogleUsage(ctx, tokens)
+	if err != nil {
+		return false, false, err
 	}
-
-	// For Drive, rclone reports "other" as the account's usage outside Drive:
-	// Gmail plus Photos. Google does not say how much of it is Photos, so it
-	// is the upper bound the export is measured against.
-	var about struct {
-		Free  *int64 `json:"free"`
-		Other *int64 `json:"other"`
-	}
-	if err := json.Unmarshal([]byte(out.String()), &about); err != nil {
-		return false, false, fmt.Errorf("reading the Google free space: %w", err)
-	}
-	if about.Free == nil {
+	if u.Free == nil {
 		return false, false, nil
 	}
 
@@ -1397,10 +1447,28 @@ func (r *Runner) TakeoutFits(ctx context.Context, user string) (fits, known bool
 	// from receiving mail.
 	const margin = 1 << 30 // 1 GiB
 	var photos int64
-	if about.Other != nil {
-		photos = *about.Other
+	if u.Other != nil {
+		photos = *u.Other
 	}
-	return *about.Free > photos+margin, true, nil
+	// The wizard shows how much space the person's data takes up at Google. For
+	// the Drive half that is written by the pre-copy scan; for someone moving
+	// only Photos this is the one place the figure is read, so it is stored here
+	// rather than fetched a second time. A store failure is not fatal: the line
+	// is simply not shown.
+	if err := r.store.SetGoogleUsage(ctx, user, photos, totalOf(u)); err != nil {
+		r.log.Warn("takeout: store the Google usage", "user", user, "error", err)
+	}
+
+	return *u.Free > photos+margin, true, nil
+}
+
+// totalOf is the account quota, or -1 when Google reports none (an unlimited
+// account), so a stored -1 means "no limit" rather than "zero".
+func totalOf(u googleUsage) int64 {
+	if u.Total == nil {
+		return -1
+	}
+	return *u.Total
 }
 
 // driveSize runs `rclone size` on the source Drive and parses the total bytes.

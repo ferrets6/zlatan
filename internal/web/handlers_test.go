@@ -734,3 +734,83 @@ func TestLegalPagesArePublicAndStateTheScope(t *testing.T) {
 		t.Error("the privacy policy must state the real staging retention")
 	}
 }
+
+// A reconnect message is stored as a catalogue key, and the wizard must render
+// it in the reader's language. This is the reported bug: an English sentence
+// used to reach an Italian reader because the runner stored prose.
+func TestReconnectReasonRendersInTheReadersLanguage(t *testing.T) {
+	opts := testOptions(&fakeRunner{})
+	reason := core.EncodeProgress(core.Progress{Key: core.ReconnectGoogleCopy})
+	if _, err := opts.State.SetDriveState(context.Background(), "marco", core.DriveSelecting, reason); err != nil {
+		t.Fatal(err)
+	}
+	// A reconnect writes the same key into last_error, which the stopped screen
+	// renders through .Why.
+	m := opts.State.(*fakeState).migrations["marco"]
+	m.LastError = reason
+	opts.State.(*fakeState).migrations["marco"] = m
+	handler := Routes(opts)
+
+	r := request("GET", "/", "marco")
+	r.Header.Set("Accept-Language", "it")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, r)
+	body := rec.Body.String()
+
+	if strings.Contains(body, core.ReconnectGoogleCopy) {
+		t.Errorf("the raw key leaked to the page:\n%s", body)
+	}
+	if !strings.Contains(body, "Google non è collegato") {
+		t.Errorf("the reconnect reason is not in Italian on the page:\n%s", body)
+	}
+}
+
+// The stopped screen must inflect the count: "the check found 1 file", not "1
+// files". The bug this guards against shipped, and is the sentence that was on
+// the screen in the report.
+func TestTheStoppedScreenInflectsASingleMismatch(t *testing.T) {
+	opts := testOptions(&fakeRunner{})
+	reason := core.EncodeProgress(core.Progress{Key: core.FailMismatch, Args: []int64{1}})
+	m := opts.State.(*fakeState).migrations["marco"]
+	m.DriveState = core.DriveFailed
+	m.LastError = reason
+	m.DriveProgress = reason
+	opts.State.(*fakeState).migrations["marco"] = m
+
+	handler := Routes(opts)
+	r := request("GET", "/", "marco")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, r)
+	body := rec.Body.String()
+
+	if strings.Contains(body, "1 files") {
+		t.Errorf("the page says \"1 files\", want \"1 file\":\n%s", body)
+	}
+	if !strings.Contains(body, "1 file that did not match") {
+		t.Errorf("the singular mismatch reason is missing:\n%s", body)
+	}
+}
+
+// The space at Google must be shown, so the size of what is being moved is
+// visible. Drive is exact; Photos is stated as an upper bound because Google
+// folds it into "other".
+func TestTheWizardShowsTheSpaceAtGoogle(t *testing.T) {
+	opts := testOptions(&fakeRunner{})
+	m := opts.State.(*fakeState).migrations["marco"]
+	m.DriveSourceBytes = 44_181_000_000
+	m.GoogleOtherBytes = 12_000_000_000
+	opts.State.(*fakeState).migrations["marco"] = m
+
+	handler := Routes(opts)
+	r := request("GET", "/", "marco")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, r)
+	body := rec.Body.String()
+
+	if !strings.Contains(body, "Google Drive: 41.1 GiB") {
+		t.Errorf("the Drive space is not shown:\n%s", body)
+	}
+	if !strings.Contains(body, "up to 11.2 GiB, Gmail included") {
+		t.Errorf("the Photos bound is not shown:\n%s", body)
+	}
+}

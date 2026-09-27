@@ -139,6 +139,34 @@ func TestSpan(t *testing.T) {
 	}
 }
 
+// A count next to a noun must inflect in English: "1 file", not "1 files".
+// The bug this guards against shipped, and read "the check found 1 files that
+// did not match".
+func TestCountsInflectInEnglish(t *testing.T) {
+	cases := []struct {
+		lang Lang
+		n    int64
+		want string
+	}{
+		{EN, 0, "0 files"},
+		{EN, 1, "1 file"},
+		{EN, 2, "2 files"},
+		{EN, 12480, "12,480 files"},
+		// Italian "file" and "foto" do not inflect, so the singular is the
+		// same word and only the number changes.
+		{IT, 1, "1 file"},
+		{IT, 2, "2 file"},
+	}
+	for _, c := range cases {
+		if got := Files(c.lang, c.n); got != c.want {
+			t.Errorf("Files(%s, %d) = %q, want %q", c.lang, c.n, got, c.want)
+		}
+	}
+	if got, want := Photos(EN, 1), "1 photo"; got != want {
+		t.Errorf("Photos(EN, 1) = %q, want %q", got, want)
+	}
+}
+
 // A progress key is rendered in the reader's language, and the numbers follow
 // it: the same stored value reads "4.0 GiB in 12,480 files" in English and
 // "4,0 GiB in 12.480 file" in Italian.
@@ -149,5 +177,14 @@ func TestProgressFollowsTheLanguage(t *testing.T) {
 	}
 	if got, want := Progress(IT, p), "Copiati 4,0 GiB in 12.480 file"; got != want {
 		t.Errorf("Progress(IT) = %q, want %q", got, want)
+	}
+}
+
+// The same line with one file must say "1 file", not "1 files": the count is
+// glued to its noun here, so the plural rule has to reach this path too.
+func TestProgressInflectsTheCount(t *testing.T) {
+	p := core.Progress{Key: core.ProgressCopying, Args: []int64{1024, 1}}
+	if got, want := Progress(EN, p), "Copied 1.0 KiB in 1 file"; got != want {
+		t.Errorf("Progress(EN) = %q, want %q", got, want)
 	}
 }

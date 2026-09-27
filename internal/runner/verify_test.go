@@ -69,6 +69,54 @@ func TestParseImmichReportEmpty(t *testing.T) {
 	}
 }
 
+// The Drive copy deliberately leaves the Takeout folder behind: on the "Add to
+// Drive" route the photo export lives in the person's Drive, and copying it
+// into Nextcloud as files is wrong. The verification must leave it behind too,
+// or it reports the exclusion itself as a file missing on the destination: a
+// mismatch that no retry can clear, because every retry excludes it again.
+// This is the bug that made "Retry" loop forever on "1 files that did not
+// match".
+func TestVerificationExcludesTheTakeoutFolder(t *testing.T) {
+	store := newFakeStore()
+	var checked []string
+	exec := &fakeExecutor{
+		byCommand: map[string]scripted{
+			"check": {lines: []string{"= report.docx", "= photo.jpg"}},
+		},
+		onRun: func(args []string) {
+			if len(args) == 0 || args[0] != "check" {
+				return
+			}
+			for i, a := range args {
+				if a == "--exclude" && i+1 < len(args) {
+					checked = append(checked, args[i+1])
+				}
+			}
+		},
+	}
+	r := newRunner(t, store, exec)
+
+	if _, err := r.VerifyDrive(context.Background(), "marco",
+		oauth.Tokens{AccessToken: "a", RefreshToken: "r"}, nextcloud.Credentials{LoginName: "marco"}); err != nil {
+		t.Fatalf("VerifyDrive: %v", err)
+	}
+
+	if !slices.Contains(checked, "/Takeout/**") {
+		t.Errorf("the size check must exclude the Takeout folder like the copy does, got %v", checked)
+	}
+}
+
+// The copy and the check must share one exclusion list, so a folder the copy
+// leaves behind can never be reported by the check as missing. This is what
+// keeps the two from drifting apart again.
+func TestCopyAndCheckShareTheExclusionList(t *testing.T) {
+	r := newRunner(t, newFakeStore(), &fakeExecutor{})
+	got := r.excludeTakeout()
+	if !slices.Equal(got, []string{"/Takeout/**"}) {
+		t.Errorf("excludeTakeout = %v, want [/Takeout/**]", got)
+	}
+}
+
 func TestPickReturnsDistinctFiles(t *testing.T) {
 	files := []string{"a", "b", "c", "d", "e"}
 	got := pick(files, 3)

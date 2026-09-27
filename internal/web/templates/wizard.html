@@ -84,6 +84,8 @@ in internal/i18n, through .T, already in their language.
 		<p class="track__route">{{ .Route "src.drive" .NextcloudHost }}</p>
 	</div>
 
+	{{ with .GoogleSpaceDrive }}<p class="fine">{{ . }}</p>{{ end }}
+
 	<div class="state" aria-live="polite">
 		{{ with .DriveFacts }}<p class="facts">{{ . }}</p>{{ end }}
 		{{/* A failed track's Progress holds the same reason as LastError, shown
@@ -98,7 +100,7 @@ in internal/i18n, through .T, already in their language.
 		{{ with .LastError }}<p class="notice notice--reason" role="status">{{ $.Why . }}</p>{{ end }}
 		<div class="notice" role="status">
 			<p>
-				{{- if .DriveFiles }}{{ .T "error.resume" (.N .DriveFiles) }}
+				{{- if .DriveFiles }}{{ .T "error.resume" (.Files .DriveFiles) }}
 				{{- else }}{{ .T "error.noFiles" }}{{ end -}}
 			</p>
 		</div>
@@ -157,6 +159,8 @@ in internal/i18n, through .T, already in their language.
 		</div>
 		<p class="track__route">{{ .Route "src.photos" .ImmichHost }}</p>
 	</div>
+
+	{{ with .GoogleSpacePhotos }}<p class="fine">{{ . }}</p>{{ end }}
 
 	<div class="state" aria-live="polite">
 		{{ with .PhotosFacts }}<p class="facts">{{ . }}</p>{{ end }}
