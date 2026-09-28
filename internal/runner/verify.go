@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/marcodellemarche/zlatan/internal/core"
 	"github.com/marcodellemarche/zlatan/internal/nextcloud"
 	"github.com/marcodellemarche/zlatan/internal/oauth"
@@ -178,6 +180,23 @@ func (r *Runner) checkSample(ctx context.Context, src, dst string, env []string,
 	}
 	picked := pick(matched, min(SampleSize, len(matched)))
 
+	// --files-from is an exact lookup on both sides, and it does not normalize:
+	// the same file can be listed as NFD on Google Drive and as NFC on
+	// Nextcloud, and a list holding one form excludes the other side. The file
+	// then looks missing, which is a false mismatch no retry can clear. Putting
+	// both forms in the list lets the march pair them by its own normalization,
+	// which is what it already does for the whole-tree pass.
+	var lines []string
+	seen := make(map[string]bool, len(picked)*2)
+	for _, p := range picked {
+		for _, form := range unicodeForms(p) {
+			if !seen[form] {
+				seen[form] = true
+				lines = append(lines, form)
+			}
+		}
+	}
+
 	// rclone reads --files-from from a path, and the executor has no stdin, so
 	// the list goes to a temp file that is removed whatever happens.
 	list, err := os.CreateTemp("", "zlatan-sample-*.txt")
@@ -186,7 +205,7 @@ func (r *Runner) checkSample(ctx context.Context, src, dst string, env []string,
 	}
 	path := list.Name()
 	defer os.Remove(path)
-	if _, err := list.WriteString(strings.Join(picked, "\n") + "\n"); err != nil {
+	if _, err := list.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
 		list.Close()
 		return 0, 0, err
 	}
@@ -313,6 +332,19 @@ func nonEmptyLines(s string) []string {
 		}
 	}
 	return out
+}
+
+// unicodeForms returns the path in the forms a filesystem may store it in.
+// Google Drive returns names in NFD and Nextcloud stores them in NFC, so the
+// same file is listed differently on the two sides. The NFC form comes first
+// so the common case is a single entry; NFD is added only when it differs, so
+// a plain ASCII name yields one line and the list stays small.
+func unicodeForms(path string) []string {
+	nfc := norm.NFC.String(path)
+	if nfd := norm.NFD.String(path); nfd != nfc {
+		return []string{nfc, nfd}
+	}
+	return []string{nfc}
 }
 
 // pick chooses n distinct entries at random, so the sample is not always the

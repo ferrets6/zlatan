@@ -835,6 +835,65 @@ func TestRunPhotosImportRefusesAnArchiveWithNoPhotos(t *testing.T) {
 	}
 }
 
+// A Takeout large enough to split arrives as several zips, and Google puts its
+// placeholder (a zip holding only archive_browser.html) beside the real parts.
+// The set must be accepted when any part holds a photo: rejecting the whole
+// export because one part is the placeholder stopped a real migration whose
+// data was already on disk. This is the bug from the report, where the real
+// 13 GB part sat next to the 96 KB placeholder and nothing was imported.
+func TestRunPhotosImportAcceptsAPartitionedTakeoutWithAPlaceholder(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{byCommand: map[string]scripted{
+		// immich-go's end-of-run report, so the import finishes cleanly.
+		"upload": {lines: []string{
+			"Asset Tracking Report:",
+			"Total Assets:       3  (1.0 MiB)",
+			"  Processed:        3  (1.0 MiB)",
+			"  Discarded:        0  (0 B)",
+			"  Errors:           0  (0 B)",
+			"  Pending:          0  (0 B)",
+		}},
+	}}
+	r := newRunner(t, store, exec)
+	seedImmich(t, store, sealerOf(t, r))
+
+	staging := filepath.Join(r.cfg.StagingDir, core.SafeName("marco"))
+	if err := os.MkdirAll(staging, 0o750); err != nil {
+		t.Fatalf("staging: %v", err)
+	}
+	// The placeholder, first, exactly as Google writes it.
+	placeholder := filepath.Join(staging, "takeout-001.zip")
+	f, err := os.Create(placeholder)
+	if err != nil {
+		t.Fatalf("create placeholder: %v", err)
+	}
+	zw := zip.NewWriter(f)
+	entry, _ := zw.Create("Takeout/archive_browser.html")
+	entry.Write([]byte("<html></html>"))
+	zw.Close()
+	f.Close()
+	// The real part, beside it.
+	real := filepath.Join(staging, "takeout-1-001.zip")
+	f2, err := os.Create(real)
+	if err != nil {
+		t.Fatalf("create real part: %v", err)
+	}
+	zw2 := zip.NewWriter(f2)
+	photo, _ := zw2.Create("Takeout/Google Fotos/IMG_1.jpg")
+	photo.Write([]byte("jpeg-bytes"))
+	zw2.Close()
+	f2.Close()
+
+	r.runPhotosImport(context.Background(), "marco")
+
+	if got := store.state().PhotosState; got != core.PhotosDone {
+		t.Fatalf("photos state = %q, want done: the real part holds a photo", got)
+	}
+	if _, ok := exec.first("upload"); !ok {
+		t.Error("immich-go must run when a part of the export holds photos")
+	}
+}
+
 func TestRunPhotosImportRefusesWithoutArchives(t *testing.T) {
 	store := newFakeStore()
 	exec := &fakeExecutor{}

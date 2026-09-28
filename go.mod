@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/pressly/goose/v3 v3.28.0
 	golang.org/x/oauth2 v0.37.0
+	golang.org/x/text v0.41.0
 	modernc.org/sqlite v1.58.0
 )
 

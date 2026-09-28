@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/marcodellemarche/zlatan/internal/nextcloud"
 	"github.com/marcodellemarche/zlatan/internal/oauth"
 )
@@ -117,6 +119,31 @@ func TestCopyAndCheckShareTheExclusionList(t *testing.T) {
 	}
 }
 
+// A file can be listed as NFD on Google Drive and as NFC on Nextcloud, and
+// --files-from is an exact lookup that does not normalize, so a list holding
+// only one form excludes the other side and reports a missing file. Both forms
+// must be in the list. This is the second bug from the report: five files with
+// accents were byte-identical on both sides and still reported as mismatched.
+func TestUnicodeFormsCoverBothNormalizations(t *testing.T) {
+	// "Fissuração.pdf" with a combining cedilla and tilde (NFD), as Drive lists
+	// it, and the precomposed form (NFC), as Nextcloud stores it.
+	nfd := "06 Fissurac\u0327a\u0303o.pdf"
+	nfc := "06 Fissura\u00e7\u00e3o.pdf"
+
+	got := unicodeForms(nfd)
+	if !slices.Contains(got, nfc) {
+		t.Errorf("unicodeForms(NFD) = %v, want it to include the NFC form %q", got, nfc)
+	}
+	if !slices.Contains(got, nfd) {
+		t.Errorf("unicodeForms(NFD) = %v, want it to include the NFD form", got)
+	}
+
+	// A plain ASCII name has one form, so the list does not double in size.
+	if got := unicodeForms("report.pdf"); !slices.Equal(got, []string{"report.pdf"}) {
+		t.Errorf("unicodeForms(ASCII) = %v, want a single entry", got)
+	}
+}
+
 func TestPickReturnsDistinctFiles(t *testing.T) {
 	files := []string{"a", "b", "c", "d", "e"}
 	got := pick(files, 3)
@@ -196,5 +223,48 @@ func TestNativeGoogleDocsAreExcludedFromTheByteSample(t *testing.T) {
 	}
 	if v.Checked < 2 {
 		t.Errorf("both files should still be size-checked, got Checked=%d", v.Checked)
+	}
+}
+
+// The byte sample's --files-from list must carry an accented name in both its
+// normalizations, because --files-from is an exact lookup and the two sides
+// disagree on the form. A list with only the Drive form (NFD) excludes the
+// Nextcloud file and reports it as missing: the false mismatch from the
+// report, on five files that were byte-identical.
+func TestTheByteSampleListCarriesBothUnicodeForms(t *testing.T) {
+	store := newFakeStore()
+	// "Fissuração.pdf" as Drive lists it: combining cedilla and tilde.
+	nfd := "06 Fissurac\u0327a\u0303o.pdf"
+	var sampled []string
+	exec := &fakeExecutor{
+		byCommand: map[string]scripted{
+			"check": {lines: []string{"= " + nfd}},
+		},
+		hasDownload: true,
+		onRun: func(args []string) {
+			for i, a := range args {
+				if a == "--files-from" && i+1 < len(args) {
+					raw, err := os.ReadFile(args[i+1])
+					if err == nil {
+						// One path per line: a path may hold a space, so Fields
+						// would split it in two.
+						sampled = nonEmptyLines(string(raw))
+					}
+				}
+			}
+		},
+	}
+	r := newRunner(t, store, exec)
+
+	if _, err := r.VerifyDrive(context.Background(), "marco",
+		oauth.Tokens{AccessToken: "a", RefreshToken: "r"}, nextcloud.Credentials{LoginName: "marco"}); err != nil {
+		t.Fatalf("VerifyDrive: %v", err)
+	}
+
+	if !slices.Contains(sampled, norm.NFD.String(nfd)) {
+		t.Errorf("the list must carry the NFD form, got %v", sampled)
+	}
+	if !slices.Contains(sampled, norm.NFC.String(nfd)) {
+		t.Errorf("the list must carry the NFC form, got %v", sampled)
 	}
 }

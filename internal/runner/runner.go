@@ -1212,25 +1212,41 @@ func (r *Runner) finishPhotosImport(ctx context.Context, user string, report imm
 	})
 }
 
-// validateArchives refuses a staging archive that is not a real Takeout.
+// validateArchives refuses a staging archive set that is not a real Takeout.
 //
 // The failure it exists for: Google writes a small zip containing only
 // archive_browser.html into the Takeout folder first, and the real parts
 // arrive later. That placeholder is a valid zip and a valid "Takeout", so
 // nothing downstream would question it, and the import would find no photos
-// and mark the migration done. The check is therefore on content, not on the
-// file being a zip: a zip with no image or video inside is refused.
+// and mark the migration done.
+//
+// The check is on content, not on the file being a zip, but it is a check on
+// the set, not on each part: a Takeout large enough to split is delivered as
+// several zips, and the placeholder sits beside the real ones. Demanding that
+// every part hold a photo rejected the whole export because one part was the
+// placeholder. The set is refused only when no part holds a photo.
 func (r *Runner) validateArchives(ctx context.Context, archives []string) (core.Progress, error) {
+	var unreadable bool
 	for _, archive := range archives {
 		reason, err := r.archiveHasPhotos(ctx, archive)
 		if err != nil {
 			return core.Progress{}, err
 		}
-		if reason.Key != "" {
-			return reason, nil
+		switch reason.Key {
+		case "":
+			// This part holds a photo or a video: the export is real.
+			return core.Progress{}, nil
+		case core.FailArchiveUnreadable:
+			unreadable = true
 		}
 	}
-	return core.Progress{}, nil
+	// No part held a photo. Prefer the unreadable reason when there was one: a
+	// corrupt part is a different thing from a placeholder, and the person can
+	// act on it (send the file again) where "no photos" would only confuse.
+	if unreadable {
+		return core.Progress{Key: core.FailArchiveUnreadable}, nil
+	}
+	return core.Progress{Key: core.FailArchiveEmpty}, nil
 }
 
 // mediaExtensions are the file types a Takeout holding photos must contain.
