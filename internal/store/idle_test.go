@@ -17,12 +17,21 @@ func TestListIdle(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
-	for _, u := range []string{"drive-only", "copying", "waiting-google", "uploading", "fresh"} {
+	for _, u := range []string{"drive-only", "copying", "waiting-google", "uploading", "failed", "fresh"} {
 		if _, err := db.EnsureMigration(ctx, u, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if _, err := db.SetDriveState(ctx, "drive-only", core.DriveDone, ""); err != nil {
+		t.Fatal(err)
+	}
+	// Both tracks failed: a failed track keeps its credentials so "try again"
+	// works, which makes the idle sweep the only thing that ever clears them.
+	// It must stay in the sweep however terminal it looks.
+	if _, err := db.SetDriveState(ctx, "failed", core.DriveFailed, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SetPhotosState(ctx, "failed", core.PhotosFailed, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.SetDriveState(ctx, "copying", core.DriveCopying, ""); err != nil {
@@ -48,7 +57,7 @@ func TestListIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 	slices.Sort(users)
-	if want := []string{"drive-only", "fresh"}; !slices.Equal(users, want) {
+	if want := []string{"drive-only", "failed", "fresh"}; !slices.Equal(users, want) {
 		t.Errorf("ListIdle = %v, want %v: work in flight is never idle", users, want)
 	}
 }

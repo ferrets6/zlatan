@@ -295,23 +295,7 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 	if p.Screen == "upload" && opts.Runner != nil {
 		if parts, err := opts.Runner.PhotosParts(user, m.PhotosPartsExpected); err == nil {
 			p.Parts = parts
-			// i18n.Files carries the file/files plural, so "1 of 1 file" is never
-			// "1 of 1 files".
-			p.PartsStatus = i18n.T(lang, "parts.status",
-				i18n.Count(lang, int64(parts.Have)), i18n.Files(lang, int64(parts.Expected)))
-			if len(parts.Missing) > 0 {
-				missing := make([]string, len(parts.Missing))
-				for i, n := range parts.Missing {
-					missing[i] = strconv.Itoa(n)
-				}
-				// Singular when one part is missing, plural otherwise: "part 2" vs
-				// "parts 2, 3". The fully rendered line goes to the template.
-				key := "parts.missing"
-				if len(parts.Missing) == 1 {
-					key = "parts.missingOne"
-				}
-				p.PartsMissing = i18n.T(lang, key, strings.Join(missing, ", "))
-			}
+			p.PartsStatus, p.PartsMissing = partsLines(lang, parts)
 		}
 	}
 
@@ -392,6 +376,28 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// partsLines renders the two lines the upload screen shows for a split export:
+// "X of Y here" and, when parts are missing, "still to send: part(s) …". Shared
+// by the full render and the /status poll so the live update reads identically.
+// i18n.Files carries the file/files plural, so "1 of 1 file" is never "1 files";
+// the missing line is singular for one part, plural for several.
+func partsLines(lang i18n.Lang, parts core.Parts) (status, missing string) {
+	status = i18n.T(lang, "parts.status",
+		i18n.Count(lang, int64(parts.Have)), i18n.Files(lang, int64(parts.Expected)))
+	if len(parts.Missing) > 0 {
+		nums := make([]string, len(parts.Missing))
+		for i, n := range parts.Missing {
+			nums[i] = strconv.Itoa(n)
+		}
+		key := "parts.missing"
+		if len(parts.Missing) == 1 {
+			key = "parts.missingOne"
+		}
+		missing = i18n.T(lang, key, strings.Join(nums, ", "))
+	}
+	return status, missing
+}
+
 func langChoices(current i18n.Lang) []langChoice {
 	out := make([]langChoice, 0, len(i18n.Supported))
 	for _, l := range i18n.Supported {
@@ -449,10 +455,25 @@ func (opts Options) status(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, opts, map[string]any{
+	payload := map[string]any{
 		"user":   m.User,
 		"tracks": tracks,
-	})
+	}
+	// On the upload screen the parts count is not a track card, so the poll
+	// cannot update it the way it updates the cards. Carry it here so the page
+	// shows parts arriving (a kiosk download, or files sent over days) without a
+	// manual reload, and can reveal the Start button once they are all present.
+	if m.PhotosState == core.PhotosAwaitingUpload && m.PhotosPartsExpected > 0 && opts.Runner != nil {
+		if parts, err := opts.Runner.PhotosParts(user, m.PhotosPartsExpected); err == nil {
+			status, missing := partsLines(lang, parts)
+			payload["parts"] = map[string]any{
+				"status":   status,
+				"missing":  missing,
+				"complete": parts.Complete(),
+			}
+		}
+	}
+	writeJSON(w, opts, payload)
 }
 
 func writeJSON(w http.ResponseWriter, opts Options, v any) {

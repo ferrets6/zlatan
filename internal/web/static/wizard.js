@@ -7,7 +7,42 @@
 
 const POLL_MS = 5000;
 
+// True while the upload panel is sending files. A reload would cut the upload
+// short, so nothing reloads meanwhile; the upload reloads itself when it ends.
+let busy = false;
+
 function render(state) {
+	// The upload screen is a panel, not a track card, so the per-track loop below
+	// does not cover it. Handle it here: reload when the Photos state changes
+	// (the import started, or stopped) so a different screen is shown, reload
+	// when every declared part has arrived so the Start button appears, and
+	// otherwise update the "X of Y here" lines in place as parts land. No reload
+	// while an upload is running: it reloads by itself when it ends.
+	const panel = document.getElementById('upload');
+	if (panel) {
+		const photos = (state.tracks ?? []).find((t) => t.Track === 'photos');
+		if (!busy && photos && panel.dataset.state && panel.dataset.state !== photos.State) {
+			location.reload();
+			return;
+		}
+		if (state.parts) {
+			// Reveal the Start button once every part is here — but only once:
+			// reload only if it is not already on the page, or /status reporting
+			// complete on every poll would reload in a loop.
+			if (state.parts.complete && !busy && !panel.querySelector('[data-import-now]')) {
+				location.reload();
+				return;
+			}
+			const status = document.getElementById('parts-status');
+			if (status) status.textContent = state.parts.status;
+			const missing = document.getElementById('parts-missing');
+			if (missing) {
+				missing.textContent = state.parts.missing;
+				missing.hidden = !state.parts.missing;
+			}
+		}
+	}
+
 	for (const track of state.tracks ?? []) {
 		const card = document.querySelector(`[data-track="${track.Track}"]`);
 		if (!card) continue;
@@ -352,7 +387,6 @@ function wireUpload() {
 	// or the import running) is the server's to say.
 	// Files are queued, so dropping more parts while one is still uploading adds
 	// them to the run instead of being silently discarded.
-	let busy = false;
 	const queue = [];
 	const start = async (files) => {
 		for (const f of files ?? []) queue.push(f);

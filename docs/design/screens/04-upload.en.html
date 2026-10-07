@@ -39,7 +39,7 @@
 	<p class="fine">Download every file of the export from Google, then add them here.</p>
 </div>
 
-<main class="panel" id="upload"
+<main class="panel" id="upload" data-state="awaiting_upload"
       data-reading="Reading {file}: {percent}%"
       data-sending="Sending {file}"
       data-progress="{sent} of {total} pieces"
@@ -72,8 +72,8 @@
 	
 	<div class="state" aria-live="polite">
 		
-		<p class="facts">1 of 3 files here.</p>
-		<p class="fine">Still to send: parts 2, 3.</p>
+		<p class="facts" id="parts-status">1 of 3 files here.</p>
+		<p class="fine" id="parts-missing">Still to send: parts 2, 3.</p>
 		
 		<p id="upload-progress" class="facts" hidden></p>
 	</div>

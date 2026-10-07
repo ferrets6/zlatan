@@ -39,7 +39,7 @@
 	<p class="fine">Scarica da Google tutti i file dell&#39;esportazione, poi aggiungili qui.</p>
 </div>
 
-<main class="panel" id="upload"
+<main class="panel" id="upload" data-state="awaiting_upload"
       data-reading="Lettura di {file}: {percent}%"
       data-sending="Invio di {file}"
       data-progress="{sent} pezzi su {total}"
@@ -72,8 +72,8 @@
 	
 	<div class="state" aria-live="polite">
 		
-		<p class="facts">Arrivati 1 su 3 file.</p>
-		<p class="fine">Ancora da mandare: le parti 2, 3.</p>
+		<p class="facts" id="parts-status">Arrivati 1 su 3 file.</p>
+		<p class="fine" id="parts-missing">Ancora da mandare: le parti 2, 3.</p>
 		
 		<p id="upload-progress" class="facts" hidden></p>
 	</div>
