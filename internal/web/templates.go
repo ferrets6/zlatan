@@ -167,9 +167,15 @@ func screenFor(m core.Migration) string {
 }
 
 // driveActive reports whether the Drive half has work in flight.
+//
+// Selecting is not: it only means Google is connected, and the Google token is
+// shared — the Photos half needs it too, and the OAuth callback sets selecting
+// whichever half asked. Counting it would keep someone moving only their photos
+// on the two-track view, where the Photos card has nothing to offer for an
+// upload, and never show them the upload screen.
 func driveActive(s core.DriveState) bool {
 	switch s {
-	case core.DriveNotStarted, core.DriveDone, core.DriveFailed, core.DriveCancelled:
+	case core.DriveNotStarted, core.DriveSelecting, core.DriveDone, core.DriveFailed, core.DriveCancelled:
 		return false
 	}
 	return true

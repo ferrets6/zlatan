@@ -39,6 +39,10 @@ func TestScreenFor(t *testing.T) {
 		{"photos guide alone", core.DriveNotStarted, core.PhotosTakeoutGuide, "takeout"},
 		{"photos awaiting takeout alone", core.DriveNotStarted, core.PhotosAwaitingTakeout, "waiting"},
 		{"photos awaiting upload alone", core.DriveNotStarted, core.PhotosAwaitingUpload, "upload"},
+		// Connecting Google (needed for Photos too) leaves Drive in selecting:
+		// that is not someone who asked for files, so the upload screen shows.
+		{"google connected, photos awaiting upload", core.DriveSelecting, core.PhotosAwaitingUpload, "upload"},
+		{"google connected, nothing started", core.DriveSelecting, core.PhotosNotStarted, "tracks"},
 		{"photos importing alone", core.DriveNotStarted, core.PhotosImporting, "waiting"},
 		{"photos verifying alone", core.DriveNotStarted, core.PhotosVerifying, "waiting"},
 		{"drive done while photos import", core.DriveDone, core.PhotosImporting, "waiting"},
