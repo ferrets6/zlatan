@@ -145,6 +145,7 @@ type fakeStore struct {
 	waitSince    time.Time
 	verification core.Verify
 	finishedAt   time.Time
+	idle         []string
 }
 
 func newFakeStore() *fakeStore {
@@ -275,6 +276,37 @@ func (f *fakeStore) StampFinished(_ context.Context, _ string) error {
 		f.finishedAt = time.Now()
 	}
 	return nil
+}
+
+func (f *fakeStore) SetPhotosParts(_ context.Context, _ string, parts int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.migration.PhotosPartsExpected = parts
+	return nil
+}
+
+func (f *fakeStore) ListIdle(_ context.Context, _ time.Time) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.idle, nil
+}
+
+func (f *fakeStore) SetAutoImport(_ context.Context, _ string, on bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.migration.AutoImport = on
+	return nil
+}
+
+func (f *fakeStore) Touch(_ context.Context, _ string) error { return nil }
+
+func (f *fakeStore) ListAutoImportWaiting(_ context.Context) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.migration.PhotosState == core.PhotosAwaitingUpload && f.migration.AutoImport {
+		return []string{f.migration.User}, nil
+	}
+	return nil, nil
 }
 
 func (f *fakeStore) ListAwaitingTakeout(_ context.Context) ([]core.TakeoutWait, error) {
@@ -430,6 +462,7 @@ type fakeNextcloud struct {
 	beginCalled bool
 	usage       nextcloud.Usage
 	quotaErr    error
+	revoked     []string
 }
 
 func (f *fakeNextcloud) BeginFlow(context.Context) (nextcloud.Flow, error) {
@@ -456,15 +489,26 @@ func (f *fakeNextcloud) Quota(context.Context, nextcloud.Credentials) (nextcloud
 	return f.usage, nil
 }
 
+func (f *fakeNextcloud) RevokeAppPassword(_ context.Context, creds nextcloud.Credentials) error {
+	f.revoked = append(f.revoked, creds.AppPassword)
+	return nil
+}
+
 // fakeGoogle is a Google prober a test drives by hand.
 type fakeGoogle struct {
 	err       error
 	probeCall int
+	revoked   []string
 }
 
 func (f *fakeGoogle) Probe(context.Context, string) error {
 	f.probeCall++
 	return f.err
+}
+
+func (f *fakeGoogle) Revoke(_ context.Context, refresh string) error {
+	f.revoked = append(f.revoked, refresh)
+	return nil
 }
 
 // sealerOf reaches into the runner for the sealer it was built with, so a
@@ -935,8 +979,9 @@ func TestStartPhotosTakeoutRefusesWithoutGoogleToken(t *testing.T) {
 }
 
 // takeoutReady must say "not yet" for a folder that is missing or still being
-// written, and only "ready" once every part is present and non-empty: an
-// import of a half-written export is the failure this whole step prevents.
+// written, and only "ready" once every part is present and non-empty and the
+// listing has not changed since the previous tick: an import of a
+// half-written export is the failure this whole step prevents.
 func TestTakeoutReady(t *testing.T) {
 	sealedTokens := func(t *testing.T, r *Runner) oauth.Tokens {
 		t.Helper()
@@ -955,13 +1000,19 @@ func TestTakeoutReady(t *testing.T) {
 		{name: "a part still being written", out: []string{`[{"Name":"takeout-1.zip","Size":100},{"Name":"takeout-2.zip","Size":0}]`}, want: false},
 		{name: "only a non-zip", out: []string{`[{"Name":"archive_browser.html","Size":10}]`}, want: false},
 		{name: "zip plus a non-zip", out: []string{`[{"Name":"takeout-1.zip","Size":10},{"Name":"archive_browser.html","Size":10}]`}, want: true},
+		// Part 2 is not there yet: 1 and 3 do not make an export.
+		{name: "a gap in the numbers", out: []string{`[{"Name":"takeout-x-001.zip","Size":10},{"Name":"takeout-x-003.zip","Size":10}]`}, want: false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			store := newFakeStore()
 			exec := &fakeExecutor{lines: c.out, err: c.err}
 			r := newRunner(t, store, exec)
-			got, err := r.takeoutReady(context.Background(), sealedTokens(t, r))
+			// The first sight of a listing is never enough: it may still grow.
+			if first, _ := r.takeoutReady(context.Background(), "marco", sealedTokens(t, r)); first {
+				t.Fatal("takeoutReady was true on the first look")
+			}
+			got, err := r.takeoutReady(context.Background(), "marco", sealedTokens(t, r))
 			if err != nil {
 				t.Fatalf("takeoutReady: %v", err)
 			}

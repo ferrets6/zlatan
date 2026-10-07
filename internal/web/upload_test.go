@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/marcodellemarche/zlatan/internal/core"
 	"github.com/marcodellemarche/zlatan/internal/upload"
 )
 
@@ -226,5 +227,26 @@ func TestUploadCompleteReportsAMismatch(t *testing.T) {
 	}
 	if len(runner.started) != 0 {
 		t.Errorf("a mismatched upload must not start an import: %v", runner.started)
+	}
+}
+
+// A refused Immich credential at import time is not an upload failure: the file
+// is on disk and the runner moved the track to the reconnect screen. The
+// complete call must return 200 so the browser reloads and shows that state,
+// not a 409 that reads as "upload interrupted".
+func TestUploadCompleteTreatsRefusedCredentialAsDone(t *testing.T) {
+	runner := &fakeRunner{err: core.ErrCredentialRefused}
+	opts := uploadOptions(t, runner)
+	handler := Routes(opts)
+
+	beginUpload(t, handler, "marco", "takeout.zip", 4, 10)
+	putChunk(t, handler, "marco", "takeout.zip", 0, "abcd")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, request("POST", "/upload/complete?name=takeout.zip", "marco"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("complete: code = %d, body = %s; want 200", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"complete":true`) {
+		t.Errorf("want complete:true, got %s", rec.Body.String())
 	}
 }

@@ -101,10 +101,28 @@ type Runner interface {
 	// queued later, once the archive is actually on disk.
 	BeginPhotosUpload(ctx context.Context, user string) error
 
-	// StartPhotosImport imports an archive that is already in staging. It is
-	// what the upload completion calls, and what a retry after a failed import
-	// calls; it is not the entry point for "send the file myself".
+	// StartPhotosImport imports the archives already in staging. It is what a
+	// retry after a failed import calls; it is not the entry point for "send
+	// the file myself".
 	StartPhotosImport(ctx context.Context, user string) error
+
+	// AutoImportIfEnabled starts the import once every declared part is on disk,
+	// but only if the person asked for an automatic start. It is what an upload
+	// completion and the server-side sweep both call; the browser never starts
+	// anything itself.
+	AutoImportIfEnabled(ctx context.Context, user string) (bool, error)
+
+	// StartImportIfComplete is the explicit "Start" button: it starts the import
+	// now if every declared part is on disk, ignoring the auto-import flag.
+	StartImportIfComplete(ctx context.Context, user string) (bool, error)
+
+	// DeclarePhotosParts records how many files Google split the export into;
+	// PhotosParts measures what has arrived. SetAutoImport toggles the automatic
+	// start at any time — it is a separate setting, so declaring the count never
+	// changes it.
+	DeclarePhotosParts(ctx context.Context, user string, parts int) error
+	SetAutoImport(ctx context.Context, user string, on bool) error
+	PhotosParts(user string, expected int) (core.Parts, error)
 
 	// TakeoutFits reports whether Google's own free space can hold the export,
 	// which decides whether the "Add to Drive" route is offered at all. known
@@ -163,6 +181,9 @@ func Routes(opts Options) http.Handler {
 	mux.Handle("POST /photos/upload/start", gate(opts.startPhotosUpload))
 	mux.Handle("POST /photos/import/start", gate(opts.startPhotosImport))
 	mux.Handle("POST /photos/takeout/start", gate(opts.startPhotosTakeout))
+	mux.Handle("POST /photos/parts", gate(opts.declarePhotosParts))
+	mux.Handle("POST /photos/auto", gate(opts.setPhotosAuto))
+	mux.Handle("POST /photos/import/now", gate(opts.startPhotosImportNow))
 
 	// Resumable Takeout upload. Each request is authenticated and scoped to the
 	// caller, so one person can never write into another's staging area.

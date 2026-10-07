@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,6 +105,26 @@ type page struct {
 
 	CanStartDrive  bool
 	CanStartPhotos bool
+
+	// Parts is the split export measured against the count the person
+	// declared, for the upload screen. PartsStatus and PartsMissing are the
+	// two lines it produces, already in the reader's language.
+	Parts        core.Parts
+	PartsStatus  string
+	PartsMissing string
+
+	// AutoImport is whether the import starts by itself once every part is
+	// here; the upload screen shows it as a checkbox the person can toggle.
+	AutoImport bool
+
+	// KioskURL is the address of the throwaway browser that downloads straight
+	// onto the NAS, shown on the upload screen as the second route. Empty when
+	// no kiosk is configured, and then no link is shown.
+	KioskURL string
+
+	// PhotosFromDrive is true when the import collected the export from the
+	// person's Drive, where it still takes up their Google storage.
+	PhotosFromDrive bool
 
 	GoogleConnected    bool
 	NextcloudConnected bool
@@ -267,6 +288,32 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 	p.PhotosFacts = factsFor(lang, p.Photos, m)
 	p.GoogleSpaceDrive = googleSpaceDrive(lang, m)
 	p.GoogleSpacePhotos = googleSpacePhotos(lang, m)
+	p.PhotosFromDrive = core.DecodeProgress(m.PhotosProgress).Key == core.ProgressPhotosDoneDrive
+
+	p.AutoImport = m.AutoImport
+	p.KioskURL = opts.Config.KioskURL
+	if p.Screen == "upload" && opts.Runner != nil {
+		if parts, err := opts.Runner.PhotosParts(user, m.PhotosPartsExpected); err == nil {
+			p.Parts = parts
+			// i18n.Files carries the file/files plural, so "1 of 1 file" is never
+			// "1 of 1 files".
+			p.PartsStatus = i18n.T(lang, "parts.status",
+				i18n.Count(lang, int64(parts.Have)), i18n.Files(lang, int64(parts.Expected)))
+			if len(parts.Missing) > 0 {
+				missing := make([]string, len(parts.Missing))
+				for i, n := range parts.Missing {
+					missing[i] = strconv.Itoa(n)
+				}
+				// Singular when one part is missing, plural otherwise: "part 2" vs
+				// "parts 2, 3". The fully rendered line goes to the template.
+				key := "parts.missing"
+				if len(parts.Missing) == 1 {
+					key = "parts.missingOne"
+				}
+				p.PartsMissing = i18n.T(lang, key, strings.Join(missing, ", "))
+			}
+		}
+	}
 
 	// The closing screen states what was actually compared. A missing row is
 	// not an error: the screen falls back to the plain sentence.
@@ -560,6 +607,105 @@ func (opts Options) startPhotosUpload(w http.ResponseWriter, r *http.Request) {
 		opts.Log.Error("startPhotosUpload: begin", "user", user, "error", err)
 		http.Error(w, "could not start the upload", http.StatusConflict)
 		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// declarePhotosParts records how many files Google split the export into. It
+// is a plain form, so it works without a script, and it may start the import
+// at once when every part is already here.
+func (opts Options) declarePhotosParts(w http.ResponseWriter, r *http.Request) {
+	user, _, err := identityFrom(r, opts.Config.TrustedProxy)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if opts.Runner == nil {
+		http.Error(w, "the Photos route is not available on this instance", http.StatusServiceUnavailable)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read the form", http.StatusBadRequest)
+		return
+	}
+	parts, err := strconv.Atoi(strings.TrimSpace(r.PostFormValue("parts")))
+	if err != nil {
+		http.Error(w, "the number of files must be a number", http.StatusBadRequest)
+		return
+	}
+	// Only the count here; the auto-import checkbox is its own form
+	// (/photos/auto), so saving the number never flips it. The auto-start that
+	// may follow is best effort inside the runner, so the only errors here are a
+	// bad count, the wrong state, or a store failure — each with its own status.
+	if err := opts.Runner.DeclarePhotosParts(r.Context(), user, parts); err != nil {
+		switch {
+		case errors.Is(err, core.ErrPartsOutOfRange):
+			http.Error(w, "the number of files is out of range", http.StatusBadRequest)
+		case errors.Is(err, core.ErrNotUploading):
+			http.Error(w, "not waiting for an upload", http.StatusConflict)
+		default:
+			opts.Log.Error("declarePhotosParts", "user", user, "parts", parts, "error", err)
+			http.Error(w, "could not save the number of files", http.StatusInternalServerError)
+		}
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// setPhotosAuto toggles "start the import by itself when every file is here".
+// It is a plain form (works without a script), and the person can change it at
+// any time — during an upload or a kiosk download. Turning it on when the files
+// are already present starts the import at once.
+func (opts Options) setPhotosAuto(w http.ResponseWriter, r *http.Request) {
+	user, _, err := identityFrom(r, opts.Config.TrustedProxy)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if opts.Runner == nil {
+		http.Error(w, "the Photos route is not available on this instance", http.StatusServiceUnavailable)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read the form", http.StatusBadRequest)
+		return
+	}
+	on := r.PostFormValue("auto") != ""
+	// SetAutoImport only returns an error when the save itself fails (the
+	// auto-start it may trigger is best effort inside the runner), so this is a
+	// server-side failure, not a bad request.
+	if err := opts.Runner.SetAutoImport(r.Context(), user, on); err != nil {
+		opts.Log.Error("setPhotosAuto", "user", user, "on", on, "error", err)
+		http.Error(w, "could not save the setting", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// startPhotosImportNow is the explicit "Start" button on the upload screen: it
+// imports what is in staging if every declared part is there, ignoring the
+// auto-import flag. It refuses an incomplete set, so it can never import half a
+// Takeout.
+func (opts Options) startPhotosImportNow(w http.ResponseWriter, r *http.Request) {
+	user, _, err := identityFrom(r, opts.Config.TrustedProxy)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if opts.Runner == nil {
+		http.Error(w, "the Photos route is not available on this instance", http.StatusServiceUnavailable)
+		return
+	}
+	// Whatever happens, redirect to the wizard, which re-renders the live state.
+	// On success it shows "importing"; on an error the runner has already moved
+	// the track to where the person can act next — the reconnect screen, a
+	// stopped screen with a retry, or back to the upload screen — so a 409 with
+	// no way forward is never the answer. started is not inspected for the same
+	// reason: the sweep may have beaten this click, and the page shows the truth.
+	if _, err := opts.Runner.StartImportIfComplete(r.Context(), user); err != nil {
+		opts.Log.Warn("startPhotosImportNow", "user", user, "error", err)
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

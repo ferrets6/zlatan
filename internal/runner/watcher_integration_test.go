@@ -53,6 +53,9 @@ func TestWatcherCollectsATakeoutFromTheStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Two ticks: the first sight of the folder is never enough, because it may
+	// still be growing. The second, with the same listing, starts the download.
+	r.pollTakeout(ctx)
 	r.pollTakeout(ctx)
 
 	// The download goroutine is detached; wait for the state to leave the wait.
@@ -105,7 +108,8 @@ func TestWatcherDoesNotStartTwoDownloads(t *testing.T) {
 	}
 
 	r.pollTakeout(ctx)
-	// The state is claimed synchronously, so a second tick sees nothing to do.
+	r.pollTakeout(ctx) // the listing is now stable: this one starts the download
+	// The state is claimed synchronously, so a further tick sees nothing to do.
 	r.pollTakeout(ctx)
 
 	exec.mu.Lock()

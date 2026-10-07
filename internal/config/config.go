@@ -113,6 +113,11 @@ type Config struct {
 	// Google requires a way to reach whoever runs the app.
 	ContactEmail string
 
+	// KioskURL is the address of the throwaway browser that downloads a Takeout
+	// straight onto the NAS (the kiosk service). The upload screen links to it
+	// as the second route. Empty when there is no kiosk, and then no link shows.
+	KioskURL string
+
 	Google    Google
 	Nextcloud Nextcloud
 	Immich    Immich
@@ -290,6 +295,7 @@ func Load(env map[string]string) (*Config, error) {
 		},
 		PublicURL:    strings.TrimRight(strings.TrimSpace(get("ZLATAN_PUBLIC_URL")), "/"),
 		ContactEmail: strings.TrimSpace(get("ZLATAN_CONTACT_EMAIL")),
+		KioskURL:     strings.TrimRight(strings.TrimSpace(get("ZLATAN_KIOSK_URL")), "/"),
 		Nextcloud: Nextcloud{
 			URL:       get("ZLATAN_NEXTCLOUD_URL"),
 			PublicURL: get("ZLATAN_NEXTCLOUD_PUBLIC_URL"),

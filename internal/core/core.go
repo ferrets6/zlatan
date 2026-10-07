@@ -24,6 +24,14 @@ var ErrCredentialRefused = errors.New("the stored credential was refused")
 // restoring the key brings every connection back.
 var ErrCredentialUnreadable = errors.New("a stored credential could not be read")
 
+// ErrPartsOutOfRange means the declared number of Takeout files is not within
+// the accepted range.
+var ErrPartsOutOfRange = errors.New("the number of files is out of range")
+
+// ErrNotUploading means the Photos track is not waiting for an upload, so there
+// is no count to declare and nothing to start.
+var ErrNotUploading = errors.New("the Photos track is not waiting for an upload")
+
 // Secret is a string that must never be printed. Formatting one yields a
 // placeholder, so a stray log statement cannot leak a token (NFR-14).
 type Secret string
@@ -149,6 +157,16 @@ type Migration struct {
 	// limit, and both are 0 until the quota has been read.
 	GoogleOtherBytes int64
 	GoogleTotalBytes int64
+
+	// PhotosPartsExpected is how many archives the person said Google split
+	// their Takeout into, for the upload route. 0 until they say.
+	PhotosPartsExpected int
+
+	// AutoImport starts the import by itself once every declared part is on
+	// disk, for the upload route (files sent to the site or downloaded onto the
+	// NAS by the kiosk browser). False by default: without it the person starts
+	// the import with an explicit click.
+	AutoImport bool
 }
 
 // QuotaOverrun reports the projected Nextcloud usage and the budget when the

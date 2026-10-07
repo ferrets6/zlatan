@@ -90,6 +90,10 @@ type fakeRunner struct {
 	archiveReady bool
 	takeoutFits  bool
 	freeKnown    bool
+	partsPending bool
+	declared     int
+	autoSet      bool
+	parts        core.Parts
 }
 
 func (f *fakeRunner) StartDrive(_ context.Context, user string) error {
@@ -114,6 +118,44 @@ func (f *fakeRunner) StartPhotosImport(_ context.Context, user string) error {
 	}
 	f.started = append(f.started, "import:"+user)
 	return nil
+}
+
+// AutoImportIfEnabled / StartImportIfComplete start the import unless the test
+// says parts are still missing, which is the decision the real runner makes
+// from disk.
+func (f *fakeRunner) AutoImportIfEnabled(_ context.Context, user string) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	if f.partsPending {
+		return false, nil
+	}
+	f.started = append(f.started, "import:"+user)
+	return true, nil
+}
+
+func (f *fakeRunner) StartImportIfComplete(_ context.Context, user string) (bool, error) {
+	return f.AutoImportIfEnabled(context.Background(), user)
+}
+
+func (f *fakeRunner) SetAutoImport(_ context.Context, _ string, on bool) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.autoSet = on
+	return nil
+}
+
+func (f *fakeRunner) DeclarePhotosParts(_ context.Context, user string, parts int) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.declared = parts
+	return nil
+}
+
+func (f *fakeRunner) PhotosParts(_ string, _ int) (core.Parts, error) {
+	return f.parts, nil
 }
 
 func (f *fakeRunner) PhotosArchiveReady(_ context.Context, _ string) (bool, error) {

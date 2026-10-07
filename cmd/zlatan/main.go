@@ -198,6 +198,16 @@ func serve(ctx context.Context, a *app) int {
 		go engine.WatchTakeout(ctx)
 	}
 
+	// The upload sweeper starts the import for auto-import migrations whose
+	// parts have all arrived (site upload or kiosk download), even with the
+	// browser closed. It does nothing for migrations whose auto-import is off.
+	go engine.WatchUploads(ctx)
+
+	// The credential sweeper forgets the credentials of abandoned migrations on
+	// its own clock, so it keeps working even when the staging sweeper is
+	// disabled (retention 0).
+	go engine.WatchCredentials(ctx)
+
 	// The staging sweeper runs for the life of the process too. Staging is a
 	// disposable copy, but it is still the person's data on our disk, so it is
 	// removed on a clock rather than left behind forever.

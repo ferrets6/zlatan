@@ -282,6 +282,29 @@ func (c *Client) Poll(ctx context.Context, token string) (creds Credentials, don
 	}, true, nil
 }
 
+// RevokeAppPassword deletes the app password in Nextcloud, using the password
+// itself: the OCS endpoint removes the credential the request authenticates
+// with. A 401 means it is already gone, which is the outcome asked for.
+func (c *Client) RevokeAppPassword(ctx context.Context, creds Credentials) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.base+"/ocs/v2.php/core/apppassword", nil)
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth(creds.LoginName, creds.AppPassword)
+	req.Header.Set("OCS-APIRequest", "true")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("deleting the Nextcloud app password: %w", err)
+	}
+	defer drain(resp.Body)
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusUnauthorized {
+		return fmt.Errorf("deleting the Nextcloud app password: unexpected status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // Sealer is the part of core.Sealer this package needs.
 type Sealer interface {
 	Seal(plaintext []byte) ([]byte, error)

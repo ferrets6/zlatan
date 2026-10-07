@@ -69,6 +69,15 @@ func screens(lang i18n.Lang) map[string]page {
 	send := guide
 	send.Screen = "upload"
 	send.Photos.State = "awaiting_upload"
+	// The count is declared and one part of three is here, so the gallery shows
+	// the whole screen: the count form, the status line, the missing-parts line,
+	// the file picker and the kiosk link. Without Parts the template stops after
+	// the count form, and the parts/kiosk phrases are never rendered at all.
+	send.KioskURL = "https://kiosk.example.org"
+	send.Parts = core.Parts{Expected: 3, Have: 1, Missing: []int{2, 3}}
+	send.PartsStatus = i18n.T(lang, "parts.status",
+		i18n.Count(lang, 1), i18n.Files(lang, 3))
+	send.PartsMissing = i18n.T(lang, "parts.missing", "2, 3")
 
 	done := base
 	done.Screen = "done"
@@ -108,7 +117,7 @@ func TestEveryScreenRendersInEveryLanguage(t *testing.T) {
 
 			// A key that reached the page means a phrase is missing: T returns
 			// the key itself rather than blanking the line.
-			for _, key := range []string{"btn.", "pill.", "takeout.", "upload.", "wait.", "hint.", "immich."} {
+			for _, key := range []string{"btn.", "pill.", "takeout.", "upload.", "wait.", "hint.", "immich.", "parts.", "auto.", "kiosk."} {
 				if strings.Contains(html, ">"+key) {
 					t.Errorf("%s in %s renders a raw catalogue key starting %q", name, lang, key)
 				}

@@ -37,6 +37,9 @@ const (
 	ProgressImporting       = "progress.importing"
 	ProgressDriveVerified   = "progress.driveVerified"
 	ProgressPhotosDone      = "progress.photosDone"
+	// ProgressPhotosDoneDrive is done by the "Add to Drive" route, whose export
+	// is still in the person's Drive for them to delete.
+	ProgressPhotosDoneDrive = "progress.photosDoneDrive"
 )
 
 // The reconnect keys. They are reasons rather than progress, so they are also

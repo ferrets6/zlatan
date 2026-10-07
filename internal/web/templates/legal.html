@@ -46,7 +46,7 @@ changes, this changes, and so does legalUpdated in legal.go.
 		<p>L'uso che zlatan fa delle informazioni ricevute dalle API di Google rispetta la <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, compresi i requisiti di Limited Use.</p>
 
 		<h2>Per quanto tempo</h2>
-		<p>La copia di transito viene cancellata {{ .RetentionDays }} giorni dopo la fine della migrazione. Le credenziali restano finché non le scolleghi o non chiedi di rimuoverle, e la tua riga di migrazione finché non chiedi di cancellarla.{{ with .ContactEmail }} Scrivi a <a href="mailto:{{ . }}">{{ . }}</a> e sparisce.{{ end }}</p>
+		<p>La copia di transito viene cancellata {{ .RetentionDays }} giorni dopo la fine della migrazione. Ogni credenziale viene cancellata appena non serve più: la password di Nextcloud quando la copia del Drive è finita, la chiave di Immich quando l'importazione delle foto è finita, e il token di Google, revocato anche presso Google, quando sono finite entrambe. Se la migrazione resta ferma per {{ .RetentionDays }} giorni senza nulla in corso, vengono cancellate tutte. La chiave di Immich l'hai creata tu e resta nel tuo account Immich finché non la elimini. La tua riga di migrazione resta finché non chiedi di cancellarla.{{ with .ContactEmail }} Scrivi a <a href="mailto:{{ . }}">{{ . }}</a> e sparisce.{{ end }}</p>
 
 		<h2>Cosa puoi fare</h2>
 		<p>Puoi revocare il permesso a Google quando vuoi, da <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>: da quel momento zlatan non può più leggere il tuo Drive. Puoi chiedere che tutto quello che zlatan conserva su di te venga cancellato.</p>
@@ -76,7 +76,7 @@ changes, this changes, and so does legalUpdated in legal.go.
 		<p>zlatan's use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
 
 		<h2>How long it is kept</h2>
-		<p>The staging copy is deleted {{ .RetentionDays }} days after a migration finishes. Credentials are kept until you disconnect them or ask for them to be removed, and your migration record until you ask for it to be deleted.{{ with .ContactEmail }} Write to <a href="mailto:{{ . }}">{{ . }}</a> and it goes.{{ end }}</p>
+		<p>The staging copy is deleted {{ .RetentionDays }} days after a migration finishes. Each credential is deleted as soon as nothing needs it: the Nextcloud password when the Drive copy is done, the Immich key when the photo import is done, and the Google token, also revoked at Google, when both are. If the migration sits still for {{ .RetentionDays }} days with nothing running, all of them are deleted. The Immich key is one you created, and it stays in your Immich account until you delete it there. Your migration record is kept until you ask for it to be deleted.{{ with .ContactEmail }} Write to <a href="mailto:{{ . }}">{{ . }}</a> and it goes.{{ end }}</p>
 
 		<h2>What you can do</h2>
 		<p>You can withdraw Google's permission at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>, after which zlatan can no longer read your Drive. You can ask for everything zlatan holds about you to be deleted.</p>

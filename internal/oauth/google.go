@@ -12,6 +12,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/marcodellemarche/zlatan/internal/core"
@@ -117,6 +121,34 @@ var ErrUnauthorized = errors.New("Google refused the credential")
 func (p *Provider) Probe(ctx context.Context, refresh string) error {
 	_, err := p.Refresh(ctx, refresh)
 	return err
+}
+
+// revokeURL is Google's endpoint for withdrawing a grant. A variable so a test
+// can point it at a local server.
+var revokeURL = "https://oauth2.googleapis.com/revoke"
+
+// Revoke withdraws the grant behind a refresh token, so it disappears from the
+// person's Google account and the token stops working everywhere. Google
+// answers 400 invalid_token for a token that is already revoked or expired,
+// which is the outcome asked for.
+func (p *Provider) Revoke(ctx context.Context, refresh string) error {
+	form := url.Values{"token": {refresh}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, revokeURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("revoking the Google grant: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	if resp.StatusCode == http.StatusOK ||
+		(resp.StatusCode == http.StatusBadRequest && strings.Contains(string(body), "invalid_token")) {
+		return nil
+	}
+	return fmt.Errorf("revoking the Google grant: unexpected status %d", resp.StatusCode)
 }
 
 // isRefused reports whether an error from the token endpoint means the

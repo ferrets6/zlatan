@@ -194,7 +194,7 @@ in internal/i18n, through .T, already in their language.
 		<p class="fine">{{ with .Check .PhotosVerification }}{{ . }}{{ else }}{{ $.T "done.plain" }}{{ end }}</p>
 		{{- /* Zlatan only reads the Drive, so the export it collected from there
 		     stays in the person's Google storage until they delete it. */}}
-		{{ if .GoogleConnected }}<p class="fine">{{ .T "done.takeoutCleanup" .TakeoutFolder }}</p>{{ end }}
+		{{ if or .PhotosFromDrive .GoogleConnected }}<p class="fine">{{ .T "done.takeoutCleanup" .TakeoutFolder }}</p>{{ end }}
 		{{ with .ImmichURL }}
 		<div class="actions">
 			<a class="btn btn--primary" href="{{ . }}" data-app-scheme="immich://">{{ $.T "btn.openImmich" }}</a>
@@ -313,18 +313,68 @@ in internal/i18n, through .T, already in their language.
       data-sent="{{ .T "upload.sent" }}"
       data-failed="{{ .T "upload.failed" }}"
       data-mismatch="{{ .T "upload.mismatch" }}">
+	{{/* The count comes first and is required: nothing inside an archive says
+	     how many parts there are, so the import waits for the number the person
+	     reads on Google's page. */}}
+	<form method="post" action="/photos/parts">
+		<label class="field">
+			<span>{{ .T "parts.question" }}</span>
+			<input type="number" name="parts" min="1" max="99" inputmode="numeric" required
+			       value="{{ if .Parts.Expected }}{{ .Parts.Expected }}{{ end }}">
+		</label>
+		<p class="fine">{{ .T "parts.where" }}</p>
+		<div class="actions">
+			<button class="btn {{ if .Parts.Expected }}btn--quiet{{ else }}btn--primary{{ end }}" type="submit">{{ .T "btn.saveParts" }}</button>
+		</div>
+	</form>
+
+	{{/* Always visible and changeable, during an upload or a kiosk download:
+	     with JS a change saves without reloading (so it does not interrupt an
+	     upload); without JS the Save button posts it. */}}
+	<form method="post" action="/photos/auto" data-auto-form>
+		<label class="check">
+			<input type="checkbox" name="auto" value="1" data-auto-toggle {{ if .AutoImport }}checked{{ end }}>
+			<span>{{ .T "auto.label" }}</span>
+		</label>
+		<button class="btn btn--quiet" type="submit" data-auto-save>{{ .T "btn.saveParts" }}</button>
+	</form>
+	<p class="fine">{{ .T "parts.auto" }}</p>
+
+	{{ if .Parts.Expected }}
 	<div class="state" aria-live="polite">
 		{{ with .PhotosFacts }}<p class="facts">{{ . }}</p>{{ end }}
+		<p class="facts">{{ .PartsStatus }}</p>
+		{{ with .PartsMissing }}<p class="fine">{{ . }}</p>{{ end }}
+		{{ if .Parts.TooMany }}<p class="notice notice--reason" role="status">{{ .T "parts.tooMany" }}</p>{{ end }}
 		<p id="upload-progress" class="facts" hidden></p>
 	</div>
 
+	{{/* Every part is here: offer the explicit start, which runs whatever the
+	     auto-import setting is. */}}
+	{{ if .Parts.Complete }}
+	<div class="actions">
+		<form method="post" action="/photos/import/now">
+			<button class="btn btn--primary" type="submit">{{ .T "btn.importNow" }}</button>
+		</form>
+	</div>
+	{{ end }}
+
+	{{/* Route 1: send the zips from this browser. */}}
 	<label class="drop" for="upload-input" id="upload-drop" data-upload-when-js hidden>
 		<span>{{ .T "upload.drop" }}</span>
 		<span class="btn btn--ghost">{{ .T "btn.choose" }}</span>
 	</label>
-	<input id="upload-input" type="file" accept=".zip,application/zip">
+	<input id="upload-input" type="file" accept=".zip,application/zip" multiple>
+
+	{{/* Route 2: let the NAS download them, via the kiosk browser. The link text
+	     stands on its own, so a screen reader announces where it goes. */}}
+	{{ with .KioskURL }}
+	<p class="fine">{{ $.T "kiosk.or" }}</p>
+	<p><a class="btn btn--quiet" href="{{ . }}" target="_blank" rel="noopener">{{ $.T "kiosk.open" }}</a></p>
+	{{ end }}
 
 	<p class="fine" id="upload-nojs">{{ .T "upload.needsJs" }}</p>
 	<p class="fine" data-upload-when-js hidden>{{ .T "upload.keepOpen" }} {{ .T "upload.resumes" }}</p>
+	{{ end }}
 </main>
 {{ end }}

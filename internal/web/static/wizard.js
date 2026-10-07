@@ -346,24 +346,70 @@ function wireUpload() {
 			(text, [k, v]) => text.replaceAll(`{${k}}`, v),
 			root.dataset[key] ?? '');
 
-	const start = async (file) => {
-		if (!file) return;
+	// The parts of one export go one after the other: each is resumable on its
+	// own, and the server starts the import when the last declared part lands.
+	// Then the page is reloaded, because what it shows (which parts are here,
+	// or the import running) is the server's to say.
+	// Files are queued, so dropping more parts while one is still uploading adds
+	// them to the run instead of being silently discarded.
+	let busy = false;
+	const queue = [];
+	const start = async (files) => {
+		for (const f of files ?? []) queue.push(f);
+		// Before the parts count is declared, the upload UI (and #upload-progress)
+		// is not in the page yet: a drop then has nowhere to report, so ignore it.
+		if (!progress || busy || queue.length === 0) return;
+		busy = true;
 		progress.hidden = false;
-		progress.textContent = say('sending', { file: file.name });
+		let current = null;
 		try {
-			await upload(file, (percent) => {
-				progress.textContent = say('reading', { file: file.name, percent });
-			}, (sent, total) => {
-				progress.textContent = say('progress', { sent, total });
-			});
-			progress.textContent = say('sent');
-			poll();
+			while (queue.length) {
+				const file = queue.shift();
+				current = file;
+				progress.textContent = say('sending', { file: file.name });
+				await upload(file, (percent) => {
+					progress.textContent = say('reading', { file: file.name, percent });
+				}, (sent, total) => {
+					progress.textContent = `${file.name}: ${say('progress', { sent, total })}`;
+				});
+				progress.textContent = say('sent', { file: file.name });
+			}
+			location.reload();
 		} catch (err) {
-			progress.textContent = say(err?.status === 422 ? 'mismatch' : 'failed');
+			// Name the file that failed, so on retry the person knows the parts
+			// already sent are done.
+			progress.textContent = say(err?.status === 422 ? 'mismatch' : 'failed', { file: current ? current.name : '' });
+		} finally {
+			busy = false;
 		}
 	};
 
-	input?.addEventListener('change', () => start(input.files?.[0]));
+	input?.addEventListener('change', () => start(input.files));
+
+	// The auto-import checkbox saves on change without reloading, so toggling it
+	// never interrupts an upload in progress. The Save button is for no-JS only.
+	const autoForm = root.querySelector('[data-auto-form]');
+	const autoToggle = root.querySelector('[data-auto-toggle]');
+	if (autoForm && autoToggle) {
+		root.querySelector('[data-auto-save]')?.setAttribute('hidden', '');
+		autoToggle.addEventListener('change', () => {
+			const body = new URLSearchParams();
+			if (autoToggle.checked) body.set('auto', '1');
+			fetch(autoForm.action, {
+				method: 'POST',
+				credentials: 'same-origin',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: body.toString(),
+			}).then(() => {
+				// Only turning it ON can start the import at once (all parts
+				// already here): reload to show that. Turning it OFF changes
+				// nothing to show, and never reload while an upload is running —
+				// the reload would interrupt it, and no import can have started
+				// mid-upload anyway.
+				if (autoToggle.checked && !busy) location.reload();
+			}).catch(() => {});
+		});
+	}
 
 	// Drag and drop, with the zone lit only while a file is over it.
 	root.addEventListener('dragover', (e) => {
@@ -374,7 +420,7 @@ function wireUpload() {
 	root.addEventListener('drop', (e) => {
 		e.preventDefault();
 		dropzone?.classList.remove('drop--over');
-		start(e.dataTransfer?.files?.[0]);
+		start(e.dataTransfer?.files);
 	});
 }
 
