@@ -126,3 +126,29 @@ func TestStatusCarriesPartsWhileAwaitingUpload(t *testing.T) {
 		t.Errorf("parts should only be carried while awaiting upload: %s", rec.Body.String())
 	}
 }
+
+// Someone moving both halves: Google and Nextcloud connected, so the Drive copy
+// is ready (selecting), and the photos are to be sent by hand. The upload screen
+// must offer the parts form and still let them start the Drive copy.
+func TestUploadScreenKeepsDriveStartable(t *testing.T) {
+	store := newFakeTokenStore()
+	store.tokens["marco/google"] = core.Token{User: "marco", Provider: "google", Sealed: []byte("x")}
+	store.tokens["marco/nextcloud"] = core.Token{User: "marco", Provider: "nextcloud", Sealed: []byte("x")}
+	store.tokens["marco/immich"] = core.Token{User: "marco", Provider: "immich", Sealed: []byte("x")}
+	opts := oauthOptions(&fakeGoogle{}, store)
+	opts.Runner = &fakeRunner{}
+	opts.State.(*fakeState).migrations["marco"] = core.Migration{
+		User: "marco", DriveState: core.DriveSelecting, PhotosState: core.PhotosAwaitingUpload,
+	}
+	handler := Routes(opts)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, request("GET", "/", "marco"))
+	body := rec.Body.String()
+	if !strings.Contains(body, `action="/photos/parts"`) {
+		t.Error("the upload panel is missing")
+	}
+	if !strings.Contains(body, `data-track="drive"`) || !strings.Contains(body, `action="/drive/start"`) {
+		t.Error("the Drive copy must stay startable from the upload screen")
+	}
+}

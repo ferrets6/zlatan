@@ -69,6 +69,10 @@ func screens(lang i18n.Lang) map[string]page {
 	send := guide
 	send.Screen = "upload"
 	send.Photos.State = "awaiting_upload"
+	// Both halves: the Drive copy is ready to start, and its card stays under
+	// the panel so it can be.
+	send.NextcloudConnected = true
+	send.Drive.State = "selecting"
 	// The count is declared and one part of three is here, so the gallery shows
 	// the whole screen: the count form, the status line, the missing-parts line,
 	// the file picker and the kiosk link. Without Parts the template stops after

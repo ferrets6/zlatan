@@ -47,6 +47,9 @@ in internal/i18n, through .T, already in their language.
 
 {{ if eq .Screen "upload" }}
 	{{ template "upload" . }}
+	{{/* Drive stays on this screen: someone moving both halves must be able to
+	     start, follow or retry the copy while the photos are still on their way. */}}
+	{{ template "drive" . }}
 {{ else }}
 	<div class="prose">
 		<h1>{{ if eq .Screen "done" }}{{ .T "done.title" }}{{ else }}{{ .T "page.title" }}{{ end }}</h1>

@@ -9,6 +9,7 @@ const POLL_MS = 5000;
 
 // True while the upload panel is sending files. A reload would cut the upload
 // short, so nothing reloads meanwhile; the upload reloads itself when it ends.
+// Read by render() below, set by start() inside wireUpload().
 let busy = false;
 
 function render(state) {
@@ -48,8 +49,10 @@ function render(state) {
 		if (!card) continue;
 
 		// A different state means a different screen: the server decides what
-		// that looks like, so ask it rather than guessing here.
-		if (card.dataset.state && card.dataset.state !== track.State) {
+		// that looks like, so ask it rather than guessing here. Not mid-upload:
+		// the Drive card shares the upload screen, and its state changing must
+		// not cut the upload short.
+		if (!busy && card.dataset.state && card.dataset.state !== track.State) {
 			location.reload();
 			return;
 		}
