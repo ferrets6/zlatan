@@ -39,7 +39,7 @@
 	<p class="fine">Download every file of the export from Google, then add them here.</p>
 </div>
 
-<main class="panel" id="upload"
+<main class="panel" id="upload" data-state="awaiting_upload"
       data-reading="Reading {file}: {percent}%"
       data-sending="Sending {file}"
       data-progress="{sent} of {total} pieces"
@@ -72,8 +72,8 @@
 	
 	<div class="state" aria-live="polite">
 		
-		<p class="facts">1 of 3 files here.</p>
-		<p class="fine">Still to send: parts 2, 3.</p>
+		<p class="facts" id="parts-status">1 of 3 files here.</p>
+		<p class="fine" id="parts-missing">Still to send: parts 2, 3.</p>
 		
 		<p id="upload-progress" class="facts" hidden></p>
 	</div>
@@ -98,6 +98,37 @@
 	<p class="fine" data-upload-when-js hidden>Keep this tab open while it sends. If it stops, it continues from the last piece.</p>
 	
 </main>
+
+	
+	
+<section class="track" data-track="drive" data-state="selecting" aria-labelledby="drive-h">
+	<div class="track__head">
+		<div class="track__titles">
+			<h2 id="drive-h">Files and folders</h2>
+			<span class="pill pill--idle">Not started</span>
+		</div>
+		<p class="track__route">Google Drive → nextcloud.example.org</p>
+	</div>
+
+	
+
+	<div class="state" aria-live="polite">
+		
+		
+		
+	</div>
+
+	
+
+	
+		<div class="actions">
+			<form method="post" action="/drive/start">
+				<button class="btn btn--primary" type="submit">Start the copy</button>
+			</form>
+		</div>
+		<p class="fine">Not copied: files others shared with you, shared drives, and Google Forms, Sites and My Maps, which Google does not export.</p>
+	
+</section>
 
 
 

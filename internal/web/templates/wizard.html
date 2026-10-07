@@ -47,6 +47,9 @@ in internal/i18n, through .T, already in their language.
 
 {{ if eq .Screen "upload" }}
 	{{ template "upload" . }}
+	{{/* Drive stays on this screen: someone moving both halves must be able to
+	     start, follow or retry the copy while the photos are still on their way. */}}
+	{{ template "drive" . }}
 {{ else }}
 	<div class="prose">
 		<h1>{{ if eq .Screen "done" }}{{ .T "done.title" }}{{ else }}{{ .T "page.title" }}{{ end }}</h1>
@@ -306,7 +309,7 @@ in internal/i18n, through .T, already in their language.
 	<p class="fine">{{ .T "upload.how" }}</p>
 </div>
 
-<main class="panel" id="upload"
+<main class="panel" id="upload" data-state="{{ .Photos.State }}"
       data-reading="{{ .T "upload.reading" }}"
       data-sending="{{ .T "upload.sending" }}"
       data-progress="{{ .T "upload.progress" }}"
@@ -343,8 +346,8 @@ in internal/i18n, through .T, already in their language.
 	{{ if .Parts.Expected }}
 	<div class="state" aria-live="polite">
 		{{ with .PhotosFacts }}<p class="facts">{{ . }}</p>{{ end }}
-		<p class="facts">{{ .PartsStatus }}</p>
-		{{ with .PartsMissing }}<p class="fine">{{ . }}</p>{{ end }}
+		<p class="facts" id="parts-status">{{ .PartsStatus }}</p>
+		<p class="fine" id="parts-missing"{{ if not .PartsMissing }} hidden{{ end }}>{{ .PartsMissing }}</p>
 		{{ if .Parts.TooMany }}<p class="notice notice--reason" role="status">{{ .T "parts.tooMany" }}</p>{{ end }}
 		<p id="upload-progress" class="facts" hidden></p>
 	</div>
@@ -353,7 +356,7 @@ in internal/i18n, through .T, already in their language.
 	     auto-import setting is. */}}
 	{{ if .Parts.Complete }}
 	<div class="actions">
-		<form method="post" action="/photos/import/now">
+		<form method="post" action="/photos/import/now" data-import-now>
 			<button class="btn btn--primary" type="submit">{{ .T "btn.importNow" }}</button>
 		</form>
 	</div>

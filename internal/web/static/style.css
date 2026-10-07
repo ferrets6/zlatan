@@ -548,6 +548,9 @@ code, .mono {
 
 @media (min-width: 40rem) { .panel { padding: 1.5rem; } }
 
+/* The Drive card under the upload panel lines up with it. */
+.panel + .track { max-width: 44rem; }
+
 .wait {
 	display: flex;
 	align-items: center;

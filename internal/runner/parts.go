@@ -43,6 +43,11 @@ func (r *Runner) DeclarePhotosParts(ctx context.Context, user string, parts int)
 		return core.ErrPartsOutOfRange
 	}
 	m, err := r.store.GetMigration(ctx, user)
+	if errors.Is(err, store.ErrNoMigration) {
+		// No row yet means the person is not on the upload screen: the same
+		// "not waiting for an upload" the state check reports, not a server fault.
+		return core.ErrNotUploading
+	}
 	if err != nil {
 		return err
 	}

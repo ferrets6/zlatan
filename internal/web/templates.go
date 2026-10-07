@@ -137,12 +137,22 @@ func googleSpacePhotos(lang i18n.Lang, m core.Migration) string {
 // screenFor picks which of the design's screens the wizard renders. One page
 // is always the truth; this decides which one.
 //
-// A failure anywhere wins, because the stopped screen shows both tracks and
-// says the other one is fine. A finished pair wins next. After that, an active
-// Drive track keeps the two-track view: the person asked for files too, and
-// hiding that behind a Photos guide would lose it. Only when Drive is not
-// running does the Photos half get its own single-track screen.
+// A Photos track waiting for files gets the upload screen whatever Drive is
+// doing: the upload panel is the only place the files can be sent from, and no
+// track card offers it. That screen keeps the Drive card under the panel, so
+// Drive stays visible and startable there; deciding it from the Drive state
+// cannot work, because the OAuth callback leaves Drive in selecting whichever
+// half connected Google.
+//
+// Otherwise a failure anywhere wins, because the stopped screen shows both
+// tracks and says the other one is fine. A finished pair wins next. After that,
+// an active Drive track keeps the two-track view: the person asked for files
+// too, and hiding that behind a Photos guide would lose it. Only when Drive is
+// not running does the Photos half get its own single-track screen.
 func screenFor(m core.Migration) string {
+	if m.PhotosState == core.PhotosAwaitingUpload {
+		return "upload"
+	}
 	if m.DriveState == core.DriveFailed || m.PhotosState == core.PhotosFailed {
 		return "error"
 	}
@@ -155,8 +165,6 @@ func screenFor(m core.Migration) string {
 	switch m.PhotosState {
 	case core.PhotosTakeoutGuide:
 		return "takeout"
-	case core.PhotosAwaitingUpload:
-		return "upload"
 	case core.PhotosAwaitingTakeout, core.PhotosDownloading, core.PhotosImporting, core.PhotosVerifying:
 		return "waiting"
 	}

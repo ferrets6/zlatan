@@ -39,7 +39,7 @@
 	<p class="fine">Scarica da Google tutti i file dell&#39;esportazione, poi aggiungili qui.</p>
 </div>
 
-<main class="panel" id="upload"
+<main class="panel" id="upload" data-state="awaiting_upload"
       data-reading="Lettura di {file}: {percent}%"
       data-sending="Invio di {file}"
       data-progress="{sent} pezzi su {total}"
@@ -72,8 +72,8 @@
 	
 	<div class="state" aria-live="polite">
 		
-		<p class="facts">Arrivati 1 su 3 file.</p>
-		<p class="fine">Ancora da mandare: le parti 2, 3.</p>
+		<p class="facts" id="parts-status">Arrivati 1 su 3 file.</p>
+		<p class="fine" id="parts-missing">Ancora da mandare: le parti 2, 3.</p>
 		
 		<p id="upload-progress" class="facts" hidden></p>
 	</div>
@@ -98,6 +98,37 @@
 	<p class="fine" data-upload-when-js hidden>Tieni aperta questa scheda mentre carica. Se si ferma, riprende dall&#39;ultimo pezzo.</p>
 	
 </main>
+
+	
+	
+<section class="track" data-track="drive" data-state="selecting" aria-labelledby="drive-h">
+	<div class="track__head">
+		<div class="track__titles">
+			<h2 id="drive-h">File e cartelle</h2>
+			<span class="pill pill--idle">Non iniziato</span>
+		</div>
+		<p class="track__route">Google Drive → nextcloud.example.org</p>
+	</div>
+
+	
+
+	<div class="state" aria-live="polite">
+		
+		
+		
+	</div>
+
+	
+
+	
+		<div class="actions">
+			<form method="post" action="/drive/start">
+				<button class="btn btn--primary" type="submit">Avvia la copia</button>
+			</form>
+		</div>
+		<p class="fine">Non vengono copiati: i file che altri hanno condiviso con te, i Drive condivisi, e Moduli, Sites e My Maps di Google, che Google non esporta.</p>
+	
+</section>
 
 
 

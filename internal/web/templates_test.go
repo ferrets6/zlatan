@@ -39,6 +39,14 @@ func TestScreenFor(t *testing.T) {
 		{"photos guide alone", core.DriveNotStarted, core.PhotosTakeoutGuide, "takeout"},
 		{"photos awaiting takeout alone", core.DriveNotStarted, core.PhotosAwaitingTakeout, "waiting"},
 		{"photos awaiting upload alone", core.DriveNotStarted, core.PhotosAwaitingUpload, "upload"},
+		// The upload panel is the only way to send the files, so awaiting upload
+		// gets it whatever Drive is doing; the screen keeps the Drive card.
+		// Connecting Google (needed for Photos too) leaves Drive in selecting.
+		{"google connected, photos awaiting upload", core.DriveSelecting, core.PhotosAwaitingUpload, "upload"},
+		{"drive copying, photos awaiting upload", core.DriveCopying, core.PhotosAwaitingUpload, "upload"},
+		{"drive failed, photos awaiting upload", core.DriveFailed, core.PhotosAwaitingUpload, "upload"},
+		{"google connected, nothing started", core.DriveSelecting, core.PhotosNotStarted, "tracks"},
+		{"drive ready keeps both tracks", core.DriveSelecting, core.PhotosTakeoutGuide, "tracks"},
 		{"photos importing alone", core.DriveNotStarted, core.PhotosImporting, "waiting"},
 		{"photos verifying alone", core.DriveNotStarted, core.PhotosVerifying, "waiting"},
 		{"drive done while photos import", core.DriveDone, core.PhotosImporting, "waiting"},
