@@ -11,7 +11,7 @@ func TestEveryStoredKeyHasAPhrase(t *testing.T) {
 		core.ProgressPreparing, core.ProgressCopying, core.ProgressChecking, core.ProgressInterrupted,
 		core.ProgressNextcloudReady, core.ProgressGoogleReady, core.ProgressConsentPending,
 		core.ProgressAwaitingUpload, core.ProgressAwaitingTakeout, core.ProgressDownloading,
-		core.ProgressImporting, core.ProgressDriveVerified, core.ProgressPhotosDone, core.ProgressPhotosDoneDrive,
+		core.ProgressImporting, core.ProgressDriveVerified, core.ProgressPhotosDone, core.ProgressPhotosDoneDrive, core.ProgressPhotosDoneAccepted,
 		core.ReconnectGoogleCopy, core.ReconnectNextcloudCopy, core.ReconnectBothCopy,
 		core.ReconnectGoogleExport, core.ReconnectImmichImport, core.ReconnectImmichExport,
 		core.FailNextcloudMissing, core.FailCopyPrepare, core.FailCopyUnfinished, core.FailCopyUnchecked,

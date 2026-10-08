@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -39,11 +40,11 @@ func (db *DB) GetMigration(ctx context.Context, user string) (core.Migration, er
 		       last_error, created_at, updated_at,
 		       drive_source_bytes, quota_used_bytes, quota_total_bytes,
 		       google_other_bytes, google_total_bytes, photos_parts_expected,
-		       auto_import
+		       auto_import, photos_finished_at
 		FROM migrations WHERE user = ?`
 
 	var m core.Migration
-	var createdAt, updatedAt string
+	var createdAt, updatedAt, photosFinishedAt string
 	var autoImport int
 	err := db.R.QueryRowContext(ctx, q, user).Scan(
 		&m.User, &m.Email, &m.DriveState, &m.PhotosState,
@@ -52,7 +53,7 @@ func (db *DB) GetMigration(ctx context.Context, user string) (core.Migration, er
 		&m.LastError, &createdAt, &updatedAt,
 		&m.DriveSourceBytes, &m.QuotaUsedBytes, &m.QuotaTotalBytes,
 		&m.GoogleOtherBytes, &m.GoogleTotalBytes, &m.PhotosPartsExpected,
-		&autoImport,
+		&autoImport, &photosFinishedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.Migration{}, ErrNoMigration
@@ -63,6 +64,7 @@ func (db *DB) GetMigration(ctx context.Context, user string) (core.Migration, er
 	m.CreatedAt = parseTime(createdAt)
 	m.UpdatedAt = parseTime(updatedAt)
 	m.AutoImport = autoImport != 0
+	m.PhotosFinishedAt = parseTime(photosFinishedAt)
 	return m, nil
 }
 
@@ -95,21 +97,11 @@ func (db *DB) EnsureMigration(ctx context.Context, user, email string) (core.Mig
 // returns the updated row so the caller never has to re-read to render.
 func (db *DB) SetDriveState(ctx context.Context, user string, state core.DriveState, progress string) (core.Migration, error) {
 	if err := db.Tx(ctx, func(tx *sql.Tx) error {
-		// finished_at is stamped here, in the same statement, when the *other*
-		// track is already terminal and this move makes it so. CASE keeps the
-		// first stamp: a later write must not reset the retention window.
 		_, err := tx.ExecContext(ctx, `
 			UPDATE migrations
-			SET drive_state = ?, drive_progress = ?, updated_at = ?,
-			    finished_at = CASE
-			        WHEN finished_at = '' AND photos_state IN (?, ?, ?)
-			             AND ? IN (?, ?, ?)
-			        THEN ? ELSE finished_at END
+			SET drive_state = ?, drive_progress = ?, updated_at = ?
 			WHERE user = ?`,
-			string(state), progress, now(),
-			string(core.PhotosDone), string(core.PhotosFailed), string(core.PhotosCancelled),
-			string(state), string(core.DriveDone), string(core.DriveFailed), string(core.DriveCancelled),
-			now(), user)
+			string(state), progress, now(), user)
 		return err
 	}); err != nil {
 		return core.Migration{}, fmt.Errorf("set drive state for %s: %w", user, err)
@@ -128,18 +120,20 @@ func (db *DB) SetPhotosState(ctx context.Context, user string, state core.Photos
 		waitSince = now()
 	}
 	if err := db.Tx(ctx, func(tx *sql.Tx) error {
-		// finished_at is stamped when this move makes both tracks terminal and
-		// it was not already stamped. See SetDriveState.
+		// photos_finished_at starts the staging retention: stamped when Photos
+		// reaches done, failed or cancelled, kept by a later terminal write (the
+		// window runs from when the work ended), cleared when Photos runs again,
+		// so a retry that fails later gets a fresh window rather than an old
+		// one that purges its archives at once.
 		_, err := tx.ExecContext(ctx, `
 			UPDATE migrations
 			SET photos_state = ?, photos_progress = ?, updated_at = ?, photos_wait_since = ?,
-			    finished_at = CASE
-			        WHEN finished_at = '' AND drive_state IN (?, ?, ?)
-			             AND ? IN (?, ?, ?)
-			        THEN ? ELSE finished_at END
+			    photos_finished_at = CASE
+			        WHEN ? NOT IN (?, ?, ?) THEN ''
+			        WHEN photos_finished_at = '' THEN ?
+			        ELSE photos_finished_at END
 			WHERE user = ?`,
 			string(state), progress, now(), waitSince,
-			string(core.DriveDone), string(core.DriveFailed), string(core.DriveCancelled),
 			string(state), string(core.PhotosDone), string(core.PhotosFailed), string(core.PhotosCancelled),
 			now(), user)
 		return err
@@ -361,25 +355,27 @@ func (db *DB) ListAwaitingTakeout(ctx context.Context) ([]core.TakeoutWait, erro
 	return waits, rows.Err()
 }
 
-// FinishedMigration is one person whose both tracks have ended, and when.
-// FinishedAt is zero for a row that ended before the column existed; the
-// sweeper treats that as "stamp it now", so an upgrade does not purge
-// immediately nor hold the files forever.
+// FinishedMigration is one person whose Photos half has ended, and when.
+// FinishedAt is zero for a row the stamp has not reached (one that ended
+// before the column existed, or whose Photos ended while only both tracks
+// ending stamped it); the sweeper treats that as "stamp it now", so an upgrade
+// does not purge immediately nor hold the files forever.
 type FinishedMigration struct {
 	User       string
 	FinishedAt time.Time
 }
 
-// ListFinished returns the users whose both tracks have reached a terminal
-// state (done, failed or cancelled). The staging sweeper works from this: a
-// person still mid-migration must keep their files, whatever a timer says.
+// ListFinished returns the users whose Photos half has reached a terminal
+// state (done, failed or cancelled). The staging sweeper works from this.
+// Staging holds only Photos archives, so the Drive half does not matter: a
+// Photos-only person's Drive never ends, and waiting for it kept their files
+// forever. A failed track is in too: its archives stay for a retry through
+// the retention window, then go rather than staying for good.
 func (db *DB) ListFinished(ctx context.Context) ([]FinishedMigration, error) {
 	const q = `
-		SELECT user, finished_at FROM migrations
-		WHERE drive_state IN (?, ?, ?)
-		  AND photos_state IN (?, ?, ?)`
+		SELECT user, photos_finished_at FROM migrations
+		WHERE photos_state IN (?, ?, ?)`
 	rows, err := db.R.QueryContext(ctx, q,
-		string(core.DriveDone), string(core.DriveFailed), string(core.DriveCancelled),
 		string(core.PhotosDone), string(core.PhotosFailed), string(core.PhotosCancelled))
 	if err != nil {
 		return nil, fmt.Errorf("list finished migrations: %w", err)
@@ -399,14 +395,14 @@ func (db *DB) ListFinished(ctx context.Context) ([]FinishedMigration, error) {
 	return out, rows.Err()
 }
 
-// StampFinished records that a migration has ended, if it has not been stamped
-// already. COALESCE keeps the first stamp: the retention window is measured
-// from when the work ended, and a later state write must not reset it.
+// StampFinished records that a Photos half has ended, if it has not been
+// stamped already. CASE keeps the first stamp: the retention window is
+// measured from when the work ended, and a later write must not reset it.
 func (db *DB) StampFinished(ctx context.Context, user string) error {
 	return db.Tx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 			UPDATE migrations
-			SET finished_at = CASE WHEN finished_at = '' THEN ? ELSE finished_at END
+			SET photos_finished_at = CASE WHEN photos_finished_at = '' THEN ? ELSE photos_finished_at END
 			WHERE user = ?`, now(), user)
 		return err
 	})
@@ -513,11 +509,19 @@ func (db *DB) PutVerification(ctx context.Context, v core.Verify) error {
 	if v.User == "" {
 		return errors.New("a verification must name the user it belongs to")
 	}
+	problems := ""
+	if len(v.Problems) > 0 {
+		b, err := json.Marshal(v.Problems)
+		if err != nil {
+			return fmt.Errorf("encode problems: %w", err)
+		}
+		problems = string(b)
+	}
 	return db.Tx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
-			INSERT INTO verifications (user, track, checked, matched, mismatch, detail, checked_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			v.User, string(v.Track), v.Checked, v.Matched, v.Mismatch, v.Detail, now())
+			INSERT INTO verifications (user, track, checked, matched, mismatch, detail, problems, checked_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			v.User, string(v.Track), v.Checked, v.Matched, v.Mismatch, v.Detail, problems, now())
 		return err
 	})
 }
@@ -525,12 +529,12 @@ func (db *DB) PutVerification(ctx context.Context, v core.Verify) error {
 // LatestVerification returns the most recent check for a person and track, so
 // the closing page can show what was compared.
 func (db *DB) LatestVerification(ctx context.Context, user string, track core.Track) (core.Verify, error) {
-	const q = `SELECT user, track, checked, matched, mismatch, detail, checked_at
+	const q = `SELECT user, track, checked, matched, mismatch, detail, problems, checked_at
 	           FROM verifications WHERE user = ? AND track = ? ORDER BY checked_at DESC LIMIT 1`
 	var v core.Verify
-	var storedUser, storedTrack, checkedAt string
+	var storedUser, storedTrack, problems, checkedAt string
 	err := db.R.QueryRowContext(ctx, q, user, string(track)).Scan(
-		&storedUser, &storedTrack, &v.Checked, &v.Matched, &v.Mismatch, &v.Detail, &checkedAt)
+		&storedUser, &storedTrack, &v.Checked, &v.Matched, &v.Mismatch, &v.Detail, &problems, &checkedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.Verify{}, ErrNoVerification
 	}
@@ -540,6 +544,11 @@ func (db *DB) LatestVerification(ctx context.Context, user string, track core.Tr
 	v.User = storedUser
 	v.Track = core.Track(storedTrack)
 	v.CheckedAt = parseTime(checkedAt)
+	// The list is a detail on top of the counts: one that will not decode is
+	// dropped rather than hiding the verification it belongs to.
+	if problems != "" {
+		_ = json.Unmarshal([]byte(problems), &v.Problems)
+	}
 	return v, nil
 }
 

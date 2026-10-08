@@ -68,6 +68,7 @@ type Store interface {
 	DeleteToken(ctx context.Context, user, provider string) error
 	ListAwaitingTakeout(ctx context.Context) ([]core.TakeoutWait, error)
 	PutVerification(ctx context.Context, v core.Verify) error
+	LatestVerification(ctx context.Context, user string, track core.Track) (core.Verify, error)
 	ListFinished(ctx context.Context) ([]store.FinishedMigration, error)
 	StampFinished(ctx context.Context, user string) error
 	SetQuotaEstimate(ctx context.Context, user string, driveSource, used, total int64) error
@@ -779,16 +780,99 @@ func (r *Runner) BeginPhotosUpload(ctx context.Context, user string) error {
 	if _, err := r.ImmichKey(ctx, user); err != nil {
 		return fmt.Errorf("%w: connect Immich before uploading", err)
 	}
-	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosAwaitingUpload,
-		core.EncodeProgress(core.Progress{Key: core.ProgressAwaitingUpload})); err != nil {
-		return err
-	}
-	return nil
+	return r.setPhotosUnlessRunning(ctx, user, core.PhotosAwaitingUpload,
+		core.EncodeProgress(core.Progress{Key: core.ProgressAwaitingUpload}))
 }
 
-// StartPhotosImport queues the import of an already-uploaded Takeout. The
-// upload itself is handled elsewhere; this is the immich-go step.
+// StartPhotosImport is "retry the import" on a stopped Photos track: it imports
+// again everything in staging, claiming the track as launchFromWizard says.
 func (r *Runner) StartPhotosImport(ctx context.Context, user string) error {
+	var fromDrive bool
+	return r.launchFromWizard(ctx, user, func(m core.Migration) error {
+		if m.PhotosState != core.PhotosFailed {
+			return core.ErrPhotosNotStopped
+		}
+		// Carried on from the run being retried, so the closing message still
+		// says to delete an "Add to Drive" export from Drive.
+		fromDrive = core.DecodeProgress(m.PhotosProgress).FromDrive()
+		return nil
+	}, func(ctx context.Context) {
+		r.acquire()
+		defer r.release()
+		r.runPhotosImportHeld(ctx, user, fromDrive)
+	})
+}
+
+// launchFromWizard is how a button on a stopped Photos card starts a run:
+// check runs on the migration under the claim lock, before anything else, so
+// a click from a stale tab on a track that has moved on is refused before the
+// preflight can send it to the reconnect screen; then the import is launched
+// (key, preflight), and check runs again under the lock with the move to
+// importing in the same step. That claim is made when the button is pressed,
+// not when the heavy slot frees up hours later: until then the track shows
+// importing, which keeps a second click, the card's other buttons and the
+// staging sweeper off it. check may set what run then uses.
+func (r *Runner) launchFromWizard(ctx context.Context, user string, check func(core.Migration) error, run func(context.Context)) error {
+	if err := r.withMigration(ctx, user, check); err != nil {
+		return err
+	}
+	err := r.launchPhotosImport(ctx, user, func() (func(context.Context), error) {
+		err := r.withMigration(ctx, user, func(m core.Migration) error {
+			if err := check(m); err != nil {
+				return err
+			}
+			_, err := r.store.SetPhotosState(ctx, user, core.PhotosImporting,
+				core.EncodeProgress(core.Progress{Key: core.ProgressImporting}))
+			return err
+		})
+		return run, err
+	})
+	if errors.Is(err, store.ErrNoToken) {
+		// The key is gone (the idle sweep forgets it on a stopped track): the
+		// way forward is connecting Immich again, so show that rather than a
+		// button that seems to do nothing.
+		r.reconnectPhotos(ctx, user, core.ReconnectImmichImport)
+	}
+	return err
+}
+
+// withMigration runs fn on the person's migration under the claim lock, so
+// what fn reads and writes cannot interleave with another claim.
+func (r *Runner) withMigration(ctx context.Context, user string, fn func(core.Migration) error) error {
+	r.claim.Lock()
+	defer r.claim.Unlock()
+	m, err := r.store.GetMigration(ctx, user)
+	if err != nil {
+		return err
+	}
+	return fn(m)
+}
+
+// photosRunning reports whether a Photos run holds the track: one that is
+// importing, downloading or verifying, or claimed and queued for the slot.
+func photosRunning(s core.PhotosState) bool {
+	return s == core.PhotosImporting || s == core.PhotosDownloading || s == core.PhotosVerifying
+}
+
+// setPhotosUnlessRunning moves Photos to state, under the claim lock, unless a
+// run holds it: a stale tab's "send the files" or "ask Google" must not pull
+// a queued import out from under itself.
+func (r *Runner) setPhotosUnlessRunning(ctx context.Context, user string, state core.PhotosState, progress string) error {
+	return r.withMigration(ctx, user, func(m core.Migration) error {
+		if photosRunning(m.PhotosState) {
+			return core.ErrPhotosNotStopped
+		}
+		_, err := r.store.SetPhotosState(ctx, user, state, progress)
+		return err
+	})
+}
+
+// launchPhotosImport checks the Immich key, then claims the track and queues
+// the run claim returns. A nil claim queues the full import, for a caller that
+// already holds the track, as the upload route does. The upload itself is
+// handled elsewhere; this is the immich-go step, and every way into it (the
+// upload route, "retry the import", "retry only these") goes through here.
+func (r *Runner) launchPhotosImport(ctx context.Context, user string, claim func() (func(context.Context), error)) error {
 	if !r.cfg.Immich.Configured() {
 		return errors.New("Immich is not configured")
 	}
@@ -803,7 +887,13 @@ func (r *Runner) StartPhotosImport(ctx context.Context, user string) error {
 		r.reconnectPhotos(ctx, user, core.ReconnectImmichImport)
 		return err
 	}
-	go r.runPhotosImport(context.WithoutCancel(ctx), user)
+	run := func(ctx context.Context) { r.runPhotosImport(ctx, user) }
+	if claim != nil {
+		if run, err = claim(); err != nil {
+			return err
+		}
+	}
+	go run(context.WithoutCancel(ctx))
 	return nil
 }
 
@@ -860,11 +950,8 @@ func (r *Runner) StartPhotosTakeout(ctx context.Context, user string) error {
 		r.reconnectPhotos(ctx, user, core.ReconnectGoogleExport)
 		return err
 	}
-	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosAwaitingTakeout,
-		core.EncodeProgress(core.Progress{Key: core.ProgressAwaitingTakeout})); err != nil {
-		return err
-	}
-	return nil
+	return r.setPhotosUnlessRunning(ctx, user, core.PhotosAwaitingTakeout,
+		core.EncodeProgress(core.Progress{Key: core.ProgressAwaitingTakeout}))
 }
 
 // WatchTakeout polls for Takeout folders that have appeared in the Drive of
@@ -1189,12 +1276,27 @@ func (r *Runner) runPhotosImportHeld(ctx context.Context, user string, fromDrive
 		return
 	}
 
-	args := []string{
-		"upload", "from-google-photos",
-		"--server", r.cfg.Immich.URL,
-		"--manage-burst", "Stack",
-		"--sync-albums",
-		"--people-tag=false",
+	logFile := immichLogFile(staging)
+	r.log.Info("photos import started", "user", user, "archives", len(archives), "log", logFile)
+	r.importWithImmichGo(ctx, user, creds, "from-google-photos",
+		[]string{"--manage-burst", "Stack", "--sync-albums", "--people-tag=false"},
+		archives, photosRun{fromDrive: fromDrive, logFile: logFile})
+}
+
+// immichLogFile is where a run's immich-go log goes: beside the archives, so
+// it survives a restart (its default is the container's cache, which does
+// not) and is purged with them. One file per run, named by its start.
+func immichLogFile(staging string) string {
+	return filepath.Join(staging, "immich-go-"+time.Now().UTC().Format("20060102T150405Z")+".log")
+}
+
+// importWithImmichGo runs "immich-go upload <source>" on paths and records the
+// outcome. The full import and the retry of the files it left out share it,
+// so they judge done and failed the same way.
+func (r *Runner) importWithImmichGo(ctx context.Context, user string, creds immich.Credentials,
+	source string, sourceArgs, paths []string, run photosRun) {
+	args := append([]string{"upload", source, "--server", r.cfg.Immich.URL}, sourceArgs...)
+	args = append(args,
 		"--on-errors", "continue",
 		"--no-ui",
 		// Pausing Immich's background jobs needs an admin key, and every person
@@ -1202,8 +1304,11 @@ func (r *Runner) runPhotosImportHeld(ctx context.Context, user string, fromDrive
 		// their own account. Left on, immich-go exits 403 before importing a
 		// single asset. Pausing is an optimisation, not a requirement.
 		"--pause-immich-jobs=FALSE",
-	}
-	args = append(args, archives...)
+		// Its own log names every file and what happened to it, which the
+		// report's counts do not.
+		"--log-file", run.logFile,
+	)
+	args = append(args, paths...)
 
 	// The end-of-run report is captured, not just streamed: it is where
 	// immich-go says how many assets it processed, discarded and failed on, and
@@ -1234,33 +1339,81 @@ func (r *Runner) runPhotosImportHeld(ctx context.Context, user string, fromDrive
 		// not "did not finish": saying so is false, and it hides the fact that
 		// the library is now in Immich. Report what actually happened, and let
 		// the retry button (which is safe: duplicates are skipped) finish the
-		// rest.
-		if report.processed > 0 {
-			r.finishPhotosImport(ctx, user, report, fromDrive)
+		// rest. Any count means the report was reached, errors and pending
+		// included: a retry of a few files that all fail again must still say
+		// which, not "did not finish".
+		if report.reached() {
+			r.finishPhotosImport(ctx, user, report, run)
+			return
+		}
+		if run.retry != nil {
+			r.restoreLeftOut(ctx, user, run.retry.settle)
 			return
 		}
 		r.failPhotos(ctx, user, core.Progress{Key: core.FailImportUnfinished})
 		return
 	}
 
-	r.finishPhotosImport(ctx, user, report, fromDrive)
+	r.finishPhotosImport(ctx, user, report, run)
+}
+
+// photosRun is what finishPhotosImport needs to know about the run besides
+// its report.
+type photosRun struct {
+	// fromDrive: the archive came from the person's Drive, where it still takes
+	// up their Google storage, so the closing message says to delete it.
+	fromDrive bool
+	// logFile is immich-go's own log, read for the files behind the counts.
+	logFile string
+	// retry is set when only the files a previous run left out were sent.
+	retry *retryRun
+}
+
+// retryDetail starts what a retry adds to the verification's detail.
+const retryDetail = "; the retry of the"
+
+// retryRun is what a retry of the files left out builds on: the settle it
+// started from, whose prev.Problems[i] the retry folder holds as "<i>/<name>"
+// (see originOf) and whose counts the retry's outcome is folded into, so the
+// record still describes the library and not the handful sent again.
+type retryRun struct {
+	settle
+	// missing are the files that could not be found in the archives to send:
+	// still left out, whatever the retry does.
+	missing []core.Problem
 }
 
 // finishPhotosImport records the outcome of a run that reached its report. It
 // is the single place that decides done from failed, so a clean exit and a
 // non-zero one that still did the work cannot report differently.
-func (r *Runner) finishPhotosImport(ctx context.Context, user string, report immichReport, fromDrive bool) {
+func (r *Runner) finishPhotosImport(ctx context.Context, user string, report immichReport, run photosRun) {
 	processed, discarded, errs, pending := report.processed, report.discarded, report.errors, report.pending
+	r.log.Info("photos import finished", "user", user, "retry", run.retry != nil,
+		"processed", processed, "discarded", discarded, "errors", errs, "pending", pending, "log", run.logFile)
 	// A run that processed nothing, discarded nothing and failed on nothing did
 	// not import: it found no assets at all. Reporting that as done would claim
 	// a migration that never happened, so it is a failure with a plain reason.
-	if processed == 0 && discarded == 0 && errs == 0 && pending == 0 {
+	// Not for a retry: there the files it was given are still left out, and
+	// the fold below keeps them named.
+	if !report.reached() && run.retry == nil {
 		r.failPhotos(ctx, user, core.Progress{Key: core.FailArchiveEmpty})
 		r.log.Warn("runPhotosImport: nothing to import", "user", user)
 		return
 	}
 	if processed > 0 {
-		if err := r.store.SetPhotosAssets(ctx, user, int64(processed)); err != nil {
+		assets, err := int64(processed), error(nil)
+		if run.retry != nil {
+			// On top of what the import it retries added. Unreadable, the count
+			// is left as it was: a retry's handful must not replace the library.
+			var m core.Migration
+			if m, err = r.store.GetMigration(ctx, user); err == nil {
+				assets += m.PhotosAssetsAdded
+			}
+		}
+		if err == nil {
+			err = r.store.SetPhotosAssets(ctx, user, assets)
+		}
+		if err != nil {
 			r.log.Error("runPhotosImport: set assets", "user", user, "error", err)
 		}
 	}
@@ -1273,11 +1426,46 @@ func (r *Runner) finishPhotosImport(ctx context.Context, user string, report imm
 		Detail: fmt.Sprintf("immich-go processed %d assets, discarded %d as duplicates, %d errors, %d pending",
 			processed, discarded, errs, pending),
 	}
+	// The counts say how many; the log says which and why. Read it only when
+	// something is wrong: a clean run has nothing to name.
+	if errs > 0 || pending > 0 {
+		v.Problems = r.readImmichProblems(user, run.logFile)
+	}
+	if run.retry != nil {
+		// Folded into the import it retries: the files the retry names are
+		// mapped back to their place in the archives, the ones it could not
+		// find stay left out, and the counts stay the library's.
+		prev := run.retry.prev
+		for i := range v.Problems {
+			v.Problems[i].File = originOf(v.Problems[i].File, prev.Problems)
+		}
+		sent := sentOf(prev.Problems, run.retry.missing)
+		if !report.reached() {
+			// immich-go recognised none of the files sent: all still left out,
+			// named with the reasons the import gave. Otherwise the names are
+			// the log's; if it names fewer than the counts, the card says the
+			// rest are in the log rather than guess which of the sent ones.
+			v.Problems, pending = sent, len(sent)
+		} else if seen := processed + discarded + errs + pending; seen < len(sent) {
+			// Some files sent got no outcome at all (folder mode skipped them
+			// without a word): still left out, not done.
+			pending += len(sent) - seen
+		}
+		v.Problems = append(v.Problems, run.retry.missing...)
+		pending += len(run.retry.missing)
+		v.Checked, v.Mismatch = prev.Checked, errs+pending
+		v.Matched = prev.Checked - v.Mismatch
+		// From the import's own detail, not a previous retry's: each retry
+		// says what it did, once, instead of chaining every one before it.
+		base, _, _ := strings.Cut(prev.Detail, retryDetail)
+		v.Detail = base + fmt.Sprintf(retryDetail+" %d files left out: processed %d, discarded %d as duplicates, %d errors, %d pending, %d not found in the archives",
+			len(prev.Problems), processed, discarded, errs, pending-len(run.retry.missing), len(run.retry.missing))
+	}
 	if err := r.store.PutVerification(ctx, v); err != nil {
 		r.log.Error("runPhotosImport: store verification", "user", user, "error", err)
 	}
 	if errs > 0 || pending > 0 {
-		r.failPhotos(ctx, user, core.Progress{Key: core.FailImportErrors, Args: []int64{int64(errs), int64(pending)}})
+		r.failPhotos(ctx, user, core.ImportErrors(errs, pending, run.fromDrive))
 		return
 	}
 
@@ -1285,15 +1473,23 @@ func (r *Runner) finishPhotosImport(ctx context.Context, user string, report imm
 	// remind the person to delete the export from their Drive after the Google
 	// token has been forgotten.
 	doneKey := core.ProgressPhotosDone
-	if fromDrive {
+	if run.fromDrive {
 		doneKey = core.ProgressPhotosDoneDrive
 	}
 	if _, err := r.store.SetPhotosState(ctx, user, core.PhotosDone, core.EncodeProgress(core.Progress{Key: doneKey})); err != nil {
 		r.log.Error("runPhotosImport: set done", "user", user, "error", err)
 	}
+	r.photosFinished(ctx, user, "The import finished. "+v.Detail+".", run.fromDrive)
+}
+
+// photosFinished does what every Photos done does once the state is written,
+// however it got there (an import, or the person accepting what it left out):
+// releases the credentials no track needs any more, and tells the person,
+// with lead first and the reminders after.
+func (r *Runner) photosFinished(ctx context.Context, user, lead string, fromDrive bool) {
 	// Detached: see runDrive — the revoke calls must not hold the heavy slot.
 	go r.releaseFinished(context.WithoutCancel(ctx), user)
-	body := "The import finished. " + v.Detail + "."
+	body := lead
 	if fromDrive {
 		body += "\n\nThe export is still in the folder \"" + r.takeoutFolder() + "\" in your Google Drive, taking up your Google storage: delete it there."
 	}
@@ -1303,6 +1499,26 @@ func (r *Runner) finishPhotosImport(ctx context.Context, user string, report imm
 		Body:  body,
 		Tags:  []string{"white_check_mark"},
 	})
+}
+
+// readImmichProblems names the files behind a failed import's counts, from
+// immich-go's log. Best effort: an unreadable log leaves the counts, which
+// already fail the track, and says so in the service log.
+func (r *Runner) readImmichProblems(user, logFile string) []core.Problem {
+	f, err := os.Open(logFile)
+	if err != nil {
+		r.log.Error("photos import: open the immich-go log", "user", user, "log", logFile, "error", err)
+		return nil
+	}
+	defer f.Close()
+	problems, err := immichProblems(f)
+	if err != nil {
+		r.log.Error("photos import: read the immich-go log", "user", user, "log", logFile, "error", err)
+	}
+	for _, p := range problems {
+		r.log.Warn("photos import: not imported", "user", user, "file", p.File, "pending", p.Pending, "reason", p.Reason)
+	}
+	return problems
 }
 
 // validateArchives refuses a staging archive set that is not a real Takeout.

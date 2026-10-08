@@ -157,6 +157,7 @@ func (f *fakeStore) GetMigration(_ context.Context, user string) (core.Migration
 	defer f.mu.Unlock()
 	m := f.migration
 	m.User = user
+	m.PhotosFinishedAt = f.finishedAt
 	return m, nil
 }
 
@@ -225,6 +226,15 @@ func (f *fakeStore) PutVerification(_ context.Context, v core.Verify) error {
 	defer f.mu.Unlock()
 	f.verification = v
 	return nil
+}
+
+func (f *fakeStore) LatestVerification(_ context.Context, _ string, _ core.Track) (core.Verify, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.verification.Checked == 0 {
+		return core.Verify{}, store.ErrNoVerification
+	}
+	return f.verification, nil
 }
 
 func (f *fakeStore) SetQuotaEstimate(_ context.Context, _ string, driveSource, used, total int64) error {
@@ -841,6 +851,49 @@ func TestRunPhotosImportEndsOnDone(t *testing.T) {
 	}
 }
 
+// A run that leaves an asset pending fails, and the verification names the
+// file from immich-go's own log, which is kept beside the archives. The counts
+// alone said "1 pending" and nothing about which file.
+func TestRunPhotosImportNamesWhatItDidNotImport(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{lines: []string{
+		"Asset Tracking Report:",
+		"  Processed:        12  (1.2 GiB)",
+		"  Discarded:         0  (0 B)",
+		"  Errors:            0  (0 B)",
+		"  Pending:           1  (7.3 MB)",
+	}}
+	var logFile string
+	exec.onRun = func(args []string) {
+		logFile = args[slices.Index(args, "--log-file")+1]
+		log := "2026-10-08 16:20:07 INF discovered video file=takeout-1:Takeout/Foto da 2023/a(1).MP4\n" +
+			"2026-10-08 16:20:34 WRN missing metadata file=takeout-1:Takeout/Foto da 2023/a(1).MP4\n"
+		if err := os.WriteFile(logFile, []byte(log), 0o600); err != nil {
+			t.Error(err)
+		}
+	}
+	r := newRunner(t, store, exec)
+	seedImmich(t, store, sealerOf(t, r))
+	staging := filepath.Join(r.cfg.StagingDir, core.SafeName("marco"))
+	writeTakeout(t, staging)
+
+	r.runPhotosImport(context.Background(), "marco")
+
+	if got := store.state().PhotosState; got != core.PhotosFailed {
+		t.Fatalf("photos state = %q, want failed", got)
+	}
+	if filepath.Dir(logFile) != staging {
+		t.Errorf("immich-go log = %q, want it beside the archives in %q", logFile, staging)
+	}
+	want := []core.Problem{{File: "takeout-1:Takeout/Foto da 2023/a(1).MP4", Pending: true, Reason: "missing metadata"}}
+	store.mu.Lock()
+	got := store.verification.Problems
+	store.mu.Unlock()
+	if !slices.Equal(got, want) {
+		t.Errorf("problems = %+v, want %+v", got, want)
+	}
+}
+
 // An archive that holds no photos is refused before immich-go runs: the
 // placeholder Google writes first is a valid zip, and importing it would mark
 // the migration done having copied nothing.
@@ -1304,11 +1357,76 @@ func TestPurgeStagingRemovesOnlyExpiredFinishedMigrations(t *testing.T) {
 	}
 
 	// Finished two hours ago: past the one-hour retention.
+	store.migration.PhotosState = core.PhotosDone
 	store.finishedAt = time.Now().Add(-2 * time.Hour)
 	r.purgeStaging(context.Background())
 
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Errorf("staging should have been purged, stat err = %v", err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(r.cfg.StagingDir, ".purge-*")); len(left) != 0 {
+		t.Errorf("the directory moved aside should be gone too, found %v", left)
+	}
+}
+
+// Right before removing, the window is read again under the claim lock: a
+// track a retry ran and ended again since has a fresh stamp and keeps its
+// files, and so does one running again or one whose state cannot be read.
+func TestStillExpiredRereadsTheWindow(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+	r.cfg.StagingRetention = time.Hour
+
+	store.migration.PhotosState = core.PhotosFailed
+	store.finishedAt = time.Now().Add(-2 * time.Hour)
+	if !r.stillExpired(ctx, "marco") {
+		t.Error("an ended track past the window should be expired")
+	}
+	store.finishedAt = time.Now() // ended again just now
+	if r.stillExpired(ctx, "marco") {
+		t.Error("a fresh window must keep the files")
+	}
+	store.finishedAt = time.Now().Add(-2 * time.Hour)
+	store.migration.PhotosState = core.PhotosImporting
+	if r.stillExpired(ctx, "marco") {
+		t.Error("a track running again must keep the files")
+	}
+}
+
+// A directory a purge moved aside and did not finish removing (a restart) is
+// removed on the next pass: nothing else ever looks at it.
+func TestPurgeStagingRemovesLeftoversMovedAside(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+	r.cfg.StagingRetention = time.Hour
+	leftover := filepath.Join(r.cfg.StagingDir, ".purge-old-1")
+	if err := os.MkdirAll(leftover, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	r.purgeStaging(context.Background())
+	if _, err := os.Stat(leftover); !os.IsNotExist(err) {
+		t.Errorf("a leftover moved aside should be removed, stat err = %v", err)
+	}
+}
+
+// A track listed as ended but claimed by a retry since (it shows importing
+// now) keeps its archives: the state is checked again right before removing.
+func TestPurgeStagingSparesATrackRunningAgain(t *testing.T) {
+	store := newFakeStore()
+	r := newRunner(t, store, &fakeExecutor{})
+	r.cfg.StagingRetention = time.Hour
+
+	dir := filepath.Join(r.cfg.StagingDir, core.SafeName("marco"))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	store.migration.PhotosState = core.PhotosImporting
+	store.finishedAt = time.Now().Add(-2 * time.Hour)
+	r.purgeStaging(context.Background())
+
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("a running track's staging must stay, stat err = %v", err)
 	}
 }
 
@@ -1436,6 +1554,8 @@ func TestRunPhotosImportFailsWithoutAPersonalKey(t *testing.T) {
 
 func TestStartPhotosImportRequiresThePersonalKey(t *testing.T) {
 	store := newFakeStore()
+	// "Retry the import" is on a stopped track: the only place it is offered.
+	store.migration.PhotosState = core.PhotosFailed
 	r := newRunner(t, store, &fakeExecutor{})
 
 	if err := r.StartPhotosImport(context.Background(), "marco"); err == nil {
@@ -1792,6 +1912,8 @@ func TestRunPhotosImportRoutesARevokedKeyToReconnect(t *testing.T) {
 // A key without a permission is alive: it must not be thrown away.
 func TestStartPhotosImportKeepsAKeyMissingAPermission(t *testing.T) {
 	store := newFakeStore()
+	// "Retry the import" is on a stopped track: the only place it is offered.
+	store.migration.PhotosState = core.PhotosFailed
 	r := newRunner(t, store, &fakeExecutor{})
 	seedImmich(t, store, sealerOf(t, r))
 	r = r.WithImmich(&fakeImmich{err: fmt.Errorf("validate: %w", immich.ErrForbidden)})
@@ -1867,6 +1989,8 @@ func TestRunDriveDoesNotClearACredentialOnATransientFailure(t *testing.T) {
 // the reconnect state.
 func TestStartPhotosImportClearsADeadImmichKey(t *testing.T) {
 	store := newFakeStore()
+	// "Retry the import" is on a stopped track: the only place it is offered.
+	store.migration.PhotosState = core.PhotosFailed
 	r := newRunner(t, store, &fakeExecutor{})
 	seedImmich(t, store, sealerOf(t, r))
 	r = r.WithImmich(&fakeImmich{err: fmt.Errorf("validate: %w", immich.ErrUnauthorized)})
@@ -1885,6 +2009,8 @@ func TestStartPhotosImportClearsADeadImmichKey(t *testing.T) {
 // A transient Immich failure must not block the import the person asked for.
 func TestStartPhotosImportProceedsOnATransientImmichFailure(t *testing.T) {
 	store := newFakeStore()
+	// "Retry the import" is on a stopped track: the only place it is offered.
+	store.migration.PhotosState = core.PhotosFailed
 	r := newRunner(t, store, &fakeExecutor{})
 	seedImmich(t, store, sealerOf(t, r))
 	r = r.WithImmich(&fakeImmich{err: errors.New("dial tcp: connection refused")})

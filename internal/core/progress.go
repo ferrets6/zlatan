@@ -40,6 +40,9 @@ const (
 	// ProgressPhotosDoneDrive is done by the "Add to Drive" route, whose export
 	// is still in the person's Drive for them to delete.
 	ProgressPhotosDoneDrive = "progress.photosDoneDrive"
+	// ProgressPhotosDoneAccepted is done by the person's choice: the import
+	// left some files out and they accepted it as it is.
+	ProgressPhotosDoneAccepted = "progress.photosDoneAccepted"
 )
 
 // The reconnect keys. They are reasons rather than progress, so they are also
@@ -75,6 +78,41 @@ const (
 	FailImportErrors      = "why.importErrors"
 	FailCredentialUnread  = "why.credentialUnreadable"
 )
+
+// ImportErrors is the reason an import that left files out stops on: how many
+// errors and pending files, and, as a third argument, whether the archive came
+// from the person's Drive (see FromDrive).
+func ImportErrors(errs, pending int, fromDrive bool) Progress {
+	return Progress{Key: FailImportErrors, Args: []int64{int64(errs), int64(pending), flag(fromDrive)}}
+}
+
+// PhotosDoneAccepted is the done an acceptance of files left out leaves. Its
+// one argument carries the Drive route on from the failure it settles.
+func PhotosDoneAccepted(fromDrive bool) Progress {
+	return Progress{Key: ProgressPhotosDoneAccepted, Args: []int64{flag(fromDrive)}}
+}
+
+// FromDrive reports whether a Photos progress says its archive came from the
+// person's Drive, where the export still takes up their Google storage. It is
+// the one reader of the flag ImportErrors and PhotosDoneAccepted write.
+func (p Progress) FromDrive() bool {
+	switch p.Key {
+	case ProgressPhotosDoneDrive:
+		return true
+	case FailImportErrors:
+		return len(p.Args) > 2 && p.Args[2] == 1
+	case ProgressPhotosDoneAccepted:
+		return len(p.Args) > 0 && p.Args[0] == 1
+	}
+	return false
+}
+
+func flag(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
 
 // EncodeProgress renders a progress for storage. A key with no arguments is
 // stored as the key itself; arguments make it JSON.

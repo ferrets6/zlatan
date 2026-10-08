@@ -46,10 +46,17 @@ in internal/i18n, through .T, already in their language.
 	</header>
 
 {{ if eq .Screen "upload" }}
-	{{ template "upload" . }}
-	{{/* Drive stays on this screen: someone moving both halves must be able to
-	     start, follow or retry the copy while the photos are still on their way. */}}
-	{{ template "drive" . }}
+	<div class="prose">
+		<h1>{{ .T "upload.title" }}</h1>
+		<p class="fine">{{ .T "upload.how" }}</p>
+	</div>
+	{{/* Drive stays on this screen, beside the panel: someone moving both halves
+	     must be able to start, follow or retry the copy while the photos are
+	     still on their way. */}}
+	<div class="upload-layout">
+		{{ template "upload" . }}
+		{{ template "drive" . }}
+	</div>
 {{ else }}
 	<div class="prose">
 		<h1>{{ if eq .Screen "done" }}{{ .T "done.title" }}{{ else }}{{ .T "page.title" }}{{ end }}</h1>
@@ -172,7 +179,48 @@ in internal/i18n, through .T, already in their language.
 
 	{{ if .Photos.Failed }}
 		{{ with .LastError }}<p class="notice notice--reason" role="status">{{ $.Why . }}</p>{{ end }}
-		{{ if .CanStartPhotos }}
+		{{ with .PhotosLeftOut }}
+		{{/* The import left these files out: name each, and offer to send only
+		     them again or to accept the result, besides retrying everything. */}}
+		{{ if .Items }}
+		<ul class="problems">
+			{{ range .Items }}
+			<li class="problem">
+				<p class="problem__name">{{ .Name }}</p>
+				<p class="fine mono">{{ .Where }}</p>
+				<p class="fine">{{ .Reason }}</p>
+				{{ with .SearchURL }}<a class="fine" href="{{ . }}" target="_blank" rel="noopener">{{ $.T "problem.search" }}</a>{{ end }}
+			</li>
+			{{ end }}
+		</ul>
+		{{ if .More }}<p class="fine">{{ $.T "problem.more" }}</p>{{ end }}
+		{{ else }}
+		<p class="fine">{{ $.T "problem.unnamed" }}</p>
+		{{ end }}
+		{{ if $.CanStartPhotos }}
+		<div class="actions">
+			{{/* "Retry only these" only for a list that is exactly what was left
+			     out: retrying part of it and calling it done would drop the rest.
+			     With the archives purged, retrying means a new export. */}}
+			{{ if $.PhotosArchiveReady }}
+			{{ if .CanRetry }}
+			<form method="post" action="/photos/import/problems">
+				<button class="btn btn--primary" type="submit">{{ $.T "btn.retryProblems" }}</button>
+			</form>
+			{{ end }}
+			<form method="post" action="/photos/import/start">
+				<button class="btn btn--quiet" type="submit">{{ $.T "btn.retryImport" }}</button>
+			</form>
+			{{ else }}
+			{{ template "restart" $ }}
+			{{ end }}
+			<form method="post" action="/photos/accept">
+				<button class="btn btn--quiet" type="submit">{{ $.T "btn.acceptPhotos" }}</button>
+			</form>
+		</div>
+		{{ if and $.PhotosArchiveReady .CanRetry }}<p class="fine">{{ $.T "problem.choices" }}</p>{{ end }}
+		{{ end }}
+		{{ else }}{{ if .CanStartPhotos }}
 		<div class="actions">
 			{{/* The archive is already here: retrying means importing it, not
 			     asking Google for a second export. */}}
@@ -181,12 +229,10 @@ in internal/i18n, through .T, already in their language.
 				<button class="btn btn--primary" type="submit">{{ .T "btn.retryImport" }}</button>
 			</form>
 			{{ else }}
-			<form method="post" action="/photos/takeout/start">
-				<button class="btn btn--primary" type="submit">{{ .T "btn.retry" }}</button>
-			</form>
+			{{ template "restart" . }}
 			{{ end }}
 		</div>
-		{{ end }}
+		{{ end }}{{ end }}
 		{{ with .LastError }}
 		<details class="why">
 			<summary>{{ $.T "btn.details" }}</summary>
@@ -279,6 +325,21 @@ in internal/i18n, through .T, already in their language.
 </section>
 {{ end }}
 
+{{/* ------------------------ starting Photos over, the archives being gone */ -}}
+{{- /* The archives are purged once a stopped Photos half has sat for the
+     retention: starting over means getting them again, by either route.
+     Trimmed, so this block adds nothing to the page around it. */ -}}
+{{- define "restart" }}
+<form method="post" action="/photos/takeout/start">
+	<button class="btn btn--primary" type="submit">{{ .T "btn.retry" }}</button>
+</form>
+{{ if .CanUpload }}
+<form method="post" action="/photos/upload/start">
+	<button class="btn btn--quiet" type="submit">{{ .T "btn.upload" }}</button>
+</form>
+{{ end }}
+{{ end -}}
+
 {{/* ------------------------------- what to do at Google, inside step 3 */}}
 {{ define "guide" }}
 <ol class="substeps">
@@ -304,11 +365,6 @@ in internal/i18n, through .T, already in their language.
 
 {{/* ------------------------------------------------------------ file sender */}}
 {{ define "upload" }}
-<div class="prose">
-	<h1>{{ .T "upload.title" }}</h1>
-	<p class="fine">{{ .T "upload.how" }}</p>
-</div>
-
 <main class="panel" id="upload" data-state="{{ .Photos.State }}"
       data-reading="{{ .T "upload.reading" }}"
       data-sending="{{ .T "upload.sending" }}"
@@ -331,18 +387,6 @@ in internal/i18n, through .T, already in their language.
 		</div>
 	</form>
 
-	{{/* Always visible and changeable, during an upload or a kiosk download:
-	     with JS a change saves without reloading (so it does not interrupt an
-	     upload); without JS the Save button posts it. */}}
-	<form method="post" action="/photos/auto" data-auto-form>
-		<label class="check">
-			<input type="checkbox" name="auto" value="1" data-auto-toggle {{ if .AutoImport }}checked{{ end }}>
-			<span>{{ .T "auto.label" }}</span>
-		</label>
-		<button class="btn btn--quiet" type="submit" data-auto-save>{{ .T "btn.saveParts" }}</button>
-	</form>
-	<p class="fine">{{ .T "parts.auto" }}</p>
-
 	{{ if .Parts.Expected }}
 	<div class="state" aria-live="polite">
 		{{ with .PhotosFacts }}<p class="facts">{{ . }}</p>{{ end }}
@@ -362,22 +406,43 @@ in internal/i18n, through .T, already in their language.
 	</div>
 	{{ end }}
 
-	{{/* Route 1: send the zips from this browser. */}}
-	<label class="drop" for="upload-input" id="upload-drop" data-upload-when-js hidden>
-		<span>{{ .T "upload.drop" }}</span>
-		<span class="btn btn--ghost">{{ .T "btn.choose" }}</span>
-	</label>
-	<input id="upload-input" type="file" accept=".zip,application/zip" multiple>
+	{{/* The two routes, offered the same way: a title, one line, one button.
+	     Both land the files in the same place and can be mixed. */}}
+	<h2 class="routes__title">{{ .T "upload.choose" }}</h2>
+	<div class="routes">
+		{{/* Route 1: send the zips from this browser. The whole panel takes a
+		     drop; this box lights up while a file is over it. */}}
+		<div class="route" id="upload-drop">
+			<h3>{{ .T "upload.pcTitle" }}</h3>
+			<div class="route__body" data-upload-when-js hidden>
+				<p class="fine">{{ .T "upload.pcHow" }} {{ .T "upload.keepOpen" }}</p>
+				<label class="btn btn--primary" for="upload-input">{{ .T "btn.choose" }}</label>
+				<input id="upload-input" type="file" accept=".zip,application/zip" multiple>
+			</div>
+			<p class="fine" id="upload-nojs">{{ .T "upload.needsJs" }}</p>
+		</div>
 
-	{{/* Route 2: let the NAS download them, via the kiosk browser. The link text
-	     stands on its own, so a screen reader announces where it goes. */}}
-	{{ with .KioskURL }}
-	<p class="fine">{{ $.T "kiosk.or" }}</p>
-	<p><a class="btn btn--quiet" href="{{ . }}" target="_blank" rel="noopener">{{ $.T "kiosk.open" }}</a></p>
+		{{/* Route 2: let the NAS download them, via the kiosk browser. */}}
+		{{ with .KioskURL }}
+		<div class="route">
+			<h3>{{ $.T "kiosk.title" }}</h3>
+			<p class="fine">{{ $.T "kiosk.how" }}</p>
+			<a class="btn btn--primary" href="{{ . }}" target="_blank" rel="noopener">{{ $.T "kiosk.open" }}</a>
+		</div>
+		{{ end }}
+	</div>
 	{{ end }}
 
-	<p class="fine" id="upload-nojs">{{ .T "upload.needsJs" }}</p>
-	<p class="fine" data-upload-when-js hidden>{{ .T "upload.keepOpen" }} {{ .T "upload.resumes" }}</p>
-	{{ end }}
+	{{/* Always visible and changeable, during an upload or a kiosk download:
+	     with JS a change saves without reloading (so it does not interrupt an
+	     upload); without JS the Save button posts it. */}}
+	<form method="post" action="/photos/auto" data-auto-form>
+		<label class="check">
+			<input type="checkbox" name="auto" value="1" data-auto-toggle {{ if .AutoImport }}checked{{ end }}>
+			<span>{{ .T "auto.label" }}</span>
+		</label>
+		<button class="btn btn--quiet" type="submit" data-auto-save>{{ .T "btn.saveParts" }}</button>
+	</form>
+	<p class="fine">{{ .T "parts.auto" }}</p>
 </main>
 {{ end }}

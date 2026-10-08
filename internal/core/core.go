@@ -32,6 +32,19 @@ var ErrPartsOutOfRange = errors.New("the number of files is out of range")
 // is no count to declare and nothing to start.
 var ErrNotUploading = errors.New("the Photos track is not waiting for an upload")
 
+// ErrNoProblemsToSettle means the Photos track did not stop on files an import
+// left out, so there is nothing to retry one by one or to accept as it is.
+var ErrNoProblemsToSettle = errors.New("the Photos track did not stop on files left out")
+
+// ErrProblemsIncomplete means Photos stopped on files left out, but the files
+// named are not all of them (see Verify.CanRetryProblems), so they cannot be
+// retried one by one.
+var ErrProblemsIncomplete = errors.New("the files left out are not all named, or none can be found")
+
+// ErrPhotosNotStopped means a retry of the whole import was asked for while
+// the Photos track is not stopped: already running, queued, or done.
+var ErrPhotosNotStopped = errors.New("the Photos track is not stopped")
+
 // Secret is a string that must never be printed. Formatting one yields a
 // placeholder, so a stray log statement cannot leak a token (NFR-14).
 type Secret string
@@ -140,6 +153,11 @@ type Migration struct {
 	UpdatedAt time.Time
 	CreatedAt time.Time
 
+	// PhotosFinishedAt is when Photos last reached done, failed or cancelled,
+	// and zero while it runs or before the stamp reached the row. The staging
+	// retention is measured from it.
+	PhotosFinishedAt time.Time
+
 	// QuotaEstimate is what Zlatan learned before the copy started: how big the
 	// person's Drive is and how full their Nextcloud already was. It is shown
 	// as a warning, never used to block. DriveSourceBytes is 0 until the size
@@ -241,17 +259,69 @@ type TakeoutWait struct {
 
 // Verify is the outcome of comparing a migrated sample against its source.
 type Verify struct {
-	User      string
-	Track     Track
-	Checked   int
-	Matched   int
-	Mismatch  int
-	Detail    string
+	User     string
+	Track    Track
+	Checked  int
+	Matched  int
+	Mismatch int
+	Detail   string
+	// Problems names each item behind Mismatch and why, so a failed import
+	// says which file to look at instead of only how many. Capped at
+	// MaxProblems; the full record is the tool's own log.
+	Problems  []Problem
 	CheckedAt time.Time
 }
 
 // OK reports whether the verification found nothing wrong.
 func (v Verify) OK() bool { return v.Checked > 0 && v.Mismatch == 0 }
+
+// Problem is one item an import did not bring over. Pending means the tool
+// found it but never decided its outcome: no upload, no discard, no error.
+// Reason is the tool's own words (for a pending item, the last step it
+// logged for the file), shown as it is.
+type Problem struct {
+	File    string `json:"file"`
+	Pending bool   `json:"pending,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+	// Missing: a retry looked for it in the archives and did not find it, so
+	// it cannot be sent again from here.
+	Missing bool `json:"missing,omitempty"`
+}
+
+// ProblemsComplete reports whether the problems named are exactly what the
+// check left out. The names come from the tool's log and the count from its
+// report: only when they agree can a retry of the names stand for a retry of
+// all of it. They part when the list was cut at MaxProblems, or when the log
+// named a file the report did not count, or missed one it did.
+func (v Verify) ProblemsComplete() bool { return len(v.Problems) == v.Mismatch }
+
+// CanRetryProblems reports whether a retry of the files named can stand for a
+// retry of all that was left out: the list is complete, and at least one file
+// on it can still be found in the archives. The wizard offers the button, and
+// the runner accepts it, on this one rule.
+func (v Verify) CanRetryProblems() bool {
+	if len(v.Problems) == 0 || !v.ProblemsComplete() {
+		return false
+	}
+	for _, p := range v.Problems {
+		if !p.Missing {
+			return true
+		}
+	}
+	return false
+}
+
+// LeftOut reports whether Photos stopped on an import that left files out: the
+// one state where they can be retried one by one or accepted as they are. It
+// reads the Photos progress, not last_error, which the Drive half shares, so
+// the wizard and the runner agree on it.
+func (m Migration) LeftOut() bool {
+	return m.PhotosState == PhotosFailed && DecodeProgress(m.PhotosProgress).Key == FailImportErrors
+}
+
+// MaxProblems caps how many problems a verification keeps. A run that fails
+// on thousands of files has a cause that the first hundred already show.
+const MaxProblems = 100
 
 // RedactURL removes the userinfo from a URL, for logging. A URL with an
 // embedded credential must never reach a log line. It parses rather than

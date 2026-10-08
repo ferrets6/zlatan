@@ -101,10 +101,27 @@ func screens(lang i18n.Lang) map[string]page {
 	stopped.DriveFacts = i18n.Files(lang, 12480)
 	stopped.LastError = core.EncodeProgress(core.Progress{Key: core.FailMismatch, Args: []int64{3}})
 
+	// Photos stopped on an import that left a file out: the file named, with
+	// where it is, why, a search in Immich, and the three ways forward.
+	photosStopped := base
+	photosStopped.Screen = "error"
+	photosStopped.Drive = trackView{Track: core.TrackDrive, State: "not_started", Pill: i18n.T(lang, "pill.idle"), PillClass: "pill--idle"}
+	photosStopped.Photos = trackView{Track: core.TrackPhotos, State: "failed", Pill: i18n.T(lang, "pill.stopped"), PillClass: "pill--stopped", Failed: true}
+	photosStopped.PhotosFacts = i18n.Photos(lang, 11383)
+	photosStopped.PhotosArchiveReady = true
+	photosStopped.LastError = core.EncodeProgress(core.Progress{Key: core.FailImportErrors, Args: []int64{0, 1, 0}})
+	photosStopped.PhotosVerification = &core.Verify{Checked: 11384, Matched: 11383, Mismatch: 1, Problems: []core.Problem{
+		{File: "takeout-20261006T092310Z-1-002:Takeout/Google Foto/Foto da 2023/20230304_112321(1).MP4", Pending: true, Reason: "missing metadata"},
+	}}
+	photosStopped.PhotosLeftOut = leftOut(lang,
+		core.Migration{PhotosState: core.PhotosFailed, PhotosProgress: photosStopped.LastError},
+		photosStopped.PhotosVerification, photosStopped.ImmichURL)
+
 	return map[string]page{
 		"01-entry": entry, "02-tracks": tracks, "03-takeout": guide,
 		"03b-takeout-full": full,
 		"04-upload":        send, "05-done": done, "06-error": stopped,
+		"06b-photos-left-out": photosStopped,
 	}
 }
 
@@ -121,7 +138,7 @@ func TestEveryScreenRendersInEveryLanguage(t *testing.T) {
 
 			// A key that reached the page means a phrase is missing: T returns
 			// the key itself rather than blanking the line.
-			for _, key := range []string{"btn.", "pill.", "takeout.", "upload.", "wait.", "hint.", "immich.", "parts.", "auto.", "kiosk."} {
+			for _, key := range []string{"btn.", "pill.", "takeout.", "upload.", "wait.", "hint.", "immich.", "parts.", "auto.", "kiosk.", "problem.", "why."} {
 				if strings.Contains(html, ">"+key) {
 					t.Errorf("%s in %s renders a raw catalogue key starting %q", name, lang, key)
 				}

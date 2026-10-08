@@ -33,12 +33,13 @@
 	</header>
 
 
+	<div class="prose">
+		<h1>Mandaci i file</h1>
+		<p class="fine">Dicci quanti file ha creato Google, poi portali qui.</p>
+	</div>
 	
-<div class="prose">
-	<h1>Mandaci il file</h1>
-	<p class="fine">Scarica da Google tutti i file dell&#39;esportazione, poi aggiungili qui.</p>
-</div>
-
+	<div class="upload-layout">
+		
 <main class="panel" id="upload" data-state="awaiting_upload"
       data-reading="Lettura di {file}: {percent}%"
       data-sending="Invio di {file}"
@@ -53,21 +54,11 @@
 			<input type="number" name="parts" min="1" max="99" inputmode="numeric" required
 			       value="3">
 		</label>
-		<p class="fine">Su takeout.google.com, in Gestisci esportazioni, apri l&#39;esportazione: Google scrive «Questa richiesta è stata suddivisa in N file» ed elenca un pulsante Scarica per ogni parte.</p>
+		<p class="fine">Su takeout.google.com, in Gestisci esportazioni, Google dice in quanti file ha diviso l&#39;esportazione.</p>
 		<div class="actions">
 			<button class="btn btn--quiet" type="submit">Salva</button>
 		</div>
 	</form>
-
-	
-	<form method="post" action="/photos/auto" data-auto-form>
-		<label class="check">
-			<input type="checkbox" name="auto" value="1" data-auto-toggle >
-			<span>Avvia l&#39;importazione da sola quando ci sono tutti i file</span>
-		</label>
-		<button class="btn btn--quiet" type="submit" data-auto-save>Salva</button>
-	</form>
-	<p class="fine">Se è spuntato, l&#39;importazione parte da sola quando ci sono tutti i file, sia che li carichi tu sia che li scarichi il NAS. Se è spento, premi tu «Avvia». Puoi mandarli in giorni diversi, ma i link di Google scadono dopo circa una settimana.</p>
 
 	
 	<div class="state" aria-live="polite">
@@ -82,25 +73,42 @@
 	
 
 	
-	<label class="drop" for="upload-input" id="upload-drop" data-upload-when-js hidden>
-		<span>Trascina qui i file</span>
-		<span class="btn btn--ghost">Scegli i file</span>
-	</label>
-	<input id="upload-input" type="file" accept=".zip,application/zip" multiple>
+	<h2 class="routes__title">Come li porti qui?</h2>
+	<div class="routes">
+		
+		<div class="route" id="upload-drop">
+			<h3>Dal tuo computer</h3>
+			<div class="route__body" data-upload-when-js hidden>
+				<p class="fine">Scaricali da Google, poi caricali qui o trascinali in questo riquadro. Tieni aperta questa scheda mentre carica.</p>
+				<label class="btn btn--primary" for="upload-input">Carica i file</label>
+				<input id="upload-input" type="file" accept=".zip,application/zip" multiple>
+			</div>
+			<p class="fine" id="upload-nojs">Per inviare un file serve JavaScript.</p>
+		</div>
+
+		
+		
+		<div class="route">
+			<h3>Dal NAS</h3>
+			<p class="fine">Il NAS li scarica da Google al posto tuo, anche a PC spento.</p>
+			<a class="btn btn--primary" href="https://kiosk.example.org" target="_blank" rel="noopener">Scarica dal NAS</a>
+		</div>
+		
+	</div>
+	
 
 	
-	
-	<p class="fine">Oppure fai scaricare al NAS, senza usare il PC:</p>
-	<p><a class="btn btn--quiet" href="https://kiosk.example.org" target="_blank" rel="noopener">Apri il browser usa-e-getta sul NAS</a></p>
-	
-
-	<p class="fine" id="upload-nojs">Per inviare un file serve JavaScript.</p>
-	<p class="fine" data-upload-when-js hidden>Tieni aperta questa scheda mentre carica. Se si ferma, riprende dall&#39;ultimo pezzo.</p>
-	
+	<form method="post" action="/photos/auto" data-auto-form>
+		<label class="check">
+			<input type="checkbox" name="auto" value="1" data-auto-toggle >
+			<span>Avvia l&#39;importazione da sola quando ci sono tutti i file</span>
+		</label>
+		<button class="btn btn--quiet" type="submit" data-auto-save>Salva</button>
+	</form>
+	<p class="fine">Senza la spunta, premi tu «Avvia» quando ci sono tutti. I link di Google scadono dopo circa una settimana.</p>
 </main>
 
-	
-	
+		
 <section class="track" data-track="drive" data-state="selecting" aria-labelledby="drive-h">
 	<div class="track__head">
 		<div class="track__titles">
@@ -130,6 +138,7 @@
 	
 </section>
 
+	</div>
 
 
 	<footer class="foot">

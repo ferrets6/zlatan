@@ -116,7 +116,7 @@ func (r *Runner) StartImportIfComplete(ctx context.Context, user string) (bool, 
 //
 // The claim — "is it complete, and move it to importing" — is made under a
 // lock, so two parts that finish at the same moment start one import, not two.
-// StartPhotosImport runs OUTSIDE the lock, because it makes a network preflight
+// launchPhotosImport runs OUTSIDE the lock, because it makes a network preflight
 // to Immich: holding the process-wide lock across it would serialise every
 // other user's upload behind one slow probe.
 func (r *Runner) startUploadedImport(ctx context.Context, user string) (bool, error) {
@@ -124,13 +124,13 @@ func (r *Runner) startUploadedImport(ctx context.Context, user string) (bool, er
 	if err != nil || !claimed {
 		return false, err
 	}
-	if err := r.StartPhotosImport(ctx, user); err != nil {
+	if err := r.launchPhotosImport(ctx, user, nil); err != nil {
 		// Leave the track where the person can act next. This is the one place
 		// that decides it, so the explicit Start button and the sweep behave the
 		// same way.
 		switch {
 		case errors.Is(err, core.ErrCredentialRefused):
-			// StartPhotosImport already moved it to the reconnect screen.
+			// launchPhotosImport already moved it to the reconnect screen.
 		case errors.Is(err, store.ErrNoToken):
 			// The Immich key is gone: no retry brings it back. Fail the track so
 			// the person gets a stopped screen with a retry.

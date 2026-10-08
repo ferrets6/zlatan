@@ -138,6 +138,12 @@ type Runner interface {
 
 	StartPhotosTakeout(ctx context.Context, user string) error
 
+	// RetryPhotosProblems sends again only the files the last import left out;
+	// AcceptPhotos ends Photos as done with them left out. Both answer
+	// core.ErrNoProblemsToSettle unless Photos stopped on exactly that.
+	RetryPhotosProblems(ctx context.Context, user string) error
+	AcceptPhotos(ctx context.Context, user string) error
+
 	// StartNextcloud begins the Nextcloud Login Flow and returns the URL the
 	// person opens to grant access. PollNextcloud notices the grant; it is
 	// called from the status polling, so the person does not have to come back
@@ -184,6 +190,8 @@ func Routes(opts Options) http.Handler {
 	mux.Handle("POST /photos/parts", gate(opts.declarePhotosParts))
 	mux.Handle("POST /photos/auto", gate(opts.setPhotosAuto))
 	mux.Handle("POST /photos/import/now", gate(opts.startPhotosImportNow))
+	mux.Handle("POST /photos/import/problems", gate(opts.settlePhotos(Runner.RetryPhotosProblems)))
+	mux.Handle("POST /photos/accept", gate(opts.settlePhotos(Runner.AcceptPhotos)))
 
 	// Resumable Takeout upload. Each request is authenticated and scoped to the
 	// caller, so one person can never write into another's staging area.

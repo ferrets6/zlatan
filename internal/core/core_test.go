@@ -254,3 +254,42 @@ func TestDecodeProgressKeepsAPlainSentence(t *testing.T) {
 		t.Error("an empty value must decode to an empty progress")
 	}
 }
+
+// The Drive route is read from one place, whichever Photos progress carries it.
+func TestProgressFromDrive(t *testing.T) {
+	for _, c := range []struct {
+		p    Progress
+		want bool
+	}{
+		{Progress{Key: ProgressPhotosDoneDrive}, true},
+		{Progress{Key: ProgressPhotosDone}, false},
+		{ImportErrors(0, 1, true), true},
+		{ImportErrors(0, 1, false), false},
+		{PhotosDoneAccepted(true), true},
+		{PhotosDoneAccepted(false), false},
+		{Progress{Key: FailImportErrors, Args: []int64{0, 1}}, false}, // stored before the flag existed
+	} {
+		if got := c.p.FromDrive(); got != c.want {
+			t.Errorf("%+v.FromDrive() = %v, want %v", c.p, got, c.want)
+		}
+	}
+}
+
+// Retrying the files named stands for retrying all of it only when the list is
+// complete and at least one of them can still be found.
+func TestCanRetryProblems(t *testing.T) {
+	one := []Problem{{File: "a"}}
+	for _, c := range []struct {
+		v    Verify
+		want bool
+	}{
+		{Verify{Mismatch: 1, Problems: one}, true},
+		{Verify{Mismatch: 2, Problems: one}, false},                                   // cut short
+		{Verify{Mismatch: 1}, false},                                                  // none named
+		{Verify{Mismatch: 1, Problems: []Problem{{File: "a", Missing: true}}}, false}, // nothing to send
+	} {
+		if got := c.v.CanRetryProblems(); got != c.want {
+			t.Errorf("%+v.CanRetryProblems() = %v, want %v", c.v, got, c.want)
+		}
+	}
+}

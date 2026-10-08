@@ -3,6 +3,7 @@
 package web
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -178,4 +179,110 @@ func TestDoneScreenStatesTheCheckThatRan(t *testing.T) {
 			t.Error("a recorded check should be stated from its own numbers")
 		}
 	})
+}
+
+// A failed import names, on the card, each file it did not bring over, with
+// where it is, why, and a search in Immich; and offers to retry only those or
+// to accept the result. Only under that reason, read from the Photos progress:
+// an older verification's files must not appear beneath a different one, and
+// a Drive failure in last_error must not hide them.
+func TestFailedImportNamesItsFiles(t *testing.T) {
+	v := &core.Verify{Checked: 12, Matched: 11, Mismatch: 1, Problems: []core.Problem{
+		{File: "takeout-1-002:Takeout/Foto da 2023/a(1).MP4", Pending: true, Reason: "missing metadata"},
+	}}
+	m := core.Migration{
+		PhotosState:    core.PhotosFailed,
+		PhotosProgress: core.EncodeProgress(core.Progress{Key: core.FailImportErrors, Args: []int64{0, 1, 0}}),
+	}
+	stopped := func(m core.Migration, v *core.Verify) page {
+		return page{
+			User: "marco", Screen: "error", Lang: i18n.EN,
+			ImmichURL:      "https://immich.example.org",
+			CanStartPhotos: true, PhotosArchiveReady: true,
+			Drive:         trackView{Track: core.TrackDrive, State: "not_started"},
+			Photos:        trackView{Track: core.TrackPhotos, State: "failed", Failed: true},
+			LastError:     core.EncodeProgress(core.Progress{Key: core.FailImportErrors, Args: []int64{0, 1, 0}}),
+			PhotosLeftOut: leftOut(i18n.EN, m, v, "https://immich.example.org"),
+		}
+	}
+	render := func(p page) string {
+		var b strings.Builder
+		if err := wizardTemplate.ExecuteTemplate(&b, "wizard.html", p); err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		return b.String()
+	}
+
+	body := render(stopped(m, v))
+	for _, want := range []string{
+		`<p class="problem__name">a(1).MP4</p>`,
+		"takeout-1-002.zip › Takeout/Foto da 2023",
+		"Found, but immich-go never finished it (last step: missing metadata).",
+		`href="https://immich.example.org/search?query=`,
+		`action="/photos/import/problems"`,
+		`action="/photos/import/start"`,
+		`action="/photos/accept"`,
+		"something was left out: 1 file.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the stopped card should contain %q", want)
+		}
+	}
+
+	// A list cut at the cap: no "retry only these", which would drop the rest.
+	cut := *v
+	cut.Mismatch = 500
+	body = render(stopped(m, &cut))
+	if strings.Contains(body, "/photos/import/problems") || !strings.Contains(body, "/photos/accept") {
+		t.Error("a partial list should offer accept and the full retry, not retry only these")
+	}
+
+	// The archives purged by the retention: retrying means a new export, and
+	// there is nothing to retry one by one.
+	purged := stopped(m, v)
+	purged.PhotosArchiveReady = false
+	purged.CanUpload = true
+	body = render(purged)
+	if !strings.Contains(body, `action="/photos/takeout/start"`) || !strings.Contains(body, `action="/photos/upload/start"`) ||
+		strings.Contains(body, "/photos/import/") {
+		t.Error("with the archives gone the card should offer both ways to get them again, not an import of what is not there")
+	}
+
+	// No file named (the log would not read): no list and no "retry only
+	// these", but a line saying where the names are, and accept.
+	body = render(stopped(m, &core.Verify{Checked: 12, Matched: 11, Mismatch: 1}))
+	if !strings.Contains(body, "did not name the files") || !strings.Contains(body, "/photos/accept") ||
+		strings.Contains(body, "/photos/import/problems") {
+		t.Error("with no names the card should point to the log and still offer accept")
+	}
+
+	// A name not in "<archive>:<path>" shape is shown as it is, never as ".".
+	odd := leftOut(i18n.EN, m, &core.Verify{Mismatch: 1, Problems: []core.Problem{{File: "/staging/marco/.retry-1/0/b.jpg", Pending: true}}}, "")
+	if got := odd.Items[0]; got.Name != "b.jpg" || got.Where != "/staging/marco/.retry-1/0" {
+		t.Errorf("odd name rendered as %+v", got)
+	}
+	bare := leftOut(i18n.EN, m, &core.Verify{Mismatch: 1, Problems: []core.Problem{{File: "IMG.MP4"}}}, "")
+	if got := bare.Items[0]; got.Name != "IMG.MP4" || got.Where != "" {
+		t.Errorf("a bare name rendered as %+v, want no location rather than \".\"", got)
+	}
+
+	other := m
+	other.PhotosProgress = core.EncodeProgress(core.Progress{Key: core.FailImmichMissing})
+	if leftOut(i18n.EN, other, v, "") != nil {
+		t.Error("an older run's files must not be listed under a different reason")
+	}
+}
+
+// The search looks for the photo a file belongs to: the name without its
+// extension and without the "(1)" Google gives a second copy, so a left-out
+// copy finds the original already in Immich.
+func TestImmichSearch(t *testing.T) {
+	got := immichSearch("https://immich.example.org/", "20230304_112321(1).MP4")
+	want := "https://immich.example.org/search?query=" + url.QueryEscape(`{"originalFileName":"20230304_112321"}`)
+	if got != want {
+		t.Errorf("immichSearch = %q, want %q", got, want)
+	}
+	if got := immichSearch("", "a.jpg"); got != "" {
+		t.Errorf("with no Immich address there is no link, got %q", got)
+	}
 }

@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
+	"github.com/marcodellemarche/zlatan/internal/core"
 	"github.com/marcodellemarche/zlatan/internal/nextcloud"
 	"github.com/marcodellemarche/zlatan/internal/oauth"
 )
@@ -60,6 +61,43 @@ Total Assets:       1234  (5.6 GiB)
 	if processed != 1230 || discarded != 4 || errs != 2 || pending != 1 {
 		t.Errorf("parseImmichReport = %d/%d/%d/%d, want 1230/4/2/1",
 			processed, discarded, errs, pending)
+	}
+}
+
+// The pending lines are from a real run that reported "Pending: 1": a
+// Takeout "(1)" copy of a motion-photo video got no metadata and never an
+// outcome. Its siblings, which did get one, must not be named. The stack
+// error is real too and names no file: not an asset problem. The pending file
+// is discovered twice here and must still be listed once. The upload error
+// is made up, shaped like immich-go's lines, with a path holding spaces.
+func TestImmichProblemsNamesPendingAndErrors(t *testing.T) {
+	log := `2026-10-08 16:20:07 INF discovered video file=takeout-1-002:Takeout/Google Foto/Foto da 2023/20230304_112321(1).MP4
+2026-10-08 16:20:07 INF discovered video file=takeout-1-002:Takeout/Google Foto/Foto da 2023/20230304_112321(1).MP4
+2026-10-08 16:20:07 INF discovered image file=takeout-1-002:Takeout/Google Foto/Foto da 2023/20230304_112321(1).jpg
+2026-10-08 16:20:07 INF discovered video file=takeout-1-002:Takeout/Google Foto/Foto da 2023/20230304_112321.MP4
+2026-10-08 16:20:07 INF discovered sidecar file=takeout-1-002:Takeout/Google Foto/Foto da 2023/20230304_112321.jpg.supplemental-metadata.json type=asset metadata title=20230304_112321.jpg
+2026-10-08 16:20:07 INF discovered image file=takeout-1-001:Takeout/Google Foto/Cestino/2026-9-8 15-55-30.jpg
+2026-10-08 16:20:07 INF discovered image file=takeout-1-001:Takeout/Google Foto/Viaggi/a b.jpg
+2026-10-08 16:20:34 INF associated metadata file=takeout-1-002:Takeout/Google Foto/Foto da 2023/20230304_112321(1).jpg json=20230304_112321.jpg.supplemental-metadata(1).json matcher=matchNormal
+2026-10-08 16:20:34 INF associated metadata file=takeout-1-002:Takeout/Google Foto/Foto da 2023/20230304_112321.MP4 json=20230304_112321.jpg.supplemental-metadata.json matcher=matchEditedName
+2026-10-08 16:20:34 WRN missing metadata file=takeout-1-002:Takeout/Google Foto/Foto da 2023/20230304_112321(1).MP4
+2026-10-08 16:21:06 WRN discarded filtered file=takeout-1-001:Takeout/Google Foto/Cestino/2026-9-8 15-55-30.jpg reason=discarding trashed file
+2026-10-08 16:41:01 INF server has duplicate file=takeout-1-002:Takeout/Google Foto/Foto da 2023/20230304_112321.MP4
+2026-10-08 16:41:01 INF server has duplicate file=takeout-1-002:Takeout/Google Foto/Foto da 2023/20230304_112321(1).jpg
+2026-10-08 16:41:02 ERR Can't create stack error=createStack, POST, http://immich_server:2283/api/stacks, 400 Bad Request
+2026-10-08 16:41:05 ERR upload error file=takeout-1-001:Takeout/Google Foto/Viaggi/a b.jpg error=server answered 500
+2026-10-08 16:44:14 INF   Pending:             1  (7.3 MB)
+`
+	got, err := immichProblems(strings.NewReader(log))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []core.Problem{
+		{File: "takeout-1-001:Takeout/Google Foto/Viaggi/a b.jpg", Reason: "upload error error=server answered 500"},
+		{File: "takeout-1-002:Takeout/Google Foto/Foto da 2023/20230304_112321(1).MP4", Pending: true, Reason: "missing metadata"},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("immichProblems =\n%+v\nwant\n%+v", got, want)
 	}
 }
 

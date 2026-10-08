@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -150,5 +151,31 @@ func TestUploadScreenKeepsDriveStartable(t *testing.T) {
 	}
 	if !strings.Contains(body, `data-track="drive"`) || !strings.Contains(body, `action="/drive/start"`) {
 		t.Error("the Drive copy must stay startable from the upload screen")
+	}
+}
+
+// Both ways out of an import that left files out reach the runner and go back
+// to the wizard, even when the runner refuses (a page left open, clicked
+// twice): the page then shows where the track really is.
+func TestSettlePhotosRoutes(t *testing.T) {
+	for path, want := range map[string]string{
+		"/photos/import/problems": "problems:marco",
+		"/photos/accept":          "accept:marco",
+	} {
+		runner := &fakeRunner{}
+		handler := Routes(testOptions(runner))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, request("POST", path, "marco"))
+		if rec.Code != http.StatusSeeOther || !slices.Contains(runner.started, want) {
+			t.Errorf("POST %s = %d, runner saw %v; want 303 and %q", path, rec.Code, runner.started, want)
+		}
+
+		runner = &fakeRunner{err: core.ErrNoProblemsToSettle}
+		handler = Routes(testOptions(runner))
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, request("POST", path, "marco"))
+		if rec.Code != http.StatusSeeOther {
+			t.Errorf("POST %s refused by the runner = %d, want 303 back to the wizard", path, rec.Code)
+		}
 	}
 }

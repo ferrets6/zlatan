@@ -153,8 +153,17 @@ func Progress(l Lang, p core.Progress) string {
 		return T(l, p.Key, Bytes(l, p.Args[0]), Files(l, p.Args[1]))
 	case core.FailMismatch:
 		return T(l, p.Key, Files(l, p.Args[0]))
+	case core.ProgressPhotosDoneAccepted:
+		// Its one argument says whether the export came from Drive, for the
+		// closing screen; the phrase has nothing to show for it.
+		return T(l, p.Key)
 	case core.FailImportErrors:
-		return T(l, p.Key, Files(l, p.Args[0]), Files(l, p.Args[1]))
+		// errors and pending, as one count: the card lists each file and why
+		// right below, so splitting them here only adds an "errors on 0 files".
+		if len(p.Args) < 2 {
+			return T(l, p.Key, Files(l, p.Args[0]))
+		}
+		return T(l, p.Key, Files(l, p.Args[0]+p.Args[1]))
 	default:
 		// A key with arguments this renderer does not know about: show the
 		// phrase with the numbers as plain integers rather than dropping it.

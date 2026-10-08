@@ -112,6 +112,22 @@ func (f *fakeRunner) BeginPhotosUpload(_ context.Context, user string) error {
 	return nil
 }
 
+func (f *fakeRunner) RetryPhotosProblems(_ context.Context, user string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.started = append(f.started, "problems:"+user)
+	return nil
+}
+
+func (f *fakeRunner) AcceptPhotos(_ context.Context, user string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.started = append(f.started, "accept:"+user)
+	return nil
+}
+
 func (f *fakeRunner) StartPhotosImport(_ context.Context, user string) error {
 	if f.err != nil {
 		return f.err

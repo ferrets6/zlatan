@@ -48,9 +48,11 @@ var catalog = map[Lang]map[string]string{
 		"btn.asked":         "I have asked Google",
 		"btn.stop":          "Stop",
 		"btn.retry":         "Try again",
-		"btn.retryImport":   "Import the file again",
+		"btn.retryImport":   "Retry the import",
+		"btn.retryProblems": "Retry only these",
+		"btn.acceptPhotos":  "It's fine, mark it finished",
 		"btn.upload":        "Send the file myself",
-		"btn.choose":        "Choose files",
+		"btn.choose":        "Upload the files",
 		"btn.openNextcloud": "Open Nextcloud",
 		"btn.openImmich":    "Open Immich",
 		"immich.inApp":      "Opens the app if it is installed.",
@@ -113,11 +115,12 @@ var catalog = map[Lang]map[string]string{
 		"takeout.wontFit":    "Will not fit in your Google storage?",
 		"takeout.wontFitWhy": "Your Google storage does not have room for the export, so it cannot be put in your Drive. Send us the file instead: the button is below.",
 
-		"upload.title":    "Send us the file",
-		"upload.how":      "Download every file of the export from Google, then add them here.",
-		"upload.drop":     "Drop the files here",
+		"upload.title":    "Send us the files",
+		"upload.how":      "Tell us how many files Google made, then bring them here.",
+		"upload.choose":   "How do you bring them here?",
+		"upload.pcTitle":  "From your computer",
+		"upload.pcHow":    "Download them from Google, then upload them here or drop them on this box.",
 		"upload.keepOpen": "Keep this tab open while it sends.",
-		"upload.resumes":  "If it stops, it continues from the last piece.",
 		"upload.needsJs":  "Sending a file needs JavaScript.",
 		// {file}, {percent}, {sent} and {total} are filled in by the upload
 		// script.
@@ -156,18 +159,22 @@ var catalog = map[Lang]map[string]string{
 		"progress.photosDone":      "The import into Immich finished",
 		"progress.photosDoneDrive": "The import into Immich finished",
 
+		// Done by the person's choice, with files the import left out.
+		"progress.photosDoneAccepted": "Finished: you accepted the files left out as they are",
+
 		"parts.question":   "How many files did Google give you?",
-		"parts.where":      "On takeout.google.com, under Manage exports, open the export: Google says how many files it was split into, and lists one Download button per part.",
+		"parts.where":      "On takeout.google.com, under Manage exports, Google says how many files it split the export into.",
 		"parts.status":     "%s of %s here.",
 		"parts.missing":    "Still to send: parts %s.",
 		"parts.missingOne": "Still to send: part %s.",
 		"parts.tooMany":    "There are more files here than the number you gave. Check it on Google and correct it.",
-		"parts.auto":       "If this is on, the import starts by itself once every file is here, whether you upload them or the NAS downloads them. If it is off, you press Start. You can send them on different days, but Google's download links expire after about a week.",
+		"parts.auto":       "Unticked: you press Start once they are all here. Google's links expire after about a week.",
 		"auto.label":       "Start the import on its own once every file is here",
 		"btn.saveParts":    "Save",
 		"btn.importNow":    "Start the import",
-		"kiosk.or":         "Or let the NAS download them, without using your PC:",
-		"kiosk.open":       "Open the throwaway browser on the NAS",
+		"kiosk.title":      "From the NAS",
+		"kiosk.how":        "The NAS downloads them from Google for you, even with your PC off.",
+		"kiosk.open":       "Download from the NAS",
 
 		// Why a track went back to reconnect. These are reasons, so the same key
 		// fills the progress line and the stopped screen's reason.
@@ -195,8 +202,17 @@ var catalog = map[Lang]map[string]string{
 		"why.archiveUnreadable":    "The archive could not be read.",
 		"why.immichMissing":        "Immich is not connected: add your API key before importing.",
 		"why.importUnfinished":     "The import into Immich did not finish.",
-		"why.importErrors":         "The import finished with %s errors and %s assets pending.",
+		"why.importErrors":         "The import finished, but something was left out: %s.",
 		"why.credentialUnreadable": "A saved connection could not be read. Ask whoever runs the server.",
+
+		// The files an import left out, on the stopped Photos card. An error's
+		// reason is immich-go's own words; a pending file has only its last step.
+		"problem.pending":  "Found, but immich-go never finished it (last step: %s).",
+		"problem.search":   "Search in Immich",
+		"problem.notFound": "Not found in the archives: it cannot be sent again from here.",
+		"problem.unnamed":  "immich-go's log did not name the files: it is beside the archives.",
+		"problem.more":     "And more: the full list is in the immich-go log beside the archives.",
+		"problem.choices":  "Retry only these: sends just these files again, without Google's metadata. It's fine: ends the import without them.",
 
 		"quota.over": "Over budget: %s of %s. The copy still runs.",
 
@@ -251,8 +267,10 @@ var catalog = map[Lang]map[string]string{
 		"btn.stop":          "Ferma",
 		"btn.retry":         "Riprova",
 		"btn.retryImport":   "Riprova l'importazione",
+		"btn.retryProblems": "Riprova solo questi",
+		"btn.acceptPhotos":  "Va bene così, consideralo finito",
 		"btn.upload":        "Mando io il file",
-		"btn.choose":        "Scegli i file",
+		"btn.choose":        "Carica i file",
 		"btn.openNextcloud": "Apri Nextcloud",
 		"btn.openImmich":    "Apri Immich",
 		"immich.inApp":      "Apre l'app se è installata.",
@@ -311,11 +329,12 @@ var catalog = map[Lang]map[string]string{
 		"takeout.wontFit":    "Non ci sta nel tuo spazio Google?",
 		"takeout.wontFitWhy": "Nel tuo spazio Google non c'è posto per l'esportazione, quindi non può essere messa nel tuo Drive. Mandaci tu il file: il pulsante è qui sotto.",
 
-		"upload.title":    "Mandaci il file",
-		"upload.how":      "Scarica da Google tutti i file dell'esportazione, poi aggiungili qui.",
-		"upload.drop":     "Trascina qui i file",
+		"upload.title":    "Mandaci i file",
+		"upload.how":      "Dicci quanti file ha creato Google, poi portali qui.",
+		"upload.choose":   "Come li porti qui?",
+		"upload.pcTitle":  "Dal tuo computer",
+		"upload.pcHow":    "Scaricali da Google, poi caricali qui o trascinali in questo riquadro.",
 		"upload.keepOpen": "Tieni aperta questa scheda mentre carica.",
-		"upload.resumes":  "Se si ferma, riprende dall'ultimo pezzo.",
 		"upload.needsJs":  "Per inviare un file serve JavaScript.",
 		"upload.reading":  "Lettura di {file}: {percent}%",
 		"upload.sending":  "Invio di {file}",
@@ -349,18 +368,21 @@ var catalog = map[Lang]map[string]string{
 		"progress.photosDone":      "L'importazione in Immich è finita",
 		"progress.photosDoneDrive": "L'importazione in Immich è finita",
 
+		"progress.photosDoneAccepted": "Finita: hai accettato così i file rimasti fuori",
+
 		"parts.question":   "Quanti file ti ha dato Google?",
-		"parts.where":      "Su takeout.google.com, in Gestisci esportazioni, apri l'esportazione: Google scrive «Questa richiesta è stata suddivisa in N file» ed elenca un pulsante Scarica per ogni parte.",
+		"parts.where":      "Su takeout.google.com, in Gestisci esportazioni, Google dice in quanti file ha diviso l'esportazione.",
 		"parts.status":     "Arrivati %s su %s.",
 		"parts.missing":    "Ancora da mandare: le parti %s.",
 		"parts.missingOne": "Ancora da mandare: la parte %s.",
 		"parts.tooMany":    "Qui ci sono più file del numero che hai indicato. Controllalo su Google e correggilo.",
-		"parts.auto":       "Se è spuntato, l'importazione parte da sola quando ci sono tutti i file, sia che li carichi tu sia che li scarichi il NAS. Se è spento, premi tu «Avvia». Puoi mandarli in giorni diversi, ma i link di Google scadono dopo circa una settimana.",
+		"parts.auto":       "Senza la spunta, premi tu «Avvia» quando ci sono tutti. I link di Google scadono dopo circa una settimana.",
 		"auto.label":       "Avvia l'importazione da sola quando ci sono tutti i file",
 		"btn.saveParts":    "Salva",
 		"btn.importNow":    "Avvia l'importazione",
-		"kiosk.or":         "Oppure fai scaricare al NAS, senza usare il PC:",
-		"kiosk.open":       "Apri il browser usa-e-getta sul NAS",
+		"kiosk.title":      "Dal NAS",
+		"kiosk.how":        "Il NAS li scarica da Google al posto tuo, anche a PC spento.",
+		"kiosk.open":       "Scarica dal NAS",
 
 		"reconnect.googleCopy":    "Google non è collegato: collegalo prima di copiare.",
 		"reconnect.nextcloudCopy": "Nextcloud non è collegato: collegalo prima di copiare.",
@@ -383,8 +405,15 @@ var catalog = map[Lang]map[string]string{
 		"why.archiveUnreadable":    "Non è stato possibile leggere l'archivio.",
 		"why.immichMissing":        "Immich non è collegato: aggiungi la tua API key prima di importare.",
 		"why.importUnfinished":     "L'importazione in Immich non è finita.",
-		"why.importErrors":         "L'importazione è finita con %s errori e %s elementi in sospeso.",
+		"why.importErrors":         "L'importazione è finita, ma è rimasto fuori qualcosa: %s.",
 		"why.credentialUnreadable": "Non è stato possibile leggere un collegamento salvato. Chiedi a chi gestisce il server.",
+
+		"problem.pending":  "Trovato, ma immich-go non l'ha mai completato (ultimo passo: %s).",
+		"problem.search":   "Cerca su Immich",
+		"problem.notFound": "Non trovato negli archivi: da qui non si può rimandare.",
+		"problem.unnamed":  "Il log di immich-go non ha nominato i file: è accanto agli archivi.",
+		"problem.more":     "E altri: l'elenco completo è nel log di immich-go accanto agli archivi.",
+		"problem.choices":  "Riprova solo questi: rimanda solo questi file, senza i metadati di Google. Va bene così: chiude l'importazione senza di loro.",
 
 		"quota.over": "Oltre il budget: %s su %s. La copia parte lo stesso.",
 

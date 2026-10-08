@@ -33,12 +33,13 @@
 	</header>
 
 
+	<div class="prose">
+		<h1>Send us the files</h1>
+		<p class="fine">Tell us how many files Google made, then bring them here.</p>
+	</div>
 	
-<div class="prose">
-	<h1>Send us the file</h1>
-	<p class="fine">Download every file of the export from Google, then add them here.</p>
-</div>
-
+	<div class="upload-layout">
+		
 <main class="panel" id="upload" data-state="awaiting_upload"
       data-reading="Reading {file}: {percent}%"
       data-sending="Sending {file}"
@@ -53,21 +54,11 @@
 			<input type="number" name="parts" min="1" max="99" inputmode="numeric" required
 			       value="3">
 		</label>
-		<p class="fine">On takeout.google.com, under Manage exports, open the export: Google says how many files it was split into, and lists one Download button per part.</p>
+		<p class="fine">On takeout.google.com, under Manage exports, Google says how many files it split the export into.</p>
 		<div class="actions">
 			<button class="btn btn--quiet" type="submit">Save</button>
 		</div>
 	</form>
-
-	
-	<form method="post" action="/photos/auto" data-auto-form>
-		<label class="check">
-			<input type="checkbox" name="auto" value="1" data-auto-toggle >
-			<span>Start the import on its own once every file is here</span>
-		</label>
-		<button class="btn btn--quiet" type="submit" data-auto-save>Save</button>
-	</form>
-	<p class="fine">If this is on, the import starts by itself once every file is here, whether you upload them or the NAS downloads them. If it is off, you press Start. You can send them on different days, but Google&#39;s download links expire after about a week.</p>
 
 	
 	<div class="state" aria-live="polite">
@@ -82,25 +73,42 @@
 	
 
 	
-	<label class="drop" for="upload-input" id="upload-drop" data-upload-when-js hidden>
-		<span>Drop the files here</span>
-		<span class="btn btn--ghost">Choose files</span>
-	</label>
-	<input id="upload-input" type="file" accept=".zip,application/zip" multiple>
+	<h2 class="routes__title">How do you bring them here?</h2>
+	<div class="routes">
+		
+		<div class="route" id="upload-drop">
+			<h3>From your computer</h3>
+			<div class="route__body" data-upload-when-js hidden>
+				<p class="fine">Download them from Google, then upload them here or drop them on this box. Keep this tab open while it sends.</p>
+				<label class="btn btn--primary" for="upload-input">Upload the files</label>
+				<input id="upload-input" type="file" accept=".zip,application/zip" multiple>
+			</div>
+			<p class="fine" id="upload-nojs">Sending a file needs JavaScript.</p>
+		</div>
+
+		
+		
+		<div class="route">
+			<h3>From the NAS</h3>
+			<p class="fine">The NAS downloads them from Google for you, even with your PC off.</p>
+			<a class="btn btn--primary" href="https://kiosk.example.org" target="_blank" rel="noopener">Download from the NAS</a>
+		</div>
+		
+	</div>
+	
 
 	
-	
-	<p class="fine">Or let the NAS download them, without using your PC:</p>
-	<p><a class="btn btn--quiet" href="https://kiosk.example.org" target="_blank" rel="noopener">Open the throwaway browser on the NAS</a></p>
-	
-
-	<p class="fine" id="upload-nojs">Sending a file needs JavaScript.</p>
-	<p class="fine" data-upload-when-js hidden>Keep this tab open while it sends. If it stops, it continues from the last piece.</p>
-	
+	<form method="post" action="/photos/auto" data-auto-form>
+		<label class="check">
+			<input type="checkbox" name="auto" value="1" data-auto-toggle >
+			<span>Start the import on its own once every file is here</span>
+		</label>
+		<button class="btn btn--quiet" type="submit" data-auto-save>Save</button>
+	</form>
+	<p class="fine">Unticked: you press Start once they are all here. Google&#39;s links expire after about a week.</p>
 </main>
 
-	
-	
+		
 <section class="track" data-track="drive" data-state="selecting" aria-labelledby="drive-h">
 	<div class="track__head">
 		<div class="track__titles">
@@ -130,6 +138,7 @@
 	
 </section>
 
+	</div>
 
 
 	<footer class="foot">

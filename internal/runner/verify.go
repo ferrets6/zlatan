@@ -3,11 +3,14 @@
 package runner
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -263,6 +266,11 @@ type immichReport struct {
 	processed, discarded, errors, pending int
 }
 
+// reached reports whether immich-go printed its report: any count at all.
+func (r immichReport) reached() bool {
+	return r.processed > 0 || r.discarded > 0 || r.errors > 0 || r.pending > 0
+}
+
 func (r *immichReport) add(line string) {
 	fields := strings.Fields(line)
 	if len(fields) < 2 {
@@ -296,6 +304,92 @@ func firstInt(fields []string) (int, bool) {
 	}
 	return 0, false
 }
+
+// immichProblems reads immich-go's log file and names what the run did not
+// bring over: every ERR line about a file, and every asset it discovered but
+// never logged an outcome for.
+//
+// The report counts the latter as "Pending" without naming them, and v0.32.0
+// has no flag that lists them, so they are found the way its tracker counts
+// them: an asset is open from "discovered image|video" until any other event
+// names the same file, except the metadata matching that comes before the
+// outcome. Its last such step is kept as the reason ("missing metadata"), the
+// only clue the log gives.
+//
+// An ERR line that names no file is not about an asset (a stack Immich
+// refused to create, for one: the photos are in, only not grouped), so it
+// stays in the log rather than in this list.
+//
+// A line reads "2026-10-08 16:20:07 INF discovered video file=<archive>:<path>
+// key=value…". The path is not quoted and may hold spaces, so it runs up to
+// the next " key=". A file name that itself holds " word=" is cut there.
+func immichProblems(r io.Reader) ([]core.Problem, error) {
+	var problems []core.Problem
+	add := func(p core.Problem) {
+		if len(problems) < core.MaxProblems {
+			problems = append(problems, p)
+		}
+	}
+	open := map[string]string{} // file -> last step before an outcome
+	var order []string          // each file once, in the order first found
+	seen := map[string]bool{}
+	named := map[string]bool{} // files already listed with an error
+
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	for sc.Scan() {
+		parts := strings.SplitN(sc.Text(), " ", 4)
+		if len(parts) < 4 {
+			continue
+		}
+		level, msg := parts[2], parts[3]
+		label, file, extra := msg, "", ""
+		if i := strings.Index(msg, " file="); i >= 0 {
+			label, file = msg[:i], msg[i+len(" file="):]
+			if loc := nextKey.FindStringIndex(file); loc != nil {
+				file, extra = file[:loc[0]], file[loc[0]+1:]
+			}
+		}
+
+		// A line that names no file is not about an asset (see above).
+		if file == "" {
+			continue
+		}
+		switch {
+		case level == "ERR":
+			reason := label
+			if extra != "" {
+				reason += " " + extra
+			}
+			if !named[file] {
+				named[file] = true
+				add(core.Problem{File: file, Reason: reason})
+			}
+			delete(open, file)
+		case label == "discovered image" || label == "discovered video":
+			open[file] = label
+			if !seen[file] {
+				seen[file] = true
+				order = append(order, file)
+			}
+		case label == "associated metadata" || label == "missing metadata":
+			if _, ok := open[file]; ok {
+				open[file] = label
+			}
+		default:
+			delete(open, file)
+		}
+	}
+	for _, file := range order {
+		if step, ok := open[file]; ok {
+			add(core.Problem{File: file, Pending: true, Reason: step})
+		}
+	}
+	return problems, sc.Err()
+}
+
+// nextKey finds where an unquoted value ends: the next " key=".
+var nextKey = regexp.MustCompile(` [A-Za-z_][A-Za-z0-9_-]*=`)
 
 // parseCombined reads rclone's --combined report. Each line is "<symbol>
 // <path>": '=' matched, '*' differ, '+' missing on the destination, '-' extra

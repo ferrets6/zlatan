@@ -451,12 +451,12 @@ function wireUpload() {
 	// Drag and drop, with the zone lit only while a file is over it.
 	root.addEventListener('dragover', (e) => {
 		e.preventDefault();
-		dropzone?.classList.add('drop--over');
+		dropzone?.classList.add('route--over');
 	});
-	root.addEventListener('dragleave', () => dropzone?.classList.remove('drop--over'));
+	root.addEventListener('dragleave', () => dropzone?.classList.remove('route--over'));
 	root.addEventListener('drop', (e) => {
 		e.preventDefault();
-		dropzone?.classList.remove('drop--over');
+		dropzone?.classList.remove('route--over');
 		start(e.dataTransfer?.files);
 	});
 }

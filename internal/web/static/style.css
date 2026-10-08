@@ -500,20 +500,34 @@ code, .mono {
 
 /* Upload */
 
-.drop {
-	border: 2px dashed var(--line-strong);
+/* The two ways to bring the files, side by side and alike. */
+.routes__title { font-size: 1rem; font-weight: 500; }
+.routes { display: grid; gap: 0.9rem; grid-template-columns: 1fr; }
+@media (min-width: 36rem) { .routes { grid-template-columns: 1fr 1fr; } }
+.route {
+	min-width: 0;
+	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
-	padding: 1.5rem 1rem;
-	text-align: center;
+	padding: 1rem;
 	display: flex;
 	flex-direction: column;
-	align-items: center;
+	align-items: flex-start;
 	gap: 0.6rem;
-	color: var(--muted);
 }
+.route h3 { font-size: 0.9375rem; font-weight: 500; }
+.route__body { display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; flex: 1; }
+/* The buttons sit on the boxes' bottom edge, level with each other whatever
+   the length of the line above them. */
+.route > .btn, .route__body > .btn { margin-top: auto; }
+.route--over { border-color: var(--accent); background: var(--accent-wash); }
+/* The picker is opened by its label, styled as the button: the browser's own
+   "Choose files" control stays out of sight but reachable. */
+.route input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; }
 
-.drop--over { border-color: var(--accent); background: var(--accent-wash); color: var(--fg); }
-.drop input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+/* Files an import left out, on the stopped Photos card. */
+.problems { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+.problem { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; overflow-wrap: anywhere; }
+.problem__name { font-weight: 500; }
 
 /* Motion */
 
@@ -548,8 +562,13 @@ code, .mono {
 
 @media (min-width: 40rem) { .panel { padding: 1.5rem; } }
 
-/* The Drive card under the upload panel lines up with it. */
-.panel + .track { max-width: 44rem; }
+/* The upload panel with the Drive card beside it, as the two cards stand on
+   the overview; one above the other on a narrow screen. */
+.upload-layout { display: grid; gap: 1.25rem; grid-template-columns: 1fr; align-items: start; }
+.upload-layout > .panel { max-width: none; }
+@media (min-width: 56rem) {
+	.upload-layout { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 1.5rem; }
+}
 
 .wait {
 	display: flex;

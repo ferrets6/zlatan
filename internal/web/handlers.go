@@ -3,10 +3,14 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
+	"path"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -126,6 +130,10 @@ type page struct {
 	// person's Drive, where it still takes up their Google storage.
 	PhotosFromDrive bool
 
+	// PhotosLeftOut is the files a failed import did not bring over, and nil
+	// unless Photos stopped on exactly that (see leftOut).
+	PhotosLeftOut *photosProblems
+
 	GoogleConnected    bool
 	NextcloudConnected bool
 	ImmichConnected    bool
@@ -186,6 +194,92 @@ func (p page) Why(message string) string {
 	}
 	return i18n.Progress(p.Lang, core.DecodeProgress(message))
 }
+
+// photosProblems is what the stopped Photos card shows about an import that
+// left files out: one entry per file, whether there were more than the log
+// named, and whether "retry only these" is offered (core.Verify.CanRetryProblems,
+// the rule the runner accepts it on).
+type photosProblems struct {
+	Items    []problemView
+	More     bool
+	CanRetry bool
+}
+
+// problemView is one file an import left out, ready to show: its name, where
+// it sits in the archives, why, and a search in Immich for the photo it
+// belongs to.
+type problemView struct {
+	Name, Where, Reason, SearchURL string
+}
+
+// leftOut lists the files a failed import did not bring over, and nil unless
+// Photos stopped on exactly that (core.Migration.LeftOut, as the runner): the
+// latest verification may be from an earlier run, and its files must not sit
+// under an unrelated reason such as a missing key. With no file named (the log
+// would not read, or named none), it is still there with no items, so the
+// person can accept.
+func leftOut(lang i18n.Lang, m core.Migration, v *core.Verify, immichURL string) *photosProblems {
+	if !m.LeftOut() {
+		return nil
+	}
+	if v == nil {
+		v = &core.Verify{}
+	}
+	out := &photosProblems{More: v.Mismatch > len(v.Problems), CanRetry: v.CanRetryProblems()}
+	for _, pr := range v.Problems {
+		// "<archive>:<path>" as immich-go names a file in a zip; a name in any
+		// other shape is shown as it is.
+		where, inside := "", filepath.ToSlash(pr.File)
+		if archive, rest, ok := strings.Cut(pr.File, ":"); ok {
+			where, inside = archive+".zip › ", rest
+		}
+		name := path.Base(inside)
+		item := problemView{
+			Name:      name,
+			Where:     where + dirOf(inside),
+			Reason:    pr.Reason,
+			SearchURL: immichSearch(immichURL, name),
+		}
+		switch {
+		case pr.Missing:
+			item.Reason = i18n.T(lang, "problem.notFound")
+		case pr.Pending:
+			item.Reason = i18n.T(lang, "problem.pending", pr.Reason)
+		}
+		out.Items = append(out.Items, item)
+	}
+	return out
+}
+
+// dirOf is the folder of a path inside an archive, or "" for a name with none
+// (path.Dir would say ".").
+func dirOf(p string) string {
+	if d := path.Dir(p); d != "." {
+		return d
+	}
+	return ""
+}
+
+// immichSearch is a link to Immich's search for the photo a file belongs to.
+// It searches the name without its extension and without the " (1)" or "(1)"
+// Google adds to a second copy, so a left-out copy finds the original already
+// imported. Immich's search page reads ?query= as a JSON search. Empty when no
+// Immich address is configured.
+func immichSearch(immichURL, name string) string {
+	if immichURL == "" || name == "" {
+		return ""
+	}
+	stem := strings.TrimSuffix(name, path.Ext(name))
+	stem = strings.TrimSpace(copySuffix.ReplaceAllString(stem, ""))
+	query, err := json.Marshal(map[string]string{"originalFileName": stem})
+	if err != nil {
+		return ""
+	}
+	return strings.TrimRight(immichURL, "/") + "/search?query=" + url.QueryEscape(string(query))
+}
+
+// copySuffix is the "(1)" Google appends to a second copy of a file's name.
+var copySuffix = regexp.MustCompile(`\s*\(\d+\)$`)
 
 // Every states the real poll interval from configuration.
 func (p page) Every() string {
@@ -288,7 +382,7 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 	p.PhotosFacts = factsFor(lang, p.Photos, m)
 	p.GoogleSpaceDrive = googleSpaceDrive(lang, m)
 	p.GoogleSpacePhotos = googleSpacePhotos(lang, m)
-	p.PhotosFromDrive = core.DecodeProgress(m.PhotosProgress).Key == core.ProgressPhotosDoneDrive
+	p.PhotosFromDrive = m.PhotosState == core.PhotosDone && core.DecodeProgress(m.PhotosProgress).FromDrive()
 
 	p.AutoImport = m.AutoImport
 	p.KioskURL = opts.Config.KioskURL
@@ -307,6 +401,7 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 	if v, err := opts.State.LatestVerification(r.Context(), user, core.TrackPhotos); err == nil {
 		p.PhotosVerification = &v
 	}
+	p.PhotosLeftOut = leftOut(lang, m, p.PhotosVerification, p.ImmichURL)
 
 	// The budget is advisory. It is computed here rather than stored so it
 	// always reflects the current policy, and shown only once the pre-copy scan
@@ -620,6 +715,12 @@ func (opts Options) startPhotosUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := opts.Runner.BeginPhotosUpload(r.Context(), user); err != nil {
+		// A click from a stale tab while an import holds the track: the wizard
+		// shows it running.
+		if errors.Is(err, core.ErrPhotosNotStopped) {
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
 		if errors.Is(err, core.ErrCredentialRefused) {
 			opts.Log.Warn("startPhotosUpload: a credential needs renewing", "user", user, "error", err)
 			http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -731,6 +832,29 @@ func (opts Options) startPhotosImportNow(w http.ResponseWriter, r *http.Request)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// settlePhotos answers the two ways out of an import that left files out:
+// retry only those, or accept it as it is. Like the Start button it always
+// goes back to the wizard, which shows the live state: a page left open from
+// before, clicked twice, finds the track already moved and is shown where it
+// is, not a dead-end error.
+func (opts Options) settlePhotos(action func(Runner, context.Context, string) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _, err := identityFrom(r, opts.Config.TrustedProxy)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if opts.Runner == nil {
+			http.Error(w, "the Photos route is not available on this instance", http.StatusServiceUnavailable)
+			return
+		}
+		if err := action(opts.Runner, r.Context(), user); err != nil {
+			opts.Log.Warn("settlePhotos", "user", user, "path", r.URL.Path, "error", err)
+		}
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	}
+}
+
 func (opts Options) startPhotosImport(w http.ResponseWriter, r *http.Request) {
 	opts.startPhotos(w, r, "import")
 }
@@ -769,7 +893,9 @@ func (opts Options) startPhotos(w http.ResponseWriter, r *http.Request, route st
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
-		if errors.Is(startErr, core.ErrCredentialUnreadable) {
+		// A credential that will not unseal, or a click from a stale tab on a
+		// track already running again: the wizard shows where it really is.
+		if errors.Is(startErr, core.ErrCredentialUnreadable) || errors.Is(startErr, core.ErrPhotosNotStopped) {
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}

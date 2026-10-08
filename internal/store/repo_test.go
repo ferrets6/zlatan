@@ -7,7 +7,9 @@ import (
 	"errors"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/marcodellemarche/zlatan/internal/core"
 )
@@ -245,6 +247,24 @@ func TestLatestVerification(t *testing.T) {
 	if _, err := db.LatestVerification(ctx, "federico", core.TrackDrive); !errors.Is(err, ErrNoVerification) {
 		t.Fatalf("another user's verification leaked: %v", err)
 	}
+
+	// The files behind a mismatch come back as they were stored.
+	problems := []core.Problem{
+		{File: "takeout-1:Takeout/Foto da 2023/a(1).MP4", Pending: true, Reason: "missing metadata"},
+		{File: "takeout-1:Takeout/b.jpg", Reason: "upload error error=500"},
+	}
+	if err := db.PutVerification(ctx, core.Verify{
+		User: "marco", Track: core.TrackPhotos, Checked: 12, Matched: 10, Mismatch: 2, Problems: problems,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	v, err = db.LatestVerification(ctx, "marco", core.TrackPhotos)
+	if err != nil {
+		t.Fatalf("LatestVerification: %v", err)
+	}
+	if !slices.Equal(v.Problems, problems) {
+		t.Errorf("problems = %+v, want %+v", v.Problems, problems)
+	}
 }
 
 func TestSchemaCheckRefusesNewerDatabase(t *testing.T) {
@@ -261,51 +281,75 @@ func TestSchemaCheckRefusesNewerDatabase(t *testing.T) {
 	}
 }
 
-func TestFinishedAtIsStampedWhenBothTracksEnd(t *testing.T) {
+// Staging holds only the Photos archives, so its retention window follows the
+// Photos half alone: the Drive half ending changes nothing, Photos ending (even
+// failed, even with Drive never started) starts it, and Photos running again
+// clears it so a retry that fails later is not purged on an old window.
+func TestPhotosFinishedAtStartsTheStagingWindow(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
 	if _, err := db.EnsureMigration(ctx, "marco", "marco@example.com"); err != nil {
 		t.Fatalf("EnsureMigration: %v", err)
 	}
+	list := func() []FinishedMigration {
+		t.Helper()
+		finished, err := db.ListFinished(ctx)
+		if err != nil {
+			t.Fatalf("ListFinished: %v", err)
+		}
+		return finished
+	}
 
-	// One track terminal is not enough: the staging must survive while the
-	// other is still running.
 	if _, err := db.SetDriveState(ctx, "marco", core.DriveDone, "done"); err != nil {
 		t.Fatalf("SetDriveState: %v", err)
 	}
-	finished, err := db.ListFinished(ctx)
-	if err != nil {
-		t.Fatalf("ListFinished: %v", err)
-	}
-	if len(finished) != 0 {
-		t.Fatalf("one terminal track should not count as finished, got %v", finished)
+	if got := list(); len(got) != 0 {
+		t.Fatalf("Drive ending holds no staging and should not count, got %v", got)
 	}
 
-	// The second terminal track stamps it.
+	// Photos fails with Drive back at selecting: a Photos-only person.
+	if _, err := db.SetDriveState(ctx, "marco", core.DriveSelecting, ""); err != nil {
+		t.Fatalf("SetDriveState: %v", err)
+	}
+	if _, err := db.SetPhotosState(ctx, "marco", core.PhotosFailed, "failed"); err != nil {
+		t.Fatalf("SetPhotosState: %v", err)
+	}
+	got := list()
+	if len(got) != 1 || got[0].FinishedAt.IsZero() {
+		t.Fatalf("a failed Photos half should start the window, got %v", got)
+	}
+	stamp := got[0].FinishedAt
+
+	// A later terminal write must not move the stamp: the window runs from
+	// when the work ended, not from the last touch.
+	if _, err := db.SetPhotosState(ctx, "marco", core.PhotosFailed, "still failed"); err != nil {
+		t.Fatalf("SetPhotosState: %v", err)
+	}
+	if again := list(); !again[0].FinishedAt.Equal(stamp) {
+		t.Error("a later terminal write reset the stamp")
+	}
+
+	// Backdate the stamp, so "a new window" below is told apart from the old
+	// one by more than the clock's resolution.
+	old := time.Now().Add(-30 * 24 * time.Hour).UTC()
+	if _, err := db.W.ExecContext(ctx, `UPDATE migrations SET photos_finished_at = ? WHERE user = ?`,
+		old.Format(timeFormat), "marco"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A retry clears it, and the next ending stamps afresh.
+	if _, err := db.SetPhotosState(ctx, "marco", core.PhotosImporting, ""); err != nil {
+		t.Fatalf("SetPhotosState: %v", err)
+	}
+	if got := list(); len(got) != 0 {
+		t.Fatalf("a running Photos half must keep its staging, got %v", got)
+	}
 	if _, err := db.SetPhotosState(ctx, "marco", core.PhotosDone, "done"); err != nil {
 		t.Fatalf("SetPhotosState: %v", err)
 	}
-	finished, err = db.ListFinished(ctx)
-	if err != nil {
-		t.Fatalf("ListFinished: %v", err)
-	}
-	if len(finished) != 1 {
-		t.Fatalf("both terminal tracks should count as finished, got %v", finished)
-	}
-	if finished[0].FinishedAt.IsZero() {
-		t.Error("finished_at was not stamped")
-	}
-
-	// A later write must not move the stamp: the retention window is measured
-	// from when the work ended, not from the last touch.
-	stamp := finished[0].FinishedAt
-	if _, err := db.SetDriveState(ctx, "marco", core.DriveDone, "still done"); err != nil {
-		t.Fatalf("SetDriveState: %v", err)
-	}
-	again, _ := db.ListFinished(ctx)
-	if !again[0].FinishedAt.Equal(stamp) {
-		t.Error("a later state write reset finished_at")
+	if got := list(); len(got) != 1 || !got[0].FinishedAt.After(old) {
+		t.Errorf("the retry's ending should start a new window after %v, got %v", old, got)
 	}
 }
 
@@ -392,5 +436,52 @@ func TestListInterruptedIgnoresRestingStates(t *testing.T) {
 		if len(got) != 0 {
 			t.Errorf("drive state %q should not be seen as interrupted", s)
 		}
+	}
+}
+
+// Upgrading keeps the stamp of a Photos half that has ended, and clears the one
+// of a Photos half running again: the old stamp was never cleared on a retry,
+// and kept, it would purge that person's archives the moment they end.
+func TestPhotosFinishedAtMigrationClearsRunningRows(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(filepath.Join(t.TempDir(), "zlatan.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	p, err := newProvider(db.W)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.UpTo(ctx, 8); err != nil {
+		t.Fatalf("migrate to 8: %v", err)
+	}
+	old := "2026-07-01T00:00:00Z"
+	for user, photos := range map[string]string{"ended": "failed", "running": "importing"} {
+		if _, err := db.W.ExecContext(ctx, `
+			INSERT INTO migrations (user, email, created_at, updated_at, drive_state, photos_state, finished_at)
+			VALUES (?, '', ?, ?, 'done', ?, ?)`, user, old, old, photos, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := Migrate(ctx, db, slog.New(slog.NewTextHandler(discard{}, nil))); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	got := map[string]string{}
+	rows, err := db.R.QueryContext(ctx, `SELECT user, photos_finished_at FROM migrations`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var u, stamp string
+		if err := rows.Scan(&u, &stamp); err != nil {
+			t.Fatal(err)
+		}
+		got[u] = stamp
+	}
+	if got["ended"] != old || got["running"] != "" {
+		t.Errorf("stamps after upgrade = %v, want ended kept and running cleared", got)
 	}
 }
