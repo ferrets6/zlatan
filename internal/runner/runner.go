@@ -608,8 +608,13 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		"--checkers", "8",
 		"--fast-list",
 		"--drive-export-formats", "docx,xlsx,pptx,svg",
+		// rclone logs its stats at INFO, below its default NOTICE level, so
+		// without --stats-log-level it prints none and the progress never
+		// moves. JSON carries the counters as plain numbers, errors included.
 		"--stats", "10s",
 		"--stats-one-line",
+		"--stats-log-level", "NOTICE",
+		"--use-json-log",
 	}
 	// The Takeout folder is not the person's documents. When it lives in their
 	// Drive (the "Add to Drive" route), copying everything would drop tens of
@@ -647,39 +652,84 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 	// advanced by the difference from the previous line. Summing the totals
 	// would multiply the real figure by the number of stat lines.
 	var (
-		lastProgress  string
 		reportedBytes int64
 		reportedFiles int64
+		seenErrors    int64
+		// failing counts consecutive stats ticks in which errors grew and no
+		// file got through; stuck is the reason stored once that persists.
+		failing int
+		stuck   string
 	)
 	// tail keeps the last lines of the output for the log: the cause of a
 	// failure comes at the end, after hours of stats lines.
 	tail := newTailLines(tailLogLines)
 	onLine := func(line string) {
 		tail.Add(line)
-		bytes, files, ok := parseRcloneStats(line)
+		l, ok := parseRcloneLog(line)
 		if !ok {
 			return
 		}
-		lastProgress = core.EncodeProgress(core.Progress{
-			Key:  core.ProgressCopying,
-			Args: []int64{bytes, files},
-		})
+		if l.Stats == nil {
+			// Per-file errors are summed up by the stats below; a critical
+			// line is rclone giving up, and is worth its own entry.
+			if l.Level == "critical" {
+				r.log.Error("runDrive: rclone", "user", user, "message", l.Msg)
+			}
+			return
+		}
+		s := l.Stats
+
 		// Clamp both at zero: a re-scan can report a lower count, and a
 		// negative delta would subtract from the running total.
-		if deltaBytes, deltaFiles := bytes-reportedBytes, files-reportedFiles; deltaBytes > 0 || deltaFiles > 0 {
-			if deltaBytes < 0 {
-				deltaBytes = 0
-			}
-			if deltaFiles < 0 {
-				deltaFiles = 0
-			}
-			if err := r.store.AddDriveProgress(ctx, user, deltaBytes, deltaFiles); err != nil {
-				r.log.Debug("runDrive: progress", "error", err)
+		if deltaBytes, deltaFiles := s.Bytes-reportedBytes, s.Transfers-reportedFiles; deltaBytes > 0 || deltaFiles > 0 {
+			if err := r.store.AddDriveProgress(ctx, user, max(deltaBytes, 0), max(deltaFiles, 0)); err != nil {
+				r.log.Warn("runDrive: progress", "user", user, "error", err)
 			}
 		}
-		reportedBytes, reportedFiles = bytes, files
-		if _, err := r.store.SetDriveState(ctx, user, core.DriveCopying, lastProgress); err != nil {
-			r.log.Debug("runDrive: set progress", "error", err)
+
+		// rclone keeps retrying a failing upload for as long as the copy runs,
+		// so errors do not end it: they are reported here, while it runs.
+		switch {
+		case s.Errors > seenErrors && s.Transfers <= reportedFiles:
+			failing++
+		case s.Transfers > reportedFiles:
+			failing = 0
+		}
+		if s.Errors > seenErrors {
+			r.log.Warn("runDrive: rclone errors", "user", user, "errors", s.Errors, "last", s.LastError)
+		}
+		seenErrors, reportedBytes, reportedFiles = s.Errors, s.Bytes, s.Transfers
+
+		switch {
+		case failing >= stuckAfterTicks && stuck == "":
+			stuck = core.EncodeProgress(core.Progress{Key: copyFailingReason(s.LastError)})
+			r.log.Error("runDrive: every upload is failing", "user", user, "errors", s.Errors, "last", s.LastError)
+			if err := r.store.SetError(ctx, user, stuck); err != nil {
+				r.log.Warn("runDrive: set error", "user", user, "error", err)
+			}
+		case failing == 0 && stuck != "":
+			// Files are getting through again: clear the reason, unless
+			// something else has replaced it in the meantime.
+			if m, err := r.store.GetMigration(ctx, user); err == nil && m.LastError == stuck {
+				if err := r.store.SetError(ctx, user, ""); err != nil {
+					r.log.Warn("runDrive: clear error", "user", user, "error", err)
+				}
+			}
+			r.log.Info("runDrive: uploads are getting through again", "user", user)
+			stuck = ""
+		}
+
+		// While stuck the line says why, so the wizard does not report a copy
+		// that is getting nowhere as copying.
+		progress := stuck
+		if progress == "" {
+			progress = core.EncodeProgress(core.Progress{
+				Key:  core.ProgressCopying,
+				Args: []int64{s.Bytes, s.Transfers},
+			})
+		}
+		if _, err := r.store.SetDriveState(ctx, user, core.DriveCopying, progress); err != nil {
+			r.log.Warn("runDrive: set progress", "user", user, "error", err)
 		}
 	}
 
@@ -1705,55 +1755,49 @@ func (t *tailLines) String() string {
 	return b.String()
 }
 
-// rcloneStats matches the one-line stats rclone prints with
-// --stats-one-line, e.g. "1.234 GiB / 5.678 GiB, 21%, ...".
+// rcloneLog is one line of rclone's --use-json-log output, reduced to what the
+// copy reads. Stats is set only on a stats line, which with --stats-log-level
+// NOTICE comes every --stats interval, e.g. (rclone v1.75):
 //
-// The byte figure may carry thousands separators ("1,234.5 MiB"), which are
-// stripped before parsing; without that, a transfer past 999 MiB would stop
-// reporting progress.
-var rcloneStats = regexp.MustCompile(`([\d,.]+)\s*([KMGT]?i?B)\s*/\s*[\d,.]+\s*[KMGT]?i?B,\s*\d+%,\s*[\d.,]+\s*[kKMG]?i?B/s,\s*ETA\s+\S+\s*\(xfr#(\d+)`)
-
-// parseRcloneStats extracts the transferred bytes and file count from a stats
-// line. It returns false for any line that is not a stats line, so the caller
-// can pass every line through it.
-func parseRcloneStats(line string) (bytes int64, files int64, ok bool) {
-	m := rcloneStats.FindStringSubmatch(line)
-	if m == nil {
-		return 0, 0, false
-	}
-	value, err := strconv.ParseFloat(strings.ReplaceAll(m[1], ",", ""), 64)
-	if err != nil {
-		return 0, 0, false
-	}
-	multiplier := unitMultiplier(m[2])
-	count, err := strconv.ParseInt(m[3], 10, 64)
-	if err != nil {
-		return 0, 0, false
-	}
-	return int64(value * float64(multiplier)), count, true
+//	{"level":"notice","msg":"  1.234 GiB / ...","stats":{"bytes":1325000000,
+//	 "errors":4,"lastError":"... 507 Insufficient Storage","transfers":12,...}}
+//
+// bytes counts what was read, including uploads that then failed; transfers
+// counts only files that got through.
+type rcloneLog struct {
+	Level string `json:"level"`
+	Msg   string `json:"msg"`
+	Stats *struct {
+		Bytes     int64  `json:"bytes"`
+		Transfers int64  `json:"transfers"`
+		Errors    int64  `json:"errors"`
+		LastError string `json:"lastError"`
+	} `json:"stats"`
 }
 
-func unitMultiplier(unit string) int64 {
-	switch strings.ToUpper(unit) {
-	case "B":
-		return 1
-	case "KIB":
-		return 1024
-	case "MIB":
-		return 1024 * 1024
-	case "GIB":
-		return 1024 * 1024 * 1024
-	case "TIB":
-		return 1024 * 1024 * 1024 * 1024
-	case "KB":
-		return 1000
-	case "MB":
-		return 1000 * 1000
-	case "GB":
-		return 1000 * 1000 * 1000
-	default:
-		return 1
+// parseRcloneLog reads one JSON log line. It returns false for anything else,
+// so the caller can pass every line through it.
+func parseRcloneLog(line string) (rcloneLog, bool) {
+	var l rcloneLog
+	if !strings.HasPrefix(line, "{") || json.Unmarshal([]byte(line), &l) != nil {
+		return rcloneLog{}, false
 	}
+	return l, true
+}
+
+// stuckAfterTicks is how many stats ticks in a row (ten seconds each) must
+// bring new errors and no new file before the copy is reported as failing.
+// A few transient errors among working uploads never reach it.
+const stuckAfterTicks = 3
+
+// copyFailingReason names why uploads keep failing. A full Nextcloud is the
+// one case worth its own sentence: the person can act on it, and it is the
+// one that, unattended, fails every file for hours.
+func copyFailingReason(lastError string) string {
+	if strings.Contains(lastError, "Insufficient Storage") || strings.Contains(lastError, "InsufficientStorage") {
+		return core.FailNextcloudFull
+	}
+	return core.FailCopyFailing
 }
 
 // OSExecutor is the production Executor.

@@ -74,6 +74,10 @@ const (
 	FailImportUnfinished  = "why.importUnfinished"
 	FailImportErrors      = "why.importErrors"
 	FailCredentialUnread  = "why.credentialUnreadable"
+	// Stored while the copy still runs, once every upload has been failing
+	// for a while.
+	FailCopyFailing   = "why.copyFailing"
+	FailNextcloudFull = "why.nextcloudFull"
 )
 
 // EncodeProgress renders a progress for storage. A key with no arguments is

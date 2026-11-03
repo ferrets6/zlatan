@@ -680,8 +680,8 @@ func TestRunDriveRecordsProgress(t *testing.T) {
 	store := newFakeStore()
 	exec := &fakeExecutor{
 		lines: []string{
-			"Transferred:   1.000 GiB / 4.000 GiB, 25%, 10.0 MiB/s, ETA 5m0s (xfr#1)",
-			"Transferred:   2.000 GiB / 4.000 GiB, 50%, 10.0 MiB/s, ETA 2m30s (xfr#2)",
+			statsAt(1<<30, 1, 0, ""),
+			statsAt(2<<30, 2, 0, ""),
 		},
 	}
 	r := newRunner(t, store, exec)
@@ -1122,32 +1122,142 @@ func TestRunDriveExcludesTheTakeoutFolder(t *testing.T) {
 	}
 }
 
-func TestParseRcloneStats(t *testing.T) {
-	cases := []struct {
-		line      string
-		wantBytes int64
-		wantFiles int64
-		wantOK    bool
-	}{
-		{"Transferred:   1.500 GiB / 4.000 GiB, 37%, 10.0 MiB/s, ETA 4m0s (xfr#3)", int64(1.5 * 1024 * 1024 * 1024), 3, true},
-		{"Transferred:   512 B / 1.000 KiB, 50%, 1.0 KiB/s, ETA 1s (xfr#1)", 512, 1, true},
-		{"Errors: 0", 0, 0, false},
-		{"", 0, 0, false},
+// Lines captured from rclone v1.75.1 run with the copy's own flags
+// (--stats-one-line --stats-log-level NOTICE --use-json-log), the 507 ones
+// against a WebDAV server answering every PUT as a full Nextcloud does.
+// Trimmed only of the per-file "transferring" list.
+const (
+	rcloneStatsLine = `{"time":"2026-11-03T14:16:19.2392372+01:00","level":"notice","msg":"   80.531 MiB / 114.441 MiB, 70%, 40.629 MiB/s, ETA 0s (xfr#25/40)\n","stats":{"bytes":84443008,"checks":0,"deletedDirs":0,"deletes":0,"elapsedTime":1.9985697999999998,"errors":0,"eta":0,"fatalError":false,"listed":40,"renames":0,"retryError":false,"serverSideCopies":0,"serverSideCopyBytes":0,"serverSideMoveBytes":0,"serverSideMoves":0,"speed":42602752,"totalBytes":120000000,"totalChecks":0,"totalTransfers":40,"transferTime":1.9973732,"transfers":25},"source":"accounting/stats.go:549"}`
+	rclone507Error  = `{"time":"2026-11-03T14:16:45.6176189+01:00","level":"error","msg":"Failed to copy: unchunked simple update failed: Insufficient space in /leonardo-ferretti/files/Google Drive, 3000000 required, 0 available: Sabre\\DAV\\Exception\\InsufficientStorage: 507 Insufficient Storage","object":"f1.bin","objectType":"*local.Object","source":"operations/copy.go:347"}`
+	rclone507Stats  = `{"time":"2026-11-03T14:16:46.5444811+01:00","level":"notice","msg":"   22.888 MiB / 114.441 MiB, 20%, 11.444 MiB/s, ETA 8s (xfr#0/36)\n","stats":{"bytes":24000000,"checks":0,"deletedDirs":0,"deletes":0,"elapsedTime":1.999463,"errors":4,"eta":8,"fatalError":false,"lastError":"unchunked simple update failed: Insufficient space in /leonardo-ferretti/files/Google Drive, 3000000 required, 0 available: Sabre\\DAV\\Exception\\InsufficientStorage: 507 Insufficient Storage","listed":40,"renames":0,"retryError":true,"serverSideCopies":0,"serverSideCopyBytes":0,"serverSideMoveBytes":0,"serverSideMoves":0,"speed":12000000,"totalBytes":120000000,"totalChecks":0,"totalTransfers":40,"transferTime":1.9973732,"transfers":0},"source":"accounting/stats.go:549"}`
+)
+
+func TestParseRcloneLog(t *testing.T) {
+	l, ok := parseRcloneLog(rcloneStatsLine)
+	if !ok || l.Stats == nil {
+		t.Fatalf("stats line not read: ok=%v stats=%v", ok, l.Stats)
 	}
-	for _, c := range cases {
-		bytes, files, ok := parseRcloneStats(c.line)
-		if ok != c.wantOK {
-			t.Errorf("parseRcloneStats(%q) ok = %v, want %v", c.line, ok, c.wantOK)
-			continue
-		}
-		if !ok {
-			continue
-		}
-		if bytes != c.wantBytes || files != c.wantFiles {
-			t.Errorf("parseRcloneStats(%q) = %d/%d, want %d/%d",
-				c.line, bytes, files, c.wantBytes, c.wantFiles)
+	if l.Stats.Bytes != 84443008 || l.Stats.Transfers != 25 || l.Stats.Errors != 0 {
+		t.Errorf("stats = %+v, want 84443008 bytes, 25 files, 0 errors", *l.Stats)
+	}
+
+	l, ok = parseRcloneLog(rclone507Stats)
+	if !ok || l.Stats == nil {
+		t.Fatalf("507 stats line not read: ok=%v", ok)
+	}
+	if l.Stats.Errors != 4 || l.Stats.Transfers != 0 || !strings.Contains(l.Stats.LastError, "507 Insufficient Storage") {
+		t.Errorf("stats = %+v, want 4 errors, 0 files, a 507 last error", *l.Stats)
+	}
+	if got := copyFailingReason(l.Stats.LastError); got != core.FailNextcloudFull {
+		t.Errorf("reason for a 507 = %q, want %q", got, core.FailNextcloudFull)
+	}
+	if got := copyFailingReason("googleapi: Error 500: backendError"); got != core.FailCopyFailing {
+		t.Errorf("reason for another error = %q, want %q", got, core.FailCopyFailing)
+	}
+
+	l, ok = parseRcloneLog(rclone507Error)
+	if !ok || l.Stats != nil || l.Level != "error" || !strings.Contains(l.Msg, "507") {
+		t.Errorf("error line = %+v (ok=%v), want an error-level line with no stats", l, ok)
+	}
+
+	// The text format rclone prints without --use-json-log is not read.
+	for _, line := range []string{"", "2026/11/03 14:13:54 INFO  :    20.397 MiB / 114.441 MiB, 18%, 0 B/s, ETA - (xfr#4/40)", "{not json"} {
+		if _, ok := parseRcloneLog(line); ok {
+			t.Errorf("parseRcloneLog(%q) ok, want false", line)
 		}
 	}
+}
+
+// statsAt is a stats line with the given counters, for tests that need a
+// sequence of ticks.
+func statsAt(bytes, files, errs int64, lastError string) string {
+	return fmt.Sprintf(`{"level":"notice","msg":"","stats":{"bytes":%d,"errors":%d,"lastError":%q,"transfers":%d}}`, bytes, errs, lastError, files)
+}
+
+// The copy must ask rclone for stats it actually prints: they are logged at
+// INFO by default, below the NOTICE rclone shows without -v, and a copy run
+// without these flags reported nothing for its whole length.
+func TestRunDriveAsksForStatsRcloneShows(t *testing.T) {
+	store := newFakeStore()
+	exec := &fakeExecutor{}
+	r := newRunner(t, store, exec)
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+
+	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
+
+	cmd, ok := exec.first("copy")
+	if !ok {
+		t.Fatal("no copy command was run")
+	}
+	joined := strings.Join(cmd.args, " ")
+	for _, want := range []string{"--stats-log-level NOTICE", "--use-json-log"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("copy args lack %q: %v", want, cmd.args)
+		}
+	}
+}
+
+// Uploads that all fail, as against a full Nextcloud, must not leave the
+// wizard saying "copying": once it persists the reason goes to last_error and
+// the progress line, and it is cleared when files get through again.
+func TestRunDriveReportsPersistentUploadErrors(t *testing.T) {
+	full := `unchunked simple update failed: Insufficient space: Sabre\DAV\Exception\InsufficientStorage: 507 Insufficient Storage`
+	store := newFakeStore()
+	var lastErrors, progress []string
+	exec := &fakeExecutor{byCommand: map[string]scripted{"copy": {lines: []string{
+		statsAt(1000, 10, 0, ""),
+		rclone507Error,
+		statsAt(2000, 10, 4, full),
+		statsAt(3000, 10, 8, full),
+		statsAt(4000, 10, 12, full), // third failing tick in a row: reported
+		statsAt(5000, 11, 12, full), // a file got through: cleared
+	}}}}
+	r := newRunner(t, store, exec)
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+	r.store = recordingStore{fakeStore: store, onTick: func() {
+		m := store.state()
+		lastErrors = append(lastErrors, m.LastError)
+		progress = append(progress, m.DriveProgress)
+	}}
+
+	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
+
+	want := core.EncodeProgress(core.Progress{Key: core.FailNextcloudFull})
+	// One entry per stats line: the error line on its own writes nothing.
+	if len(lastErrors) != 5 {
+		t.Fatalf("recorded %d stats ticks, want 5: %v", len(lastErrors), lastErrors)
+	}
+	for i, wantErr := range []string{"", "", "", want, ""} {
+		if lastErrors[i] != wantErr {
+			t.Errorf("tick %d: last_error = %q, want %q", i, lastErrors[i], wantErr)
+		}
+	}
+	if progress[3] != want {
+		t.Errorf("progress while stuck = %q, want the reason %q", progress[3], want)
+	}
+	if !strings.Contains(progress[4], core.ProgressCopying) {
+		t.Errorf("progress after recovery = %q, want copying again", progress[4])
+	}
+	if store.driveBytes != 5000 || store.driveFiles != 11 {
+		t.Errorf("recorded %d bytes / %d files, want 5000 / 11", store.driveBytes, store.driveFiles)
+	}
+}
+
+// recordingStore snapshots the fake store after each copying progress write,
+// so a test sees the state as the wizard would have mid-copy.
+type recordingStore struct {
+	*fakeStore
+	onTick func()
+}
+
+func (s recordingStore) SetDriveState(ctx context.Context, user string, state core.DriveState, progress string) (core.Migration, error) {
+	m, err := s.fakeStore.SetDriveState(ctx, user, state, progress)
+	if state == core.DriveCopying && progress != core.ProgressPreparing {
+		s.onTick()
+	}
+	return m, err
 }
 
 func TestParseRcloneSize(t *testing.T) {
@@ -1652,7 +1762,7 @@ func TestRunDriveRoutesAMidCopyAuthFailureToReconnect(t *testing.T) {
 // the generic failure screen. The probe, not the volume of output, decides.
 func TestRunDriveRoutesAnAuthFailureAfterLongOutputToReconnect(t *testing.T) {
 	// About 1 MiB of stats lines, sixteen times the 64 KiB the old buffer kept.
-	stats := "2026/09/27 10:00:00 NOTICE:   12.500 GiB / 80.000 GiB, 15%, 12.000 MiB/s, ETA 1h35m12s (xfr#2222/9999)"
+	stats := rcloneStatsLine
 	var lines []string
 	for len(lines)*len(stats) < 1<<20 {
 		lines = append(lines, stats)
@@ -1945,5 +2055,52 @@ func TestTakeoutFitsIsUnknownWhenTheReadFails(t *testing.T) {
 	}
 	if fits || known {
 		t.Errorf("a failed read must not read as 'fits' or 'known': %v/%v", fits, known)
+	}
+}
+
+// TestHelperRclone is not a test: TestOSExecutorStreamsLines runs the test
+// binary as a stand-in for rclone. It prints one stats line on stderr, as
+// rclone does, then stays alive until the line has been seen (the reader
+// creates the marker file), so it can only exit if the line was read while
+// it was still running.
+func TestHelperRclone(t *testing.T) {
+	marker := os.Getenv("ZLATAN_HELPER_MARKER")
+	if marker == "" {
+		t.Skip("helper process")
+	}
+	fmt.Fprintln(os.Stderr, rcloneStatsLine)
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			os.Exit(0)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// A copy runs for up to a day; its stats must reach the store as they come,
+// not when rclone exits.
+func TestOSExecutorStreamsLines(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "seen")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	var got rcloneLog
+	e := &OSExecutor{Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	err := e.Run(ctx, os.Args[0], []string{"-test.run=^TestHelperRclone$"},
+		append(os.Environ(), "ZLATAN_HELPER_MARKER="+marker),
+		func(line string) {
+			if l, ok := parseRcloneLog(line); ok && l.Stats != nil {
+				got = l
+				_ = os.WriteFile(marker, nil, 0o600)
+			}
+		})
+	if ctx.Err() != nil {
+		t.Fatal("the stats line was not delivered while the process ran")
+	}
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got.Stats.Transfers != 25 {
+		t.Errorf("stats = %+v, want 25 files", got.Stats)
 	}
 }

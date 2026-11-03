@@ -15,6 +15,7 @@ func TestEveryStoredKeyHasAPhrase(t *testing.T) {
 		core.ReconnectGoogleCopy, core.ReconnectNextcloudCopy, core.ReconnectBothCopy,
 		core.ReconnectGoogleExport, core.ReconnectImmichImport, core.ReconnectImmichExport,
 		core.FailNextcloudMissing, core.FailCopyPrepare, core.FailCopyUnfinished, core.FailCopyUnchecked,
+		core.FailCopyFailing, core.FailNextcloudFull,
 		core.FailMismatch, core.FailTakeoutLate, core.FailStagingPrepare, core.FailStagingRead,
 		core.FailDownloadFailed, core.FailNoArchive, core.FailArchiveEmpty, core.FailArchiveUnreadable,
 		core.FailImmichMissing, core.FailImportUnfinished, core.FailImportErrors, core.FailCredentialUnread,
