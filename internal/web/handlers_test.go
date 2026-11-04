@@ -872,3 +872,23 @@ func TestTheWizardShowsTheSpaceAtGoogle(t *testing.T) {
 		t.Errorf("the Photos bound is not shown:\n%s", body)
 	}
 }
+
+func TestSiteNameIsAppendedToEveryTitle(t *testing.T) {
+	for _, tc := range []struct {
+		site, path, user, want string
+	}{
+		{"", "/", "", "<title>zlatan</title>"},
+		{"Example Home", "/", "", "<title>zlatan · Example Home</title>"},
+		{"Example Home", "/privacy", "", " · zlatan · Example Home</title>"},
+		{"Example Home", "/", "marco", " · zlatan · Example Home</title>"},
+		{"", "/", "marco", " · zlatan</title>"},
+	} {
+		opts := testOptions(&fakeRunner{})
+		opts.Config.SiteName = tc.site
+		rec := httptest.NewRecorder()
+		Routes(opts).ServeHTTP(rec, request("GET", tc.path, tc.user))
+		if !strings.Contains(rec.Body.String(), tc.want) {
+			t.Errorf("site %q, %s as %q: title does not contain %q", tc.site, tc.path, tc.user, tc.want)
+		}
+	}
+}

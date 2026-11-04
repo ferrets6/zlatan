@@ -59,7 +59,7 @@ The service **holds the Google OAuth refresh token of every person who uses it**
 
 ## Configuration
 
-See `.env.example`. The required variables are `ZLATAN_TRUSTED_PROXY`, `ZLATAN_TOKEN_KEY` and, if the bind is public, `ZLATAN_PROXY_SECRET`.
+See `.env.example`. The required variables are `ZLATAN_TRUSTED_PROXY`, `ZLATAN_TOKEN_KEY` and, if the bind is public, `ZLATAN_PROXY_SECRET`. `ZLATAN_SITE_NAME` is optional: when set it is appended to every page title, e.g. `zlatan · Example Home`.
 
 ### The Google OAuth client's publishing status
 

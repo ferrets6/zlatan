@@ -7,7 +7,7 @@ index.html   the gallery
 screens/     generated, do not edit, run `make screens`
 ```
 
-The assets live with the code they serve, in `internal/web/static/`: `style.css`, `space-grotesk.woff2` (latin, variable, 22 kB, SIL OFL), and the five SVGs.
+The assets live with the code they serve, in `internal/web/static/`: `style.css`, `space-grotesk.woff2` (latin, variable, 22 kB, SIL OFL), the five SVGs and the PNG fallbacks of the icons.
 
 ## Mark
 
@@ -19,7 +19,11 @@ An arc you leave, a crossing, a flat bar you land on. Same compass as Nuno: 24 g
 | `mark-google.svg` | 32 px and up |
 | `wordmark.svg` | outlined, for anywhere without the font |
 | `app-icon.svg` | 512 px tile, dark ground, fixed colours |
-| `favicon.svg` | monochrome, follows the theme |
+| `favicon.svg` | 24 px tile, dark ground, fixed colours, monochrome glyph |
+| `favicon-32.png`, `favicon-16.png` | the favicon for browsers without SVG icons |
+| `apple-touch-icon.png` | 180 px, the app icon full-bleed (iOS rounds it) |
+
+The favicon is a tile and not a bare glyph because the tab strip does not follow `prefers-color-scheme`: a dark tab bar on a light system drew a dark glyph on dark. The glyph stays monochrome, at 16 px the four Google bands are three pixels of mud. The PNGs are rendered from the SVGs with `rsvg-convert`.
 
 Google's yellow `#FBBC05` is 1.6 : 1 on a light ground, so there it is `#E3A008`. Both SVGs switch it themselves.
 

@@ -27,8 +27,9 @@ import (
 // resolved here, in their language, so the template holds no logic and the
 // polling script holds no text.
 type page struct {
-	User    string
-	Version string
+	User     string
+	Version  string
+	SiteName string
 
 	// Lang is the language for this request; Langs is the switcher.
 	Lang  i18n.Lang
@@ -353,6 +354,7 @@ func (opts Options) wizard(w http.ResponseWriter, r *http.Request) {
 	p := page{
 		User:          user,
 		Version:       opts.Version,
+		SiteName:      opts.Config.SiteName,
 		Lang:          lang,
 		Langs:         langChoices(lang),
 		Screen:        screenFor(m),

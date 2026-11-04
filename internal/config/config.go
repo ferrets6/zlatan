@@ -118,6 +118,10 @@ type Config struct {
 	// as the second route. Empty when there is no kiosk, and then no link shows.
 	KioskURL string
 
+	// SiteName is appended to every page title, so a tab names the place the
+	// service belongs to. Empty leaves the titles alone.
+	SiteName string
+
 	Google    Google
 	Nextcloud Nextcloud
 	Immich    Immich
@@ -296,6 +300,7 @@ func Load(env map[string]string) (*Config, error) {
 		PublicURL:    strings.TrimRight(strings.TrimSpace(get("ZLATAN_PUBLIC_URL")), "/"),
 		ContactEmail: strings.TrimSpace(get("ZLATAN_CONTACT_EMAIL")),
 		KioskURL:     strings.TrimRight(strings.TrimSpace(get("ZLATAN_KIOSK_URL")), "/"),
+		SiteName:     get("ZLATAN_SITE_NAME"),
 		Nextcloud: Nextcloud{
 			URL:       get("ZLATAN_NEXTCLOUD_URL"),
 			PublicURL: get("ZLATAN_NEXTCLOUD_PUBLIC_URL"),

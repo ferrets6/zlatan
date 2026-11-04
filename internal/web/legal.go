@@ -20,9 +20,10 @@ const legalUpdated = "27 September 2026"
 // verification requires all three to be readable without signing in, and a
 // home page that is only a login screen fails review.
 type legalPage struct {
-	Lang    i18n.Lang
-	Langs   []langChoice
-	Version string
+	Lang     i18n.Lang
+	Langs    []langChoice
+	Version  string
+	SiteName string
 
 	// Doc is "privacy" or "terms". The landing page renders its own template.
 	Doc string
@@ -84,6 +85,7 @@ func (opts Options) renderPublic(w http.ResponseWriter, name, doc string, lang i
 		Lang:          lang,
 		Langs:         langChoices(lang),
 		Version:       opts.Version,
+		SiteName:      opts.Config.SiteName,
 		Doc:           doc,
 		PublicURL:     opts.Config.PublicURL,
 		ContactEmail:  opts.Config.ContactEmail,

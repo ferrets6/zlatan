@@ -12,8 +12,11 @@ in internal/i18n, through .T, already in their language.
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>{{ .T "page.title" }} · zlatan</title>
-	<link rel="icon" href="/static/favicon.svg">
+	<title>{{ .T "page.title" }} · zlatan{{ with .SiteName }} · {{ . }}{{ end }}</title>
+	<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+	<link rel="icon" href="/static/favicon-32.png" sizes="32x32" type="image/png">
+	<link rel="icon" href="/static/favicon-16.png" sizes="16x16" type="image/png">
+	<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 	<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
