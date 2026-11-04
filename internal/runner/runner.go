@@ -678,10 +678,16 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 			return
 		}
 		s := l.Stats
+		uploadsFailing := s.Errors > seenErrors && s.Transfers <= reportedFiles
 
 		// Clamp both at zero: a re-scan can report a lower count, and a
 		// negative delta would subtract from the running total.
-		if deltaBytes, deltaFiles := s.Bytes-reportedBytes, s.Transfers-reportedFiles; deltaBytes > 0 || deltaFiles > 0 {
+		deltaBytes, deltaFiles := s.Bytes-reportedBytes, s.Transfers-reportedFiles
+		if uploadsFailing {
+			// Read for uploads that failed, not copied.
+			deltaBytes = 0
+		}
+		if deltaBytes > 0 || deltaFiles > 0 {
 			if err := r.store.AddDriveProgress(ctx, user, max(deltaBytes, 0), max(deltaFiles, 0)); err != nil {
 				r.log.Warn("runDrive: progress", "user", user, "error", err)
 			}
@@ -690,7 +696,7 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		// rclone keeps retrying a failing upload for as long as the copy runs,
 		// so errors do not end it: they are reported here, while it runs.
 		switch {
-		case s.Errors > seenErrors && s.Transfers <= reportedFiles:
+		case uploadsFailing:
 			failing++
 		case s.Transfers > reportedFiles:
 			failing = 0
@@ -751,7 +757,13 @@ func (r *Runner) runDrive(ctx context.Context, user string, tok core.Token) {
 		case nextcloudDead:
 			r.reconnectDrive(ctx, user, core.ReconnectNextcloudCopy)
 		default:
-			r.failDrive(ctx, user, core.Progress{Key: core.FailCopyUnfinished})
+			// rclone gives up after its retries, and a full Nextcloud is still
+			// the reason the person can act on.
+			reason := core.Progress{Key: core.FailCopyUnfinished}
+			if stuck == core.EncodeProgress(core.Progress{Key: core.FailNextcloudFull}) {
+				reason.Key = core.FailNextcloudFull
+			}
+			r.failDrive(ctx, user, reason)
 		}
 		return
 	}

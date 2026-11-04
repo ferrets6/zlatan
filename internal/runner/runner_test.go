@@ -1240,8 +1240,37 @@ func TestRunDriveReportsPersistentUploadErrors(t *testing.T) {
 	if !strings.Contains(progress[4], core.ProgressCopying) {
 		t.Errorf("progress after recovery = %q, want copying again", progress[4])
 	}
-	if store.driveBytes != 5000 || store.driveFiles != 11 {
-		t.Errorf("recorded %d bytes / %d files, want 5000 / 11", store.driveBytes, store.driveFiles)
+	// The bytes of the three failing ticks were read for uploads that failed.
+	if store.driveBytes != 2000 || store.driveFiles != 11 {
+		t.Errorf("recorded %d bytes / %d files, want 2000 / 11", store.driveBytes, store.driveFiles)
+	}
+}
+
+// rclone gives up after its retries. If Nextcloud was full when it did, that is
+// still what the person has to fix, not a generic unfinished copy.
+func TestRunDriveFailsOnAFullNextcloudWithThatReason(t *testing.T) {
+	full := `Sabre\DAV\Exception\InsufficientStorage: 507 Insufficient Storage`
+	store := newFakeStore()
+	exec := &fakeExecutor{byCommand: map[string]scripted{"copy": {lines: []string{
+		statsAt(1000, 10, 0, ""),
+		statsAt(2000, 10, 4, full),
+		statsAt(3000, 10, 8, full),
+		statsAt(4000, 10, 12, full),
+	}, err: errors.New("rclone exited 1")}}}
+	r := newRunner(t, store, exec)
+	seedToken(t, store, sealerOf(t, r))
+	seedNextcloud(t, store, sealerOf(t, r))
+	r = r.WithNextcloud(&fakeNextcloud{})
+	r = r.WithGoogle(&fakeGoogle{})
+
+	r.runDrive(context.Background(), "marco", mustToken(t, store, "google"))
+
+	m := store.state()
+	if m.DriveState != core.DriveFailed {
+		t.Fatalf("drive state = %q, want failed", m.DriveState)
+	}
+	if want := core.EncodeProgress(core.Progress{Key: core.FailNextcloudFull}); m.LastError != want {
+		t.Errorf("last_error = %q, want %q", m.LastError, want)
 	}
 }
 
